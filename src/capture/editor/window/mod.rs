@@ -3,8 +3,8 @@ use gtk4::gdk;
 use gtk4::gio;
 use gtk4::{
     glib, prelude::*, Align, Application, ApplicationWindow, Box as GtkBox, Button, CheckButton,
-    DrawingArea, DropTarget, Entry, FileChooserAction, FileChooserNative, FileFilter, Image,
-    Label, Orientation, Overlay, Popover, ResponseType, Revealer, Spinner, Stack,
+    DrawingArea, DropTarget, Entry, FileChooserAction, FileChooserNative, FileFilter, Image, Label,
+    Orientation, Overlay, Popover, ResponseType, Revealer, Spinner, Stack,
 };
 use image::RgbaImage;
 use std::cell::{Cell, RefCell};
