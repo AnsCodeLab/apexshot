@@ -1659,6 +1659,18 @@ pub(super) fn wire_editor_events(ctx: EventContext) {
 
             match image_result {
                 Ok(()) => {
+                    let config = crate::config::load_config().sanitized();
+
+                    // Copy the edited image to the clipboard when "copy file to
+                    // clipboard" is enabled in General settings, honoring the
+                    // advanced clipboard mode (image / file path / both).
+                    //
+                    // This runs BEFORE close()/quit(): once app.quit() returns
+                    // the main loop ends and the process exits, which would cut
+                    // the copy off mid-flight. The window is already hidden, so
+                    // the brief synchronous copy is invisible to the user.
+                    crate::daemon::copy_screenshot_to_clipboard(&path_save, &config);
+
                     // Close editor window
                     if let Some(window) = window_save.upgrade() {
                         window.close();
@@ -1666,13 +1678,6 @@ pub(super) fn wire_editor_events(ctx: EventContext) {
                     if let Some(app) = app_save.upgrade() {
                         app.quit();
                     }
-
-                    let config = crate::config::load_config().sanitized();
-
-                    // Copy the edited image to the clipboard when "copy file to
-                    // clipboard" is enabled in General settings, honoring the
-                    // advanced clipboard mode (image / file path / both).
-                    crate::daemon::copy_screenshot_to_clipboard(&path_save, &config);
 
                     // Show preview overlay only when the user has "show quick access
                     // overlay" enabled in General settings.  If disabled, the image
