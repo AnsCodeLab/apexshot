@@ -691,8 +691,14 @@ fn setup_editor_window_full(
         // annotation files can override the preference defaults.
         super::preferences::load_editor_prefs().apply_to_state(&mut st);
 
-        // Load existing annotations if available
-        match crate::annotations::load_annotations(&path) {
+        // Load existing annotations if available (skipped in empty mode:
+        // the placeholder has no real path, so no annotation/persistence
+        // state should be tied to it)
+        match if empty_drop_zone {
+            Ok(None)
+        } else {
+            crate::annotations::load_annotations(&path)
+        } {
             Ok(Some(annotation_file)) => {
                 st.background_style = crate::annotations::background_style_from_serializable(
                     &annotation_file.background.style,
@@ -744,11 +750,14 @@ fn setup_editor_window_full(
             }
         }
 
-        let detector = st.text_detector.clone();
-        let ready_flag = st.text_detection_ready.clone();
-        st.text_detection_handle = Some(super::text_detect::spawn_text_detection(
-            image, detector, ready_flag,
-        ));
+        // No text detection on the empty transparent placeholder.
+        if !empty_drop_zone {
+            let detector = st.text_detector.clone();
+            let ready_flag = st.text_detection_ready.clone();
+            st.text_detection_handle = Some(super::text_detect::spawn_text_detection(
+                image, detector, ready_flag,
+            ));
+        }
     }
     let transform = Arc::new(Mutex::new(ViewTransform::for_image(
         img_width as f64,
@@ -761,7 +770,24 @@ fn setup_editor_window_full(
 
     let window = if let Some(existing) = reuse_window {
         // Loading a file into the already-open (empty) editor window:
-        // reuse it so the window never closes/flashes.
+        // reuse it so the window never closes/flashes. Remove stale
+        // window-level controllers from the empty session so they can't
+        // consume key events or drops meant for the new editor session.
+        let controllers = existing.observe_controllers();
+        let mut stale = Vec::new();
+        for i in 0..controllers.n_items() {
+            if let Some(obj) = controllers.item(i) {
+                if let Ok(controller) = obj.downcast::<gtk4::EventController>() {
+                    if controller.is::<gtk4::EventControllerKey>() || controller.is::<DropTarget>()
+                    {
+                        stale.push(controller);
+                    }
+                }
+            }
+        }
+        for controller in stale {
+            existing.remove_controller(&controller);
+        }
         existing.set_title(Some("ApexShot Editor"));
         existing
     } else {
