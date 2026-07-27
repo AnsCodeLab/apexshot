@@ -1,1 +1,2 @@
 - [ApexShot build quirks](apexshot-build-quirks.md) — nightly rustc + LIBCLANG_PATH required; both baked into .cargo/config.toml
+- [ApexShot clippy](apexshot-clippy.md) — plain `cargo clippy` fails (no nightly clippy-driver); needs stable + RUSTC_BOOTSTRAP + -Zcrate-attr recipe
