@@ -1,0 +1,1 @@
+- [ApexShot build quirks](apexshot-build-quirks.md) — nightly rustc + LIBCLANG_PATH required; both baked into .cargo/config.toml
