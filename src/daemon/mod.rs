@@ -2385,7 +2385,7 @@ fn apply_screenshot_after_capture_actions(
     }
 }
 
-fn copy_screenshot_to_clipboard(path: &std::path::Path, config: &crate::config::AppConfig) {
+pub fn copy_screenshot_to_clipboard(path: &std::path::Path, config: &crate::config::AppConfig) {
     if !config.after_capture_copy_file_to_clipboard {
         return;
     }
