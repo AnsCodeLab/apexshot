@@ -148,6 +148,10 @@ pub(super) struct EventContext {
     pub app: Application,
     pub window: ApplicationWindow,
     pub path: PathBuf,
+    /// Set to false when this editor session is superseded (e.g. the empty
+    /// editor window is reused to load a real image). Stale window-level
+    /// signal handlers must become no-ops.
+    pub session_alive: Rc<Cell<bool>>,
     pub state: Arc<Mutex<EditorState>>,
     pub transform: Arc<Mutex<ViewTransform>>,
     pub drawing_area: DrawingArea,
@@ -240,6 +244,7 @@ pub(super) fn wire_editor_events(ctx: EventContext) {
         app,
         window,
         path,
+        session_alive,
         state,
         transform,
         drawing_area,
@@ -3449,7 +3454,12 @@ pub(super) fn wire_editor_events(ctx: EventContext) {
     window.add_controller(key_controller);
 
     let app_weak = app.downgrade();
+    let session_alive_close = session_alive.clone();
     window.connect_close_request(move |_| {
+        // A stale handler from a superseded session must not quit the app.
+        if !session_alive_close.get() {
+            return glib::Propagation::Proceed;
+        }
         if let Some(app) = app_weak.upgrade() {
             app.quit();
         }
