@@ -377,7 +377,7 @@ pub fn open_image_editor_empty() -> Result<(), EditorError> {
         .build();
 
     app.connect_activate(move |application| {
-        setup_empty_image_editor_window(application);
+        setup_editor_window_full(application, PathBuf::from("Untitled.png"), true);
     });
 
     let _ = app.run_with_args::<String>(&[]);
@@ -434,21 +434,9 @@ fn show_open_image_dialog(app: &Application, parent: &ApplicationWindow) {
     chooser.show();
 }
 
-/// Build the full image editor chrome (real toolbar + canvas area + inspector
-/// sidebar + footer) but with a drop-zone / open-folder UI where the canvas
-/// normally lives.  When the user picks or drops an image the full editor is
-/// opened and this shell closes.
-fn setup_empty_image_editor_window(app: &Application) {
-    use std::sync::Once;
-    static INIT_ICONS: Once = Once::new();
-    INIT_ICONS.call_once(|| {
-        relm4_icons::initialize_icons(icon_names::GRESOURCE_BYTES, icon_names::RESOURCE_PREFIX);
-    });
-
-    install_editor_css();
-
-    // Inject CSS for the drop-zone widgets only (all other classes come from
-    // the shared editor CSS already loaded above).
+/// CSS for the drop-zone widgets shown in the editor's empty state (all other
+/// classes come from the shared editor CSS).
+fn install_image_editor_empty_css() {
     if let Some(display) = gdk::Display::default() {
         let provider = gtk4::CssProvider::new();
         provider.load_from_data(
@@ -495,190 +483,6 @@ fn setup_empty_image_editor_window(app: &Application) {
             gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
         );
     }
-
-    let window = ApplicationWindow::builder()
-        .application(app)
-        .title("ApexShot Editor")
-        .icon_name(crate::app_identity::icon_name())
-        .default_width(900)
-        .default_height(620)
-        .decorated(false)
-        .build();
-    window.add_css_class("editor-window");
-
-    let root = GtkBox::new(Orientation::Vertical, 0);
-    root.add_css_class("editor-root");
-
-    let prefers_dark = prefers_dark_glass_theme();
-    let reduced_transparency = prefers_reduced_transparency();
-    if prefers_dark {
-        root.add_css_class("editor-theme-dark");
-    } else {
-        root.add_css_class("editor-theme-light");
-    }
-    if reduced_transparency {
-        root.add_css_class("editor-reduced-transparency");
-    }
-
-    // ── Real toolbar (same icons as the loaded editor; tools are inert) ──
-    let toolbar::ToolbarBaseParts {
-        root: toolbar,
-        traffic_close,
-        ..
-    } = toolbar::build_toolbar_base(toolbar::ToolbarBaseIconNames {
-        crop: icon_names::custom::CROP_SYMBOLIC,
-        draw: icon_names::custom::PENCIL_SYMBOLIC,
-        arrow: icon_names::custom::ARROW2_TOP_RIGHT_SYMBOLIC,
-        line: icon_names::custom::FUNCTION_LINEAR_SYMBOLIC,
-        box_: icon_names::custom::SQUARE_OUTLINE_THIN_SYMBOLIC,
-        circle: icon_names::custom::CIRCLE_OUTLINE_THIN_SYMBOLIC,
-        text: icon_names::custom::FONT_X_GENERIC_SYMBOLIC,
-        number: icon_names::NUMBER_CIRCLE_1_REGULAR,
-        highlighter: icon_names::custom::MARKER_SYMBOLIC,
-        obfuscate: icon_names::custom::BLUR_ALT_SYMBOLIC,
-        focus: icon_names::custom::BACKGROUND_APP_RECTANGULAR_SYMBOLIC,
-        obfuscate_pixelate: icon_names::VIEW_GRID,
-        obfuscate_blur_secure: icon_names::BLUR,
-        obfuscate_blur_smooth: icon_names::BLUR,
-        obfuscate_blackout: icon_names::MEDIA_PLAYBACK_STOP,
-    });
-
-    // ── Canvas frame with drop-zone instead of the drawing area ──────────
-    let canvas_frame = GtkBox::new(Orientation::Vertical, 0);
-    canvas_frame.add_css_class("editor-canvas-frame");
-    canvas_frame.set_hexpand(true);
-    canvas_frame.set_vexpand(true);
-
-    let canvas_workspace = GtkBox::new(Orientation::Horizontal, 0);
-    canvas_workspace.add_css_class("editor-canvas-workspace");
-    canvas_workspace.set_hexpand(true);
-    canvas_workspace.set_vexpand(true);
-    canvas_workspace.set_halign(Align::Fill);
-    canvas_workspace.set_valign(Align::Fill);
-
-    // Drop-zone: centred inside the canvas area
-    let drop_center = GtkBox::new(Orientation::Vertical, 12);
-    drop_center.add_css_class("image-editor-empty-dropzone");
-    drop_center.set_halign(Align::Center);
-    drop_center.set_valign(Align::Center);
-
-    let drop_icon = Image::from_icon_name("image-x-generic-symbolic");
-    drop_icon.add_css_class("image-editor-empty-icon");
-    drop_icon.set_pixel_size(48);
-    drop_icon.set_halign(Align::Center);
-
-    let drop_title = Label::new(Some("Drop an image here"));
-    drop_title.add_css_class("image-editor-empty-title");
-    drop_title.set_halign(Align::Center);
-
-    let drop_hint = Label::new(Some("PNG, JPEG, or WebP"));
-    drop_hint.add_css_class("image-editor-empty-hint");
-    drop_hint.set_halign(Align::Center);
-
-    let open_btn = Button::with_label("Open Folder");
-    open_btn.set_has_frame(false);
-    open_btn.add_css_class("image-editor-empty-open-button");
-    open_btn.set_halign(Align::Center);
-
-    drop_center.append(&drop_icon);
-    drop_center.append(&drop_title);
-    drop_center.append(&drop_hint);
-    drop_center.append(&open_btn);
-
-    // Canvas substitute: real checkerboard drawn via cairo (same as the
-    // loaded editor), with the drop-zone overlaid in the centre.
-    let checkerboard = DrawingArea::new();
-    checkerboard.add_css_class("editor-canvas");
-    checkerboard.set_hexpand(true);
-    checkerboard.set_vexpand(true);
-    let dark_for_draw = prefers_dark;
-    checkerboard.set_draw_func(move |_, context, width, height| {
-        context.set_operator(gtk4::cairo::Operator::Source);
-        draw_canvas_checkerboard_background(context, width, height, None, !dark_for_draw);
-    });
-
-    let canvas_area = Overlay::new();
-    canvas_area.set_hexpand(true);
-    canvas_area.set_vexpand(true);
-    canvas_area.set_child(Some(&checkerboard));
-    canvas_area.add_overlay(&drop_center);
-
-    canvas_workspace.append(&canvas_area);
-    canvas_frame.append(&canvas_workspace);
-
-    // ── Placeholder right inspector sidebar ──────────────────────────────
-    let inspector = GtkBox::new(Orientation::Vertical, 0);
-    inspector.add_css_class("editor-right-inspector");
-    inspector.set_width_request(background_panel::BACKGROUND_SIDEBAR_WIDTH);
-    inspector.set_vexpand(true);
-    inspector.set_hexpand(false);
-
-    // ── Workspace (canvas + inspector) ───────────────────────────────────
-    let workspace = GtkBox::new(Orientation::Horizontal, 0);
-    workspace.set_hexpand(true);
-    workspace.set_vexpand(true);
-    workspace.append(&canvas_frame);
-    workspace.append(&inspector);
-
-    // ── Real footer (buttons insensitive until an image is loaded) ───────
-    let footer_parts = footer::build_footer(
-        icon_names::custom::COPY_SYMBOLIC,
-        icon_names::custom::CLOUD_OUTLINE_THIN_SYMBOLIC,
-    );
-    footer_parts.copy_btn.set_sensitive(false);
-    footer_parts.upload_btn.set_sensitive(false);
-    footer_parts.save_btn.set_sensitive(false);
-    footer_parts.zoom_button.set_sensitive(false);
-
-    // ── Assemble root ────────────────────────────────────────────────────
-    root.append(&toolbar);
-    root.append(&workspace);
-    root.append(&footer_parts.root);
-
-    let root_overlay = Overlay::new();
-    root_overlay.set_child(Some(&root));
-    window.set_child(Some(&root_overlay));
-
-    install_window_drag(&toolbar, &window);
-    install_edge_resize(&root_overlay, &window);
-
-    // ── Close button ─────────────────────────────────────────────────────
-    let window_close = window.clone();
-    let app_close = app.clone();
-    traffic_close.connect_clicked(move |_| {
-        window_close.close();
-        app_close.quit();
-    });
-
-    // ── Open-folder button ───────────────────────────────────────────────
-    let app_open = app.clone();
-    let window_open = window.clone();
-    open_btn.connect_clicked(move |_| {
-        show_open_image_dialog(&app_open, &window_open);
-    });
-
-    // ── Drag-and-drop ────────────────────────────────────────────────────
-    let drop_target = DropTarget::new(gio::File::static_type(), gdk::DragAction::COPY);
-    let app_drop = app.clone();
-    let window_drop = window.clone();
-    drop_target.connect_drop(move |_, value, _x, _y| {
-        let Ok(file) = value.get::<gio::File>() else {
-            return false;
-        };
-        let Some(path) = file.path() else {
-            return false;
-        };
-        if !is_supported_image_path(&path) {
-            return false;
-        }
-        // Open full editor first (keeps app alive), then close this shell.
-        setup_editor_window(&app_drop, path.to_path_buf());
-        window_drop.close();
-        true
-    });
-    window.add_controller(drop_target);
-
-    window.present();
 }
 
 #[allow(unused_imports)]
@@ -795,6 +599,13 @@ fn set_window_always_on_top(
 }
 
 pub fn setup_editor_window(app: &Application, path: PathBuf) {
+    setup_editor_window_full(app, path, false);
+}
+
+/// `empty_drop_zone = true` opens the exact same editor window but with a
+/// transparent placeholder canvas and a "Drop an image here" overlay; picking
+/// or dropping a file re-opens the editor with that file.
+fn setup_editor_window_full(app: &Application, path: PathBuf, empty_drop_zone: bool) {
     use std::sync::Once;
     static INIT_ICONS: Once = Once::new();
     INIT_ICONS.call_once(|| {
@@ -810,7 +621,10 @@ pub fn setup_editor_window(app: &Application, path: PathBuf) {
     ));
 
     // Check if we have a saved original (for non-destructive re-editing)
-    let image = if let Ok(Some(original)) = crate::annotations::load_original_image(&path) {
+    let image = if empty_drop_zone {
+        // Transparent placeholder canvas until the user drops/opens a file.
+        image::RgbaImage::new(1280, 800)
+    } else if let Ok(Some(original)) = crate::annotations::load_original_image(&path) {
         original
     } else {
         match image::open(&path) {
@@ -1455,6 +1269,11 @@ pub fn setup_editor_window(app: &Application, path: PathBuf) {
     let copy_btn = footer_parts.copy_btn;
     let upload_btn = footer_parts.upload_btn;
     let save_btn = footer_parts.save_btn;
+    if empty_drop_zone {
+        copy_btn.set_sensitive(false);
+        upload_btn.set_sensitive(false);
+        save_btn.set_sensitive(false);
+    }
 
     let tracked_window_id = next_tracked_window_id("annotate-editor");
     let window_title = "ApexShot Editor";
@@ -2588,6 +2407,68 @@ pub fn setup_editor_window(app: &Application, path: PathBuf) {
     let root_overlay = Overlay::new();
     root_overlay.set_child(Some(&root));
     root_overlay.add_overlay(&zoom_popup);
+
+    if empty_drop_zone {
+        install_image_editor_empty_css();
+
+        let drop_center = GtkBox::new(Orientation::Vertical, 12);
+        drop_center.add_css_class("image-editor-empty-dropzone");
+        drop_center.set_halign(Align::Center);
+        drop_center.set_valign(Align::Center);
+
+        let drop_icon = Image::from_icon_name("image-x-generic-symbolic");
+        drop_icon.add_css_class("image-editor-empty-icon");
+        drop_icon.set_pixel_size(48);
+        drop_icon.set_halign(Align::Center);
+
+        let drop_title = Label::new(Some("Drop an image here"));
+        drop_title.add_css_class("image-editor-empty-title");
+        drop_title.set_halign(Align::Center);
+
+        let drop_hint = Label::new(Some("PNG, JPEG, or WebP"));
+        drop_hint.add_css_class("image-editor-empty-hint");
+        drop_hint.set_halign(Align::Center);
+
+        let open_btn = Button::with_label("Open Folder");
+        open_btn.set_has_frame(false);
+        open_btn.add_css_class("image-editor-empty-open-button");
+        open_btn.set_halign(Align::Center);
+
+        drop_center.append(&drop_icon);
+        drop_center.append(&drop_title);
+        drop_center.append(&drop_hint);
+        drop_center.append(&open_btn);
+
+        root_overlay.add_overlay(&drop_center);
+
+        let app_open = app.clone();
+        let window_open = window.clone();
+        open_btn.connect_clicked(move |_| {
+            show_open_image_dialog(&app_open, &window_open);
+        });
+
+        let drop_target = DropTarget::new(gio::File::static_type(), gdk::DragAction::COPY);
+        let app_drop = app.clone();
+        let window_drop = window.clone();
+        drop_target.connect_drop(move |_, value, _x, _y| {
+            let Ok(file) = value.get::<gio::File>() else {
+                return false;
+            };
+            let Some(path) = file.path() else {
+                return false;
+            };
+            if !is_supported_image_path(&path) {
+                return false;
+            }
+            // Open the editor with the file first (keeps app alive), then
+            // close the empty window.
+            setup_editor_window(&app_drop, path.to_path_buf());
+            window_drop.close();
+            true
+        });
+        window.add_controller(drop_target);
+    }
+
     window.set_child(Some(&root_overlay));
 
     // Enable window drag from toolbar (empty areas only) and edge resize
