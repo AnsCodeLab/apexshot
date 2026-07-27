@@ -21,6 +21,7 @@ pub enum TrayAction {
     CaptureWindow,
     OpenRecordingUi,
     OpenVideoEditor,
+    OpenImageEditor,
     RecordScreen,
     ToggleRecordingPause,
     StopRecordingSave,
@@ -352,6 +353,12 @@ impl ksni::Tray for ApexShotTray {
             StandardItem {
                 label: ltr("Video Editor"),
                 activate: Box::new(|tray: &mut Self| tray.send(TrayAction::OpenVideoEditor)),
+                ..Default::default()
+            }
+            .into(),
+            StandardItem {
+                label: ltr("Image Editor"),
+                activate: Box::new(|tray: &mut Self| tray.send(TrayAction::OpenImageEditor)),
                 ..Default::default()
             }
             .into(),

@@ -53,7 +53,8 @@ use apexshot::{
     app_identity,
     backend::{CaptureData, DisplayBackend, WaylandBackend, X11Backend},
     capture::{
-        open_image_editor, save_capture, show_capture_preview_overlay, ImageFormat, SaveConfig,
+        open_image_editor, open_image_editor_empty, save_capture, show_capture_preview_overlay,
+        ImageFormat, SaveConfig,
     },
     capture_overlay::{
         capture_area_via_cpp, capture_crosshair_via_cpp, capture_screen_via_cpp,
@@ -134,6 +135,13 @@ fn main() {
             };
             if let Err(e) = result {
                 eprintln!("Recording editor failed: {e}");
+                std::process::exit(1);
+            }
+            return;
+        }
+        "image-editor" => {
+            if let Err(e) = open_image_editor_empty() {
+                eprintln!("Image editor failed: {e}");
                 std::process::exit(1);
             }
             return;

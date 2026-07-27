@@ -8,7 +8,7 @@ mod preview_overlay;
 pub use editor::types::{
     AnnotationAction, ArrowStyle, DrawColor, FontSettings, ObfuscateMethod, Point, Rect,
 };
-pub use editor::{open_image_editor, EditorError};
+pub use editor::{open_image_editor, open_image_editor_empty, EditorError};
 pub fn copy_capture_uri_to_clipboard(path: &Path) -> Result<(), String> {
     editor::copy_file_uri_to_clipboard(path)
 }
