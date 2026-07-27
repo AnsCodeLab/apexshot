@@ -768,6 +768,20 @@ fn setup_editor_window_full(
     let (default_width, default_height) =
         recommended_window_size_with_extra_width(img_width as i32, img_height as i32, 280);
 
+    // Session guard: window-level signal handlers from a previous session on
+    // a reused window (e.g. the empty editor's close-request -> app.quit())
+    // must become no-ops once this new session takes over.
+    thread_local! {
+        static ACTIVE_EDITOR_SESSION: RefCell<Option<Rc<Cell<bool>>>> =
+            const { RefCell::new(None) };
+    }
+    let session_alive = Rc::new(Cell::new(true));
+    ACTIVE_EDITOR_SESSION.with(|slot| {
+        if let Some(previous) = slot.borrow_mut().replace(session_alive.clone()) {
+            previous.set(false);
+        }
+    });
+
     let window = if let Some(existing) = reuse_window {
         // Loading a file into the already-open (empty) editor window:
         // reuse it so the window never closes/flashes. Remove stale
@@ -3614,6 +3628,7 @@ fn setup_editor_window_full(
         app: app.clone(),
         window: window.clone(),
         path: path.clone(),
+        session_alive: session_alive.clone(),
         state: state.clone(),
         transform: transform.clone(),
         drawing_area: drawing_area.clone(),
@@ -3725,7 +3740,12 @@ fn setup_editor_window_full(
     }
 
     let state_prefs = state.clone();
+    let session_alive_prefs = session_alive.clone();
     window.connect_close_request(move |_| {
+        // Superseded session: don't save stale preferences on close.
+        if !session_alive_prefs.get() {
+            return glib::Propagation::Proceed;
+        }
         crate::gnome_integration::emit_tracked_window_closed(&tracked_window_id);
         let prefs = {
             let st = state_prefs.lock().unwrap();
