@@ -1,11 +1,21 @@
 # Memory-friendly Cargo configuration
 # Prevents OOM during compilation and testing on systems with limited RAM
 
+[env]
+# bindgen (used by the pipewire crate) needs libclang at build time.
+# The nix store hash may change when clang is upgraded; update the path if
+# "couldn't find any valid shared libraries matching: libclang.so" reappears.
+LIBCLANG_PATH = "/nix/store/mmk6s6mc9kvz8czjfg9lh9m4sbc0wc8k-clang-21.1.7-lib/lib"
+
 [build]
 # Limit parallel compilation jobs to reduce memory pressure
 # Adjust based on your system: generally (available_RAM_MB / 2000) is safe
 # For 14GB systems with other processes: 4 is a good balance
 jobs = 4
+# rten 0.24 uses AVX-512 intrinsics that are nightly-only in rustc 1.88/1.89.
+# The nightly rustc installed in this Replit env (1.90.0-nightly) compiles them
+# fine.  Update the hash if the nightly toolchain is upgraded.
+rustc = "/nix/store/rmzlxinjs6j26z6mnplfgjxa8adw0xba-rust-mixed/bin/rustc"
 
 [target.x86_64-unknown-linux-gnu]
 # Reduce debug info size for faster builds and less memory
