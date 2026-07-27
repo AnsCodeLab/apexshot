@@ -585,21 +585,23 @@ fn setup_empty_image_editor_window(app: &Application) {
     drop_center.append(&drop_hint);
     drop_center.append(&open_btn);
 
-    // Canvas scroll area substitute: a plain box with the drop-zone centred
-    let canvas_area = GtkBox::new(Orientation::Vertical, 0);
-    canvas_area.add_css_class("editor-canvas");
+    // Canvas substitute: real checkerboard drawn via cairo (same as the
+    // loaded editor), with the drop-zone overlaid in the centre.
+    let checkerboard = DrawingArea::new();
+    checkerboard.add_css_class("editor-canvas");
+    checkerboard.set_hexpand(true);
+    checkerboard.set_vexpand(true);
+    let dark_for_draw = prefers_dark;
+    checkerboard.set_draw_func(move |_, context, width, height| {
+        context.set_operator(gtk4::cairo::Operator::Source);
+        draw_canvas_checkerboard_background(context, width, height, None, !dark_for_draw);
+    });
+
+    let canvas_area = Overlay::new();
     canvas_area.set_hexpand(true);
     canvas_area.set_vexpand(true);
-    canvas_area.set_halign(Align::Fill);
-    canvas_area.set_valign(Align::Fill);
-
-    let v_top = GtkBox::new(Orientation::Vertical, 0);
-    v_top.set_vexpand(true);
-    let v_bot = GtkBox::new(Orientation::Vertical, 0);
-    v_bot.set_vexpand(true);
-    canvas_area.append(&v_top);
-    canvas_area.append(&drop_center);
-    canvas_area.append(&v_bot);
+    canvas_area.set_child(Some(&checkerboard));
+    canvas_area.add_overlay(&drop_center);
 
     canvas_workspace.append(&canvas_area);
     canvas_frame.append(&canvas_workspace);
