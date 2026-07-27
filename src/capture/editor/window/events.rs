@@ -1667,13 +1667,17 @@ pub(super) fn wire_editor_events(ctx: EventContext) {
                         app.quit();
                     }
 
+                    let config = crate::config::load_config().sanitized();
+
+                    // Copy the edited image to the clipboard when "copy file to
+                    // clipboard" is enabled in General settings, honoring the
+                    // advanced clipboard mode (image / file path / both).
+                    crate::daemon::copy_screenshot_to_clipboard(&path_save, &config);
+
                     // Show preview overlay only when the user has "show quick access
                     // overlay" enabled in General settings.  If disabled, the image
                     // has already been saved above and we are done.
-                    let show_overlay = crate::config::load_config()
-                        .sanitized()
-                        .after_capture_show_quick_access;
-                    if show_overlay {
+                    if config.after_capture_show_quick_access {
                         // Show preview via daemon for single-instance coordination
                         // If daemon not running, fall back to spawning directly
                         if !crate::daemon::show_preview_via_daemon(&path_save) {
