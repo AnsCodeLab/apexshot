@@ -1662,13 +1662,23 @@ pub(super) fn wire_editor_events(ctx: EventContext) {
                         app.quit();
                     }
 
-                    // Show preview via daemon for single-instance coordination
-                    // If daemon not running, fall back to spawning directly
-                    if !crate::daemon::show_preview_via_daemon(&path_save) {
-                        let exe =
-                            std::env::current_exe().unwrap_or_else(|_| PathBuf::from("apexshot"));
-                        if let Err(e) = Command::new(&exe).arg("preview").arg(&path_save).spawn() {
-                            eprintln!("[editor] Failed to open preview: {e}");
+                    // Show preview overlay only when the user has "show quick access
+                    // overlay" enabled in General settings.  If disabled, the image
+                    // has already been saved above and we are done.
+                    let show_overlay = crate::config::load_config()
+                        .sanitized()
+                        .after_capture_show_quick_access;
+                    if show_overlay {
+                        // Show preview via daemon for single-instance coordination
+                        // If daemon not running, fall back to spawning directly
+                        if !crate::daemon::show_preview_via_daemon(&path_save) {
+                            let exe = std::env::current_exe()
+                                .unwrap_or_else(|_| PathBuf::from("apexshot"));
+                            if let Err(e) =
+                                Command::new(&exe).arg("preview").arg(&path_save).spawn()
+                            {
+                                eprintln!("[editor] Failed to open preview: {e}");
+                            }
                         }
                     }
                 }

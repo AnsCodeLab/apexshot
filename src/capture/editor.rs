@@ -19,6 +19,7 @@ pub mod window;
 
 pub use types::EditorError;
 pub use window::open_image_editor;
+pub use window::open_image_editor_empty;
 
 pub fn copy_file_uri_to_clipboard(path: &std::path::Path) -> Result<(), String> {
     io_ops::copy_uri_to_clipboard(path)

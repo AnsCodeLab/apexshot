@@ -59,6 +59,7 @@ pub enum DaemonAction {
     RecordArea,
     OpenRecordingUi,
     OpenVideoEditor,
+    OpenImageEditor,
     ToggleRecordingPause,
     StopRecordingSave,
     RestartRecording,
@@ -87,6 +88,7 @@ impl From<TrayAction> for DaemonAction {
             TrayAction::CaptureWindow => DaemonAction::CaptureWindow,
             TrayAction::OpenRecordingUi => DaemonAction::OpenRecordingUi,
             TrayAction::OpenVideoEditor => DaemonAction::OpenVideoEditor,
+            TrayAction::OpenImageEditor => DaemonAction::OpenImageEditor,
             TrayAction::RecordScreen => DaemonAction::RecordScreen,
             TrayAction::ToggleRecordingPause => DaemonAction::ToggleRecordingPause,
             TrayAction::StopRecordingSave => DaemonAction::StopRecordingSave,
@@ -792,6 +794,9 @@ async fn run_daemon_inner(gtk_tx: Option<std::sync::mpsc::Sender<GtkWork>>) -> a
             }
             DaemonAction::OpenVideoEditor => {
                 tokio::task::spawn_blocking(spawn_empty_video_editor_subprocess);
+            }
+            DaemonAction::OpenImageEditor => {
+                tokio::task::spawn_blocking(spawn_empty_image_editor_subprocess);
             }
             DaemonAction::ToggleRecordingPause => {
                 if !crate::recording::toggle_active_recording_pause() {
@@ -2723,6 +2728,14 @@ fn spawn_empty_video_editor_subprocess() {
 
     if let Err(e) = std::process::Command::new(&exe).arg("video-editor").spawn() {
         eprintln!("[daemon] Failed to spawn video editor: {e}");
+    }
+}
+
+fn spawn_empty_image_editor_subprocess() {
+    let exe = std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("apexshot"));
+
+    if let Err(e) = std::process::Command::new(&exe).arg("image-editor").spawn() {
+        eprintln!("[daemon] Failed to spawn image editor: {e}");
     }
 }
 

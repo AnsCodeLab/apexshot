@@ -1,8 +1,10 @@
 use gdk4x11::X11Surface;
 use gtk4::gdk;
+use gtk4::gio;
 use gtk4::{
-    glib, prelude::*, Application, ApplicationWindow, Box as GtkBox, Button, CheckButton,
-    DrawingArea, Entry, Label, Orientation, Overlay, Popover, Stack,
+    glib, prelude::*, Align, Application, ApplicationWindow, Box as GtkBox, Button, CheckButton,
+    DrawingArea, DropTarget, Entry, FileChooserAction, FileChooserNative, FileFilter, Image,
+    Label, Orientation, Overlay, Popover, ResponseType, Stack,
 };
 use image::RgbaImage;
 use std::cell::{Cell, RefCell};
@@ -364,6 +366,257 @@ pub fn open_image_editor(path: PathBuf) -> Result<(), EditorError> {
 
     let _ = app.run_with_args::<String>(&[]);
     Ok(())
+}
+
+/// Open the image editor without a pre-selected file.
+/// Shows a drop-zone / file-picker window so the user can bring their own image.
+pub fn open_image_editor_empty() -> Result<(), EditorError> {
+    let app = Application::builder()
+        .application_id(crate::app_identity::app_id())
+        .flags(gtk4::gio::ApplicationFlags::NON_UNIQUE)
+        .build();
+
+    app.connect_activate(move |application| {
+        install_editor_css();
+        install_image_editor_empty_css();
+        setup_empty_image_picker_window(application);
+    });
+
+    let _ = app.run_with_args::<String>(&[]);
+    Ok(())
+}
+
+fn install_image_editor_empty_css() {
+    if let Some(display) = gdk::Display::default() {
+        let provider = gtk4::CssProvider::new();
+        provider.load_from_data(
+            "
+            .image-editor-empty-workspace {
+                background-color: #1c1c1c;
+                border-radius: 0 0 10px 10px;
+            }
+            .image-editor-empty-dropzone {
+                padding: 20px 28px;
+                border: 2px dashed rgba(255,255,255,0.14);
+                border-radius: 12px;
+                margin: 20px;
+            }
+            .image-editor-empty-icon {
+                color: rgba(255,255,255,0.28);
+            }
+            .image-editor-empty-title {
+                font-size: 15px;
+                font-weight: 600;
+                color: rgba(255,255,255,0.82);
+                margin-top: 4px;
+            }
+            .image-editor-empty-hint {
+                font-size: 12px;
+                color: rgba(255,255,255,0.42);
+            }
+            .image-editor-empty-open-button {
+                background-color: rgba(255,255,255,0.11);
+                color: rgba(255,255,255,0.82);
+                border-radius: 8px;
+                padding: 6px 20px;
+                margin-top: 8px;
+                border: none;
+                font-size: 13px;
+                box-shadow: none;
+            }
+            .image-editor-empty-open-button:hover {
+                background-color: rgba(255,255,255,0.18);
+            }
+            .image-editor-empty-open-button:active {
+                background-color: rgba(255,255,255,0.22);
+            }
+            ",
+        );
+        gtk4::style_context_add_provider_for_display(
+            &display,
+            &provider,
+            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+    }
+}
+
+fn is_supported_image_path(path: &std::path::Path) -> bool {
+    matches!(
+        path.extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_lowercase())
+            .as_deref(),
+        Some("png") | Some("jpg") | Some("jpeg") | Some("webp")
+    )
+}
+
+fn show_open_image_dialog(app: &Application, parent: &ApplicationWindow) {
+    let chooser = FileChooserNative::new(
+        Some("Open image"),
+        Some(parent),
+        FileChooserAction::Open,
+        Some("Open"),
+        Some("Cancel"),
+    );
+
+    let filter = FileFilter::new();
+    filter.set_name(Some("Image files"));
+    filter.add_mime_type("image/png");
+    filter.add_mime_type("image/jpeg");
+    filter.add_mime_type("image/webp");
+    filter.add_pattern("*.png");
+    filter.add_pattern("*.jpg");
+    filter.add_pattern("*.jpeg");
+    filter.add_pattern("*.webp");
+    chooser.add_filter(&filter);
+
+    let app_ref = app.clone();
+    let parent_ref = parent.clone();
+    chooser.connect_response(move |dialog, response| {
+        if response == ResponseType::Accept {
+            if let Some(file) = dialog.file() {
+                if let Some(path) = file.path() {
+                    if is_supported_image_path(&path) {
+                        // Open the editor window first (keeps the app alive),
+                        // then close the picker.
+                        setup_editor_window(&app_ref, path.to_path_buf());
+                        parent_ref.close();
+                    }
+                }
+            }
+        }
+        dialog.hide();
+    });
+    chooser.show();
+}
+
+fn setup_empty_image_picker_window(app: &Application) {
+    let window = ApplicationWindow::builder()
+        .application(app)
+        .title("ApexShot Image Editor")
+        .icon_name(crate::app_identity::icon_name())
+        .default_width(480)
+        .default_height(320)
+        .decorated(false)
+        .build();
+    window.add_css_class("editor-window");
+
+    let root = GtkBox::new(Orientation::Vertical, 0);
+    root.add_css_class("editor-root");
+
+    // ── Toolbar ──────────────────────────────────────────────────────────
+    let toolbar = GtkBox::new(Orientation::Horizontal, 0);
+    toolbar.add_css_class("editor-toolbar");
+    toolbar.set_height_request(42);
+
+    let close_btn = Button::new();
+    close_btn.add_css_class("recording-editor-traffic-btn");
+    let close_icon = Image::from_icon_name("window-close-symbolic");
+    close_icon.set_pixel_size(10);
+    close_btn.set_child(Some(&close_icon));
+    toolbar.append(&close_btn);
+
+    let title_label = Label::new(Some("Image Editor"));
+    title_label.set_hexpand(true);
+    title_label.set_halign(Align::Center);
+    toolbar.append(&title_label);
+
+    // Balance the close button so the title stays centred
+    let balance = GtkBox::new(Orientation::Horizontal, 0);
+    balance.set_width_request(28);
+    toolbar.append(&balance);
+
+    root.append(&toolbar);
+
+    // ── Empty workspace ──────────────────────────────────────────────────
+    let workspace = GtkBox::new(Orientation::Vertical, 0);
+    workspace.add_css_class("image-editor-empty-workspace");
+    workspace.set_hexpand(true);
+    workspace.set_vexpand(true);
+    workspace.set_halign(Align::Fill);
+    workspace.set_valign(Align::Fill);
+
+    let center = GtkBox::new(Orientation::Vertical, 10);
+    center.add_css_class("image-editor-empty-dropzone");
+    center.set_halign(Align::Center);
+    center.set_valign(Align::Center);
+
+    let icon = Image::from_icon_name("image-x-generic-symbolic");
+    icon.add_css_class("image-editor-empty-icon");
+    icon.set_pixel_size(48);
+    icon.set_halign(Align::Center);
+
+    let title = Label::new(Some("Drop an image here"));
+    title.add_css_class("image-editor-empty-title");
+    title.set_halign(Align::Center);
+
+    let hint = Label::new(Some("PNG, JPEG, or WebP"));
+    hint.add_css_class("image-editor-empty-hint");
+    hint.set_halign(Align::Center);
+
+    let open_btn = Button::with_label("Open Folder");
+    open_btn.set_has_frame(false);
+    open_btn.add_css_class("image-editor-empty-open-button");
+    open_btn.set_halign(Align::Center);
+
+    center.append(&icon);
+    center.append(&title);
+    center.append(&hint);
+    center.append(&open_btn);
+
+    let top_spacer = GtkBox::new(Orientation::Vertical, 0);
+    top_spacer.set_vexpand(true);
+    let bottom_spacer = GtkBox::new(Orientation::Vertical, 0);
+    bottom_spacer.set_vexpand(true);
+
+    workspace.append(&top_spacer);
+    workspace.append(&center);
+    workspace.append(&bottom_spacer);
+    root.append(&workspace);
+
+    window.set_child(Some(&root));
+
+    // ── Window drag / edge resize ────────────────────────────────────────
+    super::ui_support::install_window_drag(&toolbar, &window);
+    super::ui_support::install_edge_resize(&root, &window);
+
+    // ── Open-folder button ───────────────────────────────────────────────
+    let app_open = app.clone();
+    let window_open = window.clone();
+    open_btn.connect_clicked(move |_| {
+        show_open_image_dialog(&app_open, &window_open);
+    });
+
+    // ── Close button ─────────────────────────────────────────────────────
+    let window_close = window.clone();
+    let app_close = app.clone();
+    close_btn.connect_clicked(move |_| {
+        window_close.close();
+        app_close.quit();
+    });
+
+    // ── Drag-and-drop ────────────────────────────────────────────────────
+    let drop_target = DropTarget::new(gio::File::static_type(), gdk::DragAction::COPY);
+    let app_drop = app.clone();
+    let window_drop = window.clone();
+    drop_target.connect_drop(move |_, value, _x, _y| {
+        let Ok(file) = value.get::<gio::File>() else {
+            return false;
+        };
+        let Some(path) = file.path() else {
+            return false;
+        };
+        if !is_supported_image_path(&path) {
+            return false;
+        }
+        // Open editor first (keeps app alive), then close picker window.
+        setup_editor_window(&app_drop, path.to_path_buf());
+        window_drop.close();
+        true
+    });
+    window.add_controller(drop_target);
+
+    window.present();
 }
 
 #[allow(unused_imports)]
