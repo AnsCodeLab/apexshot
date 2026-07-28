@@ -13,7 +13,7 @@ mod actions;
 mod advanced;
 mod after_capture;
 mod annotate;
-mod cloud;
+pub(crate) mod cloud;
 mod general;
 mod quick_access;
 mod recording;

@@ -491,7 +491,10 @@ fn initial(email: &str) -> String {
     ch.to_ascii_uppercase().to_string()
 }
 
-fn spawn_apexshot_login() {
+/// Start the device-code login in a terminal so the user never has to sign in
+/// again through a browser session of their own. Shared with the History
+/// window's Cloud page, which watches the config for the session to land.
+pub(crate) fn spawn_apexshot_login() {
     let exe = std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("apexshot"));
     // Try a few terminal launchers; the first one that spawns wins.
     let attempts: Vec<Vec<&str>> = vec![
