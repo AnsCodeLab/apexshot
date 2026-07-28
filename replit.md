@@ -85,3 +85,5 @@ and cannot run inside Replit's sandbox preview.
 ## User preferences
 
 - Imported to explore and read the code — no run workflow needed.
+- Never commit pasted screenshots to the repo. Files under `attached_assets/` are
+  chat references only — the directory is gitignored; do not `git add` or commit them.
