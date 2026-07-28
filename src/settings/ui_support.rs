@@ -1782,13 +1782,59 @@ const SETTINGS_CSS: &str = r#"
                 margin-top: 2px;
             }
 
-            .history-toolbar {
-                margin-top: 12px;
-                margin-bottom: 18px;
+            /* Borderless GNOME-style chrome for the History window: no header
+               divider, no sidebar divider, and a wider sidebar. Scoped under
+               .history-root so Settings keeps its own chrome. */
+            .history-root .settings-window-controls {
+                border-bottom: none;
+                padding: 8px 12px;
             }
 
-            .history-search {
-                min-width: 240px;
+            .history-root .settings-sidebar-wrapper {
+                border-right: none;
+                min-width: 220px;
+            }
+
+            /* Scoped under .history-root so these header-bar widgets always
+               outrank the shared stylesheet's generic entry/button rules. */
+            .history-root .history-header-search {
+                min-width: 260px;
+                min-height: 30px;
+                padding: 0 12px;
+                border-radius: 999px;
+                background-color: alpha(white, 0.07);
+                color: #F1F1F3;
+                border: 1px solid alpha(white, 0.10);
+                box-shadow: none;
+                caret-color: #F1F1F3;
+            }
+
+            .history-root .history-header-search:focus-within {
+                background-color: alpha(white, 0.10);
+                border-color: alpha(white, 0.22);
+            }
+
+            .history-root .history-header-search:disabled {
+                opacity: 0.45;
+            }
+
+            .history-root .history-header-refresh {
+                min-width: 30px;
+                min-height: 30px;
+                padding: 0;
+                margin-right: 6px;
+                border-radius: 999px;
+                background-color: transparent;
+                background-image: none;
+                border: none;
+                box-shadow: none;
+                color: alpha(white, 0.75);
+            }
+
+            .history-root .history-header-refresh:hover,
+            .history-root .history-header-refresh:focus {
+                background-color: alpha(white, 0.10);
+                color: white;
             }
 
             .history-card-placeholder {
@@ -1861,6 +1907,36 @@ const SETTINGS_CSS: &str = r#"
             }
 
             /* History — light theme */
+            .editor-root.editor-theme-light.history-root .settings-window-controls {
+                border-bottom: none;
+            }
+
+            .editor-root.editor-theme-light.history-root .settings-sidebar-wrapper {
+                border-right: none;
+            }
+
+            .editor-root.editor-theme-light.history-root .history-header-search {
+                background-color: alpha(#111827, 0.06);
+                color: #1d2129;
+                border-color: alpha(#111827, 0.12);
+                caret-color: #1d2129;
+            }
+
+            .editor-root.editor-theme-light.history-root .history-header-search:focus-within {
+                background-color: alpha(#111827, 0.08);
+                border-color: alpha(#111827, 0.25);
+            }
+
+            .editor-root.editor-theme-light.history-root .history-header-refresh {
+                color: alpha(#111827, 0.70);
+            }
+
+            .editor-root.editor-theme-light.history-root .history-header-refresh:hover,
+            .editor-root.editor-theme-light.history-root .history-header-refresh:focus {
+                background-color: alpha(#111827, 0.08);
+                color: #1d2129;
+            }
+
             .editor-root.editor-theme-light .history-card-placeholder {
                 color: alpha(#111827, 0.30);
             }
