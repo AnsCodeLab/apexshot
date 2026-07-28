@@ -46,14 +46,16 @@ const LOGIN_POLL_SECONDS: u32 = 2;
 
 /// Build the History window's Cloud page.
 ///
-/// Returns a vertical content box the caller is expected to place inside its
-/// own `ScrolledWindow` (with the page title and margins the other pages use).
-/// The page evaluates its state immediately and rebuilds itself in place as the
-/// session or entitlement changes, so the caller never has to rebuild it.
+/// Returns the page widget (a self-contained scroller with the same title
+/// header and margins the local pages use) plus a refresh hook that re-renders
+/// from current config. The page evaluates its state immediately and rebuilds
+/// itself in place as the session or entitlement changes, so the caller never
+/// has to rebuild it. Cloud uploads page in from the server, so the shared
+/// header-bar search does not filter this page.
 ///
 /// `toast` is the shared window toast (the same `HistoryToast` handed to
 /// `build_local_page`), used to report per-card action outcomes.
-pub fn build_cloud_page(toast: HistoryToast) -> Widget {
+pub fn build_cloud_page(toast: HistoryToast) -> super::HistoryPage {
     // Same page chrome the local pages build: an outer vertical scroller and a
     // margined column with a settings-style title header, so the three stack
     // pages line up pixel-for-pixel.
@@ -98,7 +100,19 @@ pub fn build_cloud_page(toast: HistoryToast) -> Widget {
     });
 
     page.render_current_state();
-    scroller.upcast()
+
+    // The header-bar refresh button re-renders from the current config.
+    let refresh = {
+        let page = Rc::clone(&page);
+        Rc::new(move || page.render_current_state()) as Rc<dyn Fn()>
+    };
+
+    super::HistoryPage {
+        widget: scroller.upcast(),
+        refresh,
+        search_placeholder: "Search isn't available for Cloud",
+        searchable: false,
+    }
 }
 
 struct CloudPage {

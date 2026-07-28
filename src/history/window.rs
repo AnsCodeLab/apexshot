@@ -11,8 +11,8 @@ use std::sync::Once;
 use std::time::Duration;
 
 use gtk4::{
-    glib, prelude::*, Align, Application, ApplicationWindow, Box as GtkBox, Image, Label,
-    Orientation, Overlay as GtkOverlay, ScrolledWindow,
+    glib, prelude::*, Align, Application, ApplicationWindow, Box as GtkBox, Button, Entry, Image,
+    Label, Orientation, Overlay as GtkOverlay, ScrolledWindow,
 };
 
 use crate::settings::ui_support::{install_settings_css, traffic_light_button};
@@ -104,6 +104,7 @@ pub fn build_history_window(app: &Application) {
 
     let root_box = GtkBox::new(Orientation::Vertical, 0);
     root_box.add_css_class("editor-root");
+    root_box.add_css_class("history-root");
     if !prefers_dark {
         root_box.add_css_class("editor-theme-light");
     }
@@ -112,15 +113,30 @@ pub fn build_history_window(app: &Application) {
     }
 
     // --- TOOLBAR ---
+    // GNOME-style borderless header bar: the shared search entry sits at the
+    // far left and the refresh button immediately left of the window controls
+    // (GNOME Settings / Files), with the drag handle filling the space between.
     let toolbar = GtkBox::new(Orientation::Horizontal, 0);
     toolbar.add_css_class("settings-window-controls");
-    toolbar.set_size_request(-1, 30);
+    toolbar.set_size_request(-1, 46);
+
+    let search = Entry::new();
+    search.add_css_class("history-header-search");
+    search.set_primary_icon_name(Some("system-search-symbolic"));
+    search.set_valign(Align::Center);
+    toolbar.append(&search);
 
     let drag_handle = GtkBox::new(Orientation::Horizontal, 0);
     drag_handle.set_hexpand(true);
     drag_handle.set_halign(Align::Fill);
     drag_handle.set_vexpand(false);
     toolbar.append(&drag_handle);
+
+    let refresh_btn = Button::from_icon_name("view-refresh-symbolic");
+    refresh_btn.add_css_class("history-header-refresh");
+    refresh_btn.set_tooltip_text(Some("Refresh"));
+    refresh_btn.set_valign(Align::Center);
+    toolbar.append(&refresh_btn);
 
     let close_btn = traffic_light_button("traffic-light-red", "Close");
     close_btn.remove_css_class("recent-captures-wm-btn");
@@ -279,21 +295,52 @@ pub fn build_history_window(app: &Application) {
     body_frame.set_vexpand(true);
     body_frame.set_hexpand(true);
 
-    let screenshots = build_local_page(MediaKind::Image, toast.clone());
-    let recordings = build_local_page(MediaKind::Video, toast.clone());
-    let cloud = build_cloud_page(toast.clone());
+    let pages = [
+        build_local_page(MediaKind::Image, toast.clone(), &search),
+        build_local_page(MediaKind::Video, toast.clone(), &search),
+        build_cloud_page(toast.clone()),
+    ];
 
-    stack.add_titled(&screenshots, Some("0"), "Screenshots");
-    stack.add_titled(&recordings, Some("1"), "Recordings");
-    stack.add_titled(&cloud, Some("2"), "Cloud");
+    // Hooks the header bar drives: refresh reloads the visible page, and the
+    // shared search entry takes each page's placeholder and sensitivity.
+    let refresh_hooks: Rc<Vec<Rc<dyn Fn()>>> =
+        Rc::new(pages.iter().map(|page| Rc::clone(&page.refresh)).collect());
+    let search_meta: Vec<(bool, &'static str)> = pages
+        .iter()
+        .map(|page| (page.searchable, page.search_placeholder))
+        .collect();
+
+    stack.add_titled(&pages[0].widget, Some("0"), "Screenshots");
+    stack.add_titled(&pages[1].widget, Some("1"), "Recordings");
+    stack.add_titled(&pages[2].widget, Some("2"), "Cloud");
+
+    {
+        let stack = stack.clone();
+        let refresh_hooks = Rc::clone(&refresh_hooks);
+        refresh_btn.connect_clicked(move |_| {
+            if let Some(name) = stack.visible_child_name() {
+                if let Ok(idx) = name.parse::<usize>() {
+                    if let Some(reload) = refresh_hooks.get(idx) {
+                        reload();
+                    }
+                }
+            }
+        });
+    }
 
     body_frame.append(&stack);
 
-    // Keep the sidebar selection in sync when the visible page changes.
+    // Keep the sidebar selection and header-bar search in sync when the
+    // visible page changes.
     let nav_items_clone = nav_items.clone();
+    let search_for_switch = search.clone();
     stack.connect_visible_child_name_notify(move |s| {
         if let Some(name) = s.visible_child_name() {
             if let Ok(idx) = name.parse::<usize>() {
+                if let Some(&(searchable, placeholder)) = search_meta.get(idx) {
+                    search_for_switch.set_sensitive(searchable);
+                    search_for_switch.set_placeholder_text(Some(placeholder));
+                }
                 for (i, (item, icon, label)) in nav_items_clone.iter().enumerate() {
                     if i == idx {
                         item.add_css_class("settings-nav-item-selected");

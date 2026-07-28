@@ -19,10 +19,25 @@ pub mod scan;
 pub mod thumbnails;
 pub mod window;
 
+use std::rc::Rc;
+
 use gtk4::prelude::*;
 use gtk4::Application;
 
 use crate::config::load_config;
+
+/// One page of the History stack plus the hooks the window shell needs to
+/// drive it from the shared header bar.
+pub struct HistoryPage {
+    /// The page widget placed into the window's stack.
+    pub widget: gtk4::Widget,
+    /// Reload the page's contents; wired to the header-bar refresh button.
+    pub refresh: Rc<dyn Fn()>,
+    /// Placeholder the shared search entry shows while this page is visible.
+    pub search_placeholder: &'static str,
+    /// Whether the shared search entry filters this page.
+    pub searchable: bool,
+}
 
 /// Open the History window, presenting the existing one when it is already up.
 ///

@@ -41,6 +41,9 @@ struct PageState {
     empty_state: GtkBox,
     scroller: ScrolledWindow,
     subtitle: Label,
+    /// The window's shared header-bar search entry; re-read after every
+    /// populate so freshly loaded cards honor an in-progress query.
+    search: Entry,
     cards: RefCell<Vec<Rc<Card>>>,
     /// Current scan/thumbnail batch. Bumped on refresh so stale deliveries drop.
     generation: Cell<u64>,
@@ -49,7 +52,14 @@ struct PageState {
 }
 
 /// Build a Screenshots or Recordings page as a scrolled, titled column.
-pub fn build_local_page(kind: MediaKind, toast: HistoryToast) -> gtk4::Widget {
+///
+/// The page is filtered by the window's shared header-bar search entry and
+/// reports its refresh hook so the header-bar refresh button can reload it.
+pub fn build_local_page(
+    kind: MediaKind,
+    toast: HistoryToast,
+    search: &Entry,
+) -> super::HistoryPage {
     let scroller = ScrolledWindow::new();
     scroller.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
     scroller.set_vexpand(true);
@@ -61,8 +71,8 @@ pub fn build_local_page(kind: MediaKind, toast: HistoryToast) -> gtk4::Widget {
     column.set_margin_start(28);
     column.set_margin_end(28);
 
-    // Header: gallery title + live count subtitle, then a toolbar row with the
-    // search entry and a refresh button, using the recent-captures vocabulary.
+    // Header: gallery title + live count subtitle. Search and refresh live in
+    // the window's header bar, GNOME-Settings-style, not on the page itself.
     let header = GtkBox::new(Orientation::Vertical, 0);
 
     let title = Label::new(Some(match kind {
@@ -75,31 +85,12 @@ pub fn build_local_page(kind: MediaKind, toast: HistoryToast) -> gtk4::Widget {
     let subtitle = Label::new(Some("Loading…"));
     subtitle.add_css_class("history-page-subtitle");
     subtitle.set_halign(Align::Start);
+    subtitle.set_margin_bottom(18);
 
     header.append(&title);
     header.append(&subtitle);
 
-    let toolbar = GtkBox::new(Orientation::Horizontal, 8);
-    toolbar.add_css_class("history-toolbar");
-
-    let search = Entry::new();
-    search.add_css_class("history-search");
-    search.set_placeholder_text(Some(match kind {
-        MediaKind::Image => "Search screenshots",
-        MediaKind::Video => "Search recordings",
-    }));
-    search.set_primary_icon_name(Some("system-search-symbolic"));
-    search.set_hexpand(true);
-
-    let refresh = Button::from_icon_name("view-refresh-symbolic");
-    refresh.add_css_class("recent-captures-refresh-button");
-    refresh.set_tooltip_text(Some("Refresh"));
-
-    toolbar.append(&search);
-    toolbar.append(&refresh);
-
     column.append(&header);
-    column.append(&toolbar);
 
     // The card grid.
     let grid = FlowBox::new();
@@ -126,6 +117,7 @@ pub fn build_local_page(kind: MediaKind, toast: HistoryToast) -> gtk4::Widget {
         empty_state,
         scroller: scroller.clone(),
         subtitle,
+        search: search.clone(),
         cards: RefCell::new(Vec::new()),
         generation: Cell::new(0),
         next_card_id: Cell::new(0),
@@ -140,13 +132,11 @@ pub fn build_local_page(kind: MediaKind, toast: HistoryToast) -> gtk4::Widget {
         });
     }
 
-    // Refresh cancels in-flight work and rescans from scratch.
-    {
+    // The header-bar refresh button cancels in-flight work and rescans.
+    let refresh = {
         let state = Rc::clone(&state);
-        refresh.connect_clicked(move |_| {
-            reload(&state);
-        });
-    }
+        Rc::new(move || reload(&state)) as Rc<dyn Fn()>
+    };
 
     // First population happens once the page is actually shown, so opening the
     // window does not pay for pages the user never visits.
@@ -161,7 +151,15 @@ pub fn build_local_page(kind: MediaKind, toast: HistoryToast) -> gtk4::Widget {
         });
     }
 
-    scroller.upcast()
+    super::HistoryPage {
+        widget: scroller.upcast(),
+        refresh,
+        search_placeholder: match kind {
+            MediaKind::Image => "Search screenshots",
+            MediaKind::Video => "Search recordings",
+        },
+        searchable: true,
+    }
 }
 
 fn build_empty_state(kind: MediaKind) -> GtkBox {
@@ -304,6 +302,11 @@ fn populate(
 
         cards.push(Rc::new(card));
     }
+    drop(cards);
+
+    // The shared search entry may already hold a query typed before this page
+    // finished loading (or while another page was visible) — honor it now.
+    apply_filter(state, &state.search.text());
 }
 
 /// Build a single card. `id` is the thumbnail-request id echoed back on
