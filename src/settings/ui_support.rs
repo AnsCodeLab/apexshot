@@ -1801,7 +1801,7 @@ const SETTINGS_CSS: &str = r#"
                 min-width: 340px;
                 min-height: 30px;
                 padding: 0 12px;
-                border-radius: 999px;
+                border-radius: 8px;
                 background-color: alpha(white, 0.07);
                 color: #F1F1F3;
                 border: 1px solid alpha(white, 0.10);
@@ -1870,7 +1870,7 @@ const SETTINGS_CSS: &str = r#"
             .history-root .history-sidebar-title {
                 font-size: 16px;
                 font-weight: 700;
-                margin: 4px 10px 12px 10px;
+                margin: 0 10px 0 14px;
             }
 
             .history-root .history-action-separator {
@@ -1907,9 +1907,12 @@ const SETTINGS_CSS: &str = r#"
                 box-shadow: 0 12px 32px alpha(black, 0.45);
             }
 
-            .history-action-btn {
+            /* Scoped under the popover so the flat menu rows outrank the
+               shared stylesheet's generic `.editor-root button` boxes. */
+            .history-action-popover .history-action-btn {
                 min-height: 0;
-                background: transparent;
+                background-color: transparent;
+                background-image: none;
                 border: none;
                 box-shadow: none;
                 border-radius: 6px;
@@ -1919,23 +1922,29 @@ const SETTINGS_CSS: &str = r#"
                 color: alpha(white, 0.85);
             }
 
-            .history-action-btn:hover,
-            .history-action-btn:focus {
-                background: alpha(white, 0.08);
+            .history-action-popover .history-action-btn:hover,
+            .history-action-popover .history-action-btn:focus {
+                background-color: alpha(white, 0.08);
                 color: white;
             }
 
-            .history-action-btn:disabled {
+            .history-action-popover .history-action-btn:active {
+                background-color: alpha(white, 0.12);
+                color: white;
+            }
+
+            .history-action-popover .history-action-btn:disabled {
+                background-color: transparent;
                 color: alpha(white, 0.35);
             }
 
-            .history-action-btn-destructive {
+            .history-action-popover .history-action-btn-destructive {
                 color: #f0a09a;
             }
 
-            .history-action-btn-destructive:hover,
-            .history-action-btn-destructive:focus {
-                background: alpha(#e34a4a, 0.18);
+            .history-action-popover .history-action-btn-destructive:hover,
+            .history-action-popover .history-action-btn-destructive:focus {
+                background-color: alpha(#e34a4a, 0.18);
                 color: #ffb3ad;
             }
 
@@ -2011,27 +2020,34 @@ const SETTINGS_CSS: &str = r#"
                 box-shadow: 0 12px 32px alpha(#111827, 0.18);
             }
 
-            .editor-root.editor-theme-light .history-action-btn {
+            .editor-root.editor-theme-light .history-action-popover .history-action-btn {
+                background-color: transparent;
                 color: alpha(#1d2129, 0.82);
             }
 
-            .editor-root.editor-theme-light .history-action-btn:hover,
-            .editor-root.editor-theme-light .history-action-btn:focus {
-                background: alpha(#111827, 0.06);
+            .editor-root.editor-theme-light .history-action-popover .history-action-btn:hover,
+            .editor-root.editor-theme-light .history-action-popover .history-action-btn:focus {
+                background-color: alpha(#111827, 0.06);
                 color: #1d2129;
             }
 
-            .editor-root.editor-theme-light .history-action-btn:disabled {
+            .editor-root.editor-theme-light .history-action-popover .history-action-btn:active {
+                background-color: alpha(#111827, 0.10);
+                color: #1d2129;
+            }
+
+            .editor-root.editor-theme-light .history-action-popover .history-action-btn:disabled {
+                background-color: transparent;
                 color: alpha(#111827, 0.35);
             }
 
-            .editor-root.editor-theme-light .history-action-btn-destructive {
+            .editor-root.editor-theme-light .history-action-popover .history-action-btn-destructive {
                 color: #8a2822;
             }
 
-            .editor-root.editor-theme-light .history-action-btn-destructive:hover,
-            .editor-root.editor-theme-light .history-action-btn-destructive:focus {
-                background: alpha(#e34a4a, 0.12);
+            .editor-root.editor-theme-light .history-action-popover .history-action-btn-destructive:hover,
+            .editor-root.editor-theme-light .history-action-popover .history-action-btn-destructive:focus {
+                background-color: alpha(#e34a4a, 0.12);
                 color: #8a2822;
             }
             "#;

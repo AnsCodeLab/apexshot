@@ -193,8 +193,6 @@ pub fn build_history_window(app: &Application) {
     window_overlay.set_child(Some(&root_box));
     window_overlay.add_overlay(&toast_label);
 
-    root_box.append(&toolbar);
-
     // --- WINDOW GESTURES ---
     install_window_drag(&left_spacer, &window);
     install_window_drag(&right_spacer, &window);
@@ -218,16 +216,25 @@ pub fn build_history_window(app: &Application) {
 
     sidebar_scroller.set_child(Some(&nav_strip));
 
+    // The sidebar runs the full window height (GNOME Files-style): its own
+    // header zone sits level with the content header bar and holds the title.
     let sidebar_wrapper = GtkBox::new(Orientation::Vertical, 0);
     sidebar_wrapper.add_css_class("settings-sidebar-wrapper");
     sidebar_wrapper.set_vexpand(true);
-    sidebar_wrapper.append(&sidebar_scroller);
 
-    // Sidebar header, GNOME-Settings-style.
+    let sidebar_head = GtkBox::new(Orientation::Horizontal, 0);
+    sidebar_head.set_size_request(-1, 46);
+
     let sidebar_title = Label::new(Some("History"));
     sidebar_title.add_css_class("history-sidebar-title");
     sidebar_title.set_halign(Align::Start);
-    nav_strip.append(&sidebar_title);
+    sidebar_title.set_valign(Align::Center);
+    sidebar_title.set_hexpand(true);
+    sidebar_head.append(&sidebar_title);
+
+    sidebar_wrapper.append(&sidebar_head);
+    sidebar_wrapper.append(&sidebar_scroller);
+    install_window_drag(&sidebar_head, &window);
 
     use crate::capture::editor::window::icon_names::custom;
     let labels = [
@@ -370,7 +377,15 @@ pub fn build_history_window(app: &Application) {
     });
     stack.set_visible_child_name("0");
 
-    content_split.append(&body_frame);
+    // Right column: the header bar sits above the page stack so the sidebar
+    // beside it can run the full window height.
+    let right_col = GtkBox::new(Orientation::Vertical, 0);
+    right_col.set_vexpand(true);
+    right_col.set_hexpand(true);
+    right_col.append(&toolbar);
+    right_col.append(&body_frame);
+    content_split.append(&right_col);
+
     root_box.append(&content_split);
     window.set_child(Some(&window_overlay));
 
