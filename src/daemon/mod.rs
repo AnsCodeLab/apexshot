@@ -750,7 +750,11 @@ async fn run_daemon_inner(gtk_tx: Option<std::sync::mpsc::Sender<GtkWork>>) -> a
             DaemonAction::OpenFile => {
                 if let Some(path) = last_capture_target(last_capture_path(&state_clone).as_deref())
                 {
-                    tokio::task::spawn_blocking(move || open_file(path));
+                    tokio::task::spawn_blocking(move || {
+                        if let Err(e) = open_file(path) {
+                            eprintln!("[daemon] {e}");
+                        }
+                    });
                 } else {
                     eprintln!("[daemon] No capture yet.");
                 }
@@ -843,7 +847,11 @@ async fn run_daemon_inner(gtk_tx: Option<std::sync::mpsc::Sender<GtkWork>>) -> a
             DaemonAction::OpenLastCapture => {
                 let path = state.lock().unwrap().last_capture_path.clone();
                 if let Some(p) = path {
-                    tokio::task::spawn_blocking(move || open_file(p));
+                    tokio::task::spawn_blocking(move || {
+                        if let Err(e) = open_file(p) {
+                            eprintln!("[daemon] {e}");
+                        }
+                    });
                 } else {
                     eprintln!("[daemon] No capture yet.");
                 }
@@ -2761,8 +2769,16 @@ fn spawn_editor_subprocess(path: std::path::PathBuf) {
     }
 }
 
-fn open_file(path: std::path::PathBuf) {
-    let _ = std::process::Command::new("xdg-open").arg(&path).spawn();
+/// Hand a file to the desktop's default application.
+///
+/// Shared with the History window so "open in default app" behaves identically
+/// whether it comes from the tray or from a history card.
+pub fn open_file(path: std::path::PathBuf) -> Result<(), String> {
+    std::process::Command::new("xdg-open")
+        .arg(&path)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("Could not open this file: {e}"))
 }
 
 fn screenshot_timer_delay_duration(seconds: u32) -> Option<std::time::Duration> {

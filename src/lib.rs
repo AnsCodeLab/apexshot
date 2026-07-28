@@ -17,6 +17,7 @@ pub mod daemon;
 pub mod distro;
 pub mod gnome_integration;
 pub mod gnome_shell;
+pub mod history;
 pub mod hotkeys;
 pub mod ocr;
 pub mod onboarding;

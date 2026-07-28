@@ -197,6 +197,45 @@ pub fn generate_thumbnails(metadata: &VideoMetadata) -> anyhow::Result<Vec<PathB
     Ok(paths)
 }
 
+/// Extract one frame from `input` into `output` as a poster image.
+///
+/// Same invocation shape as `generate_thumbnails` (fast input seek, single
+/// frame, no audio) but writes exactly one frame at full size so the caller can
+/// scale it however it likes. Used for the History window's recording cards.
+pub fn extract_poster_frame(
+    input: &Path,
+    output: &Path,
+    timestamp_seconds: f64,
+) -> anyhow::Result<()> {
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create poster dir {}", parent.display()))?;
+    }
+
+    let args = vec![
+        "-y".to_string(),
+        "-ss".to_string(),
+        format_seconds(timestamp_seconds),
+        "-i".to_string(),
+        input.to_string_lossy().to_string(),
+        "-an".to_string(),
+        "-frames:v".to_string(),
+        "1".to_string(),
+        output.to_string_lossy().to_string(),
+    ];
+    run_ffmpeg(args, output)?;
+
+    // A seek past the end of a very short clip exits cleanly without writing
+    // anything, so treat a missing file as a failure the caller can retry.
+    if !output.is_file() {
+        return Err(anyhow!(
+            "ffmpeg wrote no poster frame for {}",
+            input.display()
+        ));
+    }
+    Ok(())
+}
+
 fn thumbnail_count(duration_seconds: f64) -> usize {
     if duration_seconds < 1.0 {
         1
