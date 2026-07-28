@@ -77,7 +77,10 @@ This document provides detailed information about every module and submodule in 
 
 **Key Functions:**
 - `open_image_editor(image_path)` — Opens the annotation editor for a given image path
+- `open_image_editor_empty()` — Opens the editor with an empty drop-zone workspace (tray menu / `apexshot image-editor`); loading a PNG/JPEG/WebP via drag-and-drop or the file chooser rebuilds the editor in the same window
 - `copy_file_uri_to_clipboard(path)` — Copies file URI to system clipboard
+
+**Done button behavior:** saves the edited image and annotations, then applies General settings — copies to the clipboard per `after_capture_copy_file_to_clipboard` and `adv_clipboard_mode` (image / file path / both, via `daemon::copy_screenshot_to_clipboard`), and shows the quick access overlay only when `after_capture_show_quick_access` is enabled.
 
 **Supported Tools:**
 - Select (0), Crop (x), Pen (P), Box/Rectangle (r), Circle (o), Line (l), Arrow (a), Highlighter (h), Obfuscate (c/b), Number (n), Text (t), Focus (f)
