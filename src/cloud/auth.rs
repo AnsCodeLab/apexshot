@@ -5,6 +5,8 @@ use crate::config::{
     is_cloud_logged_in, load_config, resolve_cloud_backend_url, save_config, AppConfig,
 };
 
+use super::listing::CloudAccount;
+
 const POLL_INTERVAL: u64 = 5;
 const MAX_POLL_SECONDS: u64 = 900;
 
@@ -25,13 +27,6 @@ struct TokenResponse {
     refresh_token: String,
     expires_in: i32,
     device_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct AccountResponse {
-    email: String,
-    #[allow(dead_code)]
-    tier: String,
 }
 
 #[derive(Debug)]
@@ -158,7 +153,7 @@ pub fn login() -> Result<(), LoginError> {
                 config.cloud_api_token = token.access_token;
                 config.cloud_refresh_token = token.refresh_token;
 
-                let account: AccountResponse = ureq::get(&format!("{backend_url}/v1/account"))
+                let account: CloudAccount = ureq::get(&format!("{backend_url}/v1/account"))
                     .set(
                         "Authorization",
                         &format!("Bearer {}", config.cloud_api_token),
@@ -168,7 +163,9 @@ pub fn login() -> Result<(), LoginError> {
                     .into_json()
                     .map_err(|e| LoginError::Server(format!("Invalid account response: {e}")))?;
 
-                config.cloud_user_email = account.email.clone();
+                // Caches email + plan tier (and syncs the pro-plan flag) so the
+                // entitlement is readable later without another request.
+                account.apply_to_config(&mut config);
                 save_config(&config)
                     .map_err(|e| LoginError::Server(format!("Failed to save config: {e}")))?;
 
@@ -226,6 +223,7 @@ pub fn logout() -> Result<(), LogoutError> {
     config.cloud_user_name.clear();
     config.cloud_user_email.clear();
     config.cloud_pro_plan = false;
+    config.cloud_plan_tier.clear();
 
     save_config(&config).map_err(|e| LogoutError::Server(format!("Failed to save config: {e}")))?;
 

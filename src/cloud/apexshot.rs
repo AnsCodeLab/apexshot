@@ -20,6 +20,28 @@ struct RefreshResponse {
     refresh_token: String,
 }
 
+/// Why an access-token refresh failed. Uploads discard this (they retry
+/// regardless), while the read client maps it onto its own error surface.
+#[derive(Debug)]
+pub(crate) enum RefreshError {
+    NoRefreshToken,
+    /// The server refused the refresh token — re-login is the only way out.
+    Rejected(String),
+    Network(String),
+    Server(String),
+}
+
+impl std::fmt::Display for RefreshError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RefreshError::NoRefreshToken => write!(f, "no refresh token stored"),
+            RefreshError::Rejected(msg) => write!(f, "refresh token rejected: {msg}"),
+            RefreshError::Network(msg) => write!(f, "refresh request failed: {msg}"),
+            RefreshError::Server(msg) => write!(f, "{msg}"),
+        }
+    }
+}
+
 pub(crate) fn is_configured(config: &AppConfig) -> bool {
     // Token is the real session. Backend URL always resolves to the public
     // default when unset, so end-user installs work without a .env file.
@@ -58,7 +80,15 @@ fn is_auth_error(result: &Result<UploadResult, UploadError>) -> bool {
     matches!(result, Err(UploadError::HttpRequest(msg)) if msg.contains("401") || msg.contains("403"))
 }
 
-fn refresh_access_token(config: &mut AppConfig) -> Result<String, UploadError> {
+/// Exchange the stored refresh token for a fresh access token and persist both.
+///
+/// Shared by the upload path and the read client so there is one refresh
+/// implementation, not one per endpoint.
+pub(crate) fn refresh_access_token(config: &mut AppConfig) -> Result<String, RefreshError> {
+    if config.cloud_refresh_token.trim().is_empty() {
+        return Err(RefreshError::NoRefreshToken);
+    }
+
     let backend_url = resolve_cloud_backend_url(config);
 
     let refresh_body =
@@ -66,17 +96,28 @@ fn refresh_access_token(config: &mut AppConfig) -> Result<String, UploadError> {
     let resp = ureq::post(&format!("{backend_url}/v1/auth/refresh"))
         .set("Content-Type", "application/json")
         .send_string(&refresh_body)
-        .map_err(|e| UploadError::HttpRequest(e.to_string()))?;
+        .map_err(map_refresh_http_error)?;
 
     let tokens: RefreshResponse = resp
         .into_json()
-        .map_err(|e| UploadError::Server(format!("Invalid refresh response: {e}")))?;
+        .map_err(|e| RefreshError::Server(format!("Invalid refresh response: {e}")))?;
 
     config.cloud_api_token = tokens.access_token;
     config.cloud_refresh_token = tokens.refresh_token;
-    save_config(config).map_err(|e| UploadError::Server(format!("Failed to save config: {e}")))?;
+    save_config(config).map_err(|e| RefreshError::Server(format!("Failed to save config: {e}")))?;
 
     Ok(config.cloud_api_token.clone())
+}
+
+fn map_refresh_http_error(error: ureq::Error) -> RefreshError {
+    match error {
+        // Any 4xx on the refresh endpoint means this token pair is spent.
+        ureq::Error::Status(code, _) if (400..500).contains(&code) => {
+            RefreshError::Rejected(format!("HTTP {code}"))
+        }
+        ureq::Error::Status(code, _) => RefreshError::Server(format!("HTTP {code}")),
+        ureq::Error::Transport(transport) => RefreshError::Network(transport.to_string()),
+    }
 }
 
 fn upload_file_with_token(config: &AppConfig, path: &Path) -> Result<UploadResult, UploadError> {

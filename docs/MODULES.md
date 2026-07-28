@@ -462,19 +462,28 @@ English, Spanish, French, German, Italian, Portuguese, Chinese (Simplified), Jap
 
 ### Cloud Module (`src/cloud/`)
 
-**Purpose:** Upload captures and recordings to remote destinations.
+**Purpose:** Upload captures and recordings to remote destinations, and read back what an ApexShot Cloud account already holds.
 
 **Submodules:**
 - `mod.rs` — Module root
 - `upload.rs` — Public `upload_file()` entry point used by preview/editor flows
 - `destination.rs` — `Destination::{ApexShot, XBackbone}` routing from config
-- `apexshot.rs` — ApexShot Cloud REST upload client
+- `apexshot.rs` — ApexShot Cloud REST upload client, plus the shared access-token refresh
+- `listing.rs` — ApexShot Cloud read client: cursor-paginated uploads listing, account tier/entitlement, cached remote thumbnails (GUI-free, background-thread safe)
 - `auth.rs` — OAuth 2.0 device authorization (`apexshot login` / `logout`)
-- `xbackbone.rs` — Self-hosted XBackBone client (API token, test connection, upload)
+- `xbackbone.rs` — Self-hosted XBackBone client (API token, test connection, upload). Upload-only — no listing.
+
+**Key Types (`listing.rs`):**
+- `CloudUpload` — One remote upload: id, filename, share/thumbnail URLs, size, content type, created-at
+- `UploadsPage` — `items` + `next_cursor` + `has_more`
+- `UploadsPager` — Walks the server's cursor pagination, stopping when it reports no more
+- `CloudAccount` — `email` + `tier`; `is_subscribed_tier()` treats anything but `free` as paid
+- `CloudReadError` — `NotLoggedIn`, `Network`, `AuthRejected`, `Server`, `Cache`
 
 **Config fields (in `AppConfig`):**
 - `cloud_destination` — `"apexshot"` or `"xbackbone"`
 - `cloud_backend_url`, `cloud_api_token`, `cloud_refresh_token`, `cloud_install_id`, `cloud_user_email`
+- `cloud_plan_tier` — Cached plan tier (`free` / `pro` / `team` / …); `cloud_pro_plan` is kept in sync with it
 - `xbackbone_url`, `xbackbone_api_token`
 
 **Env overrides (see `.env.example`):**
