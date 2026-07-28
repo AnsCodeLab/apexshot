@@ -51,22 +51,24 @@ assets/                 — icons and sounds
 data/                   — bundled data files
 ```
 
-## Building on Replit (confirmed working)
+## Building on Replit
 
 All native dependencies (GTK4, GStreamer, PipeWire, Tesseract, Qt5, clang, cmake) are
-installed as Nix packages and the required env vars are baked into `.cargo/config.toml`:
-
-- `LIBCLANG_PATH` — points to `libclang.so` for the `bindgen`/`pipewire` crate build
-- `rustc` — points to the nightly 1.90.0 binary; needed because `rten 0.24` uses
-  AVX-512 intrinsics that are still behind a nightly feature gate in rustc 1.88/stable.
+installed as Nix packages via `replit.nix`. Keep `.cargo/config.toml` portable: do
+not commit absolute `/nix/store/...` values for `rustc` or `LIBCLANG_PATH` there.
+Those hashes change when Replit upgrades or garbage-collects Nix packages, which
+makes local Cargo fail before it can build.
 
 ```bash
-cargo build          # dev build (all env vars auto-loaded from .cargo/config.toml)
+cargo build
 cargo build --release
 ```
 
-If you see `"couldn't find any valid shared libraries matching: libclang.so"`, the
-clang nix-store hash changed — update the `LIBCLANG_PATH` value in `.cargo/config.toml`.
+If Replit needs an environment-specific override, set it outside git-tracked files,
+for example in Replit environment variables, the shell profile, or `~/.cargo/config.toml`.
+If you see `"couldn't find any valid shared libraries matching: libclang.so"`, set
+`LIBCLANG_PATH` in that local environment to the current Nix libclang directory rather
+than editing `.cargo/config.toml`.
 
 The C++ capture overlay (`build.rs` → `capture-overlay/`) is compiled by cmake at
 build time and requires `cmake` and Qt5 headers (both installed via Nix).
