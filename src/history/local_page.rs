@@ -502,10 +502,8 @@ fn show_action_popover(
     popover.add_css_class("history-action-popover");
     popover.set_has_arrow(false);
     popover.set_autohide(true);
-    // Keep the menu body left of the pointer. The former bottom placement put
-    // the pointer directly over "Open", making that row look selected as soon
-    // as the popover appeared.
-    popover.set_position(gtk4::PositionType::Left);
+    // File-manager geometry: below the pointer, body extending to the right.
+    popover.set_position(gtk4::PositionType::Bottom);
     popover.set_parent(anchor);
 
     let menu = GtkBox::new(Orientation::Vertical, 2);
@@ -604,17 +602,15 @@ fn show_action_popover(
         });
     }
 
-    // Give GTK a cursor-width exclusion zone rather than a one-pixel point.
-    // The menu then stays clear of the pointer even if edge constraints make
-    // GTK flip the preferred left placement to the right.
-    let pointer_x = x.round() as i32;
-    let anchor_width = anchor.width().max(1);
-    let exclusion_left = (pointer_x - 12).clamp(0, anchor_width - 1);
-    let exclusion_right = (pointer_x + 12).clamp(exclusion_left + 1, anchor_width);
+    // Anchor a strip as wide as the menu, starting at the pointer: GTK centers
+    // the popover on the strip, so the menu's top-left corner lands at the
+    // cursor and the body extends down-right. The pointer sits on the menu's
+    // corner, never over "Open" — which is what made that row look selected.
+    let (_, natural_width, _, _) = popover.measure(gtk4::Orientation::Horizontal, -1);
     popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(
-        exclusion_left,
-        y.round() as i32,
-        exclusion_right - exclusion_left,
+        x as i32,
+        y as i32,
+        natural_width.max(1),
         1,
     )));
 

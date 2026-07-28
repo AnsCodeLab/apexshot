@@ -1874,21 +1874,6 @@ const SETTINGS_CSS: &str = r#"
                 margin: 0 10px 0 14px;
             }
 
-            .history-root .history-nav-item:focus {
-                background-color: alpha(white, 0.10);
-                outline: none;
-            }
-
-            .history-root .history-nav-item:focus .settings-nav-icon {
-                opacity: 1;
-                color: #e8764a;
-            }
-
-            .history-root .history-nav-item:focus .settings-nav-label {
-                opacity: 1;
-                color: white;
-            }
-
             .history-root .history-action-separator {
                 min-height: 1px;
                 margin: 4px 2px;
@@ -2019,18 +2004,6 @@ const SETTINGS_CSS: &str = r#"
             .editor-root.editor-theme-light.history-root button.recent-captures-card:focus {
                 background: alpha(#111827, 0.06);
                 opacity: 1;
-            }
-
-            .editor-root.editor-theme-light.history-root .history-nav-item:focus {
-                background-color: alpha(#111827, 0.08);
-            }
-
-            .editor-root.editor-theme-light.history-root .history-nav-item:focus .settings-nav-icon {
-                color: #b05c38;
-            }
-
-            .editor-root.editor-theme-light.history-root .history-nav-item:focus .settings-nav-label {
-                color: #1d2129;
             }
 
             .editor-root.editor-theme-light.history-root button.recent-captures-card:active {
