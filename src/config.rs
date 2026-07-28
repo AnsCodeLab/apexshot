@@ -129,6 +129,10 @@ pub struct AppConfig {
     pub cloud_user_name: String,
     pub cloud_user_email: String,
     pub cloud_pro_plan: bool,
+    /// Last known ApexShot Cloud plan tier (`free`, `pro`, `team`, …), cached so
+    /// UI can render entitlement without a network round trip. Empty until an
+    /// account lookup has run. `cloud_pro_plan` is kept in sync with it.
+    pub cloud_plan_tier: String,
     pub cloud_backend_url: String,
     pub cloud_api_token: String,
     pub cloud_refresh_token: String,
@@ -256,6 +260,7 @@ impl Default for AppConfig {
             cloud_user_name: String::new(),
             cloud_user_email: String::new(),
             cloud_pro_plan: false,
+            cloud_plan_tier: String::new(),
             cloud_backend_url: DEFAULT_CLOUD_BACKEND_URL.to_string(),
             cloud_api_token: String::new(),
             cloud_refresh_token: String::new(),
@@ -344,6 +349,8 @@ impl AppConfig {
         };
         self.xbackbone_url = self.xbackbone_url.trim().to_string();
         self.xbackbone_api_token = self.xbackbone_api_token.trim().to_string();
+        // Tiers are compared case-insensitively; normalise once on the way in.
+        self.cloud_plan_tier = self.cloud_plan_tier.trim().to_lowercase();
         self
     }
 }
@@ -455,12 +462,14 @@ fn apply_cloud_env_overrides_in_place(config: &mut AppConfig) -> bool {
         && (!config.cloud_user_email.is_empty()
             || !config.cloud_user_name.is_empty()
             || config.cloud_pro_plan
+            || !config.cloud_plan_tier.is_empty()
             || !config.cloud_refresh_token.is_empty())
     {
         config.cloud_user_email.clear();
         config.cloud_user_name.clear();
         config.cloud_refresh_token.clear();
         config.cloud_pro_plan = false;
+        config.cloud_plan_tier.clear();
         changed = true;
     }
 
@@ -580,6 +589,7 @@ mod tests {
             cloud_user_email: "stranger@example.com".to_string(),
             cloud_user_name: "Stranger".to_string(),
             cloud_pro_plan: true,
+            cloud_plan_tier: "pro".to_string(),
             cloud_api_token: String::new(),
             cloud_backend_url: String::new(),
             ..AppConfig::default()
@@ -588,8 +598,31 @@ mod tests {
         assert!(cfg.cloud_user_email.is_empty());
         assert!(cfg.cloud_user_name.is_empty());
         assert!(!cfg.cloud_pro_plan);
+        assert!(cfg.cloud_plan_tier.is_empty());
         assert_eq!(cfg.cloud_backend_url, DEFAULT_CLOUD_BACKEND_URL);
         assert!(!is_cloud_logged_in(&cfg));
+    }
+
+    #[test]
+    fn cloud_plan_tier_round_trips_through_yaml_and_normalizes() {
+        let original = AppConfig {
+            cloud_api_token: "tok".to_string(),
+            cloud_plan_tier: "  Team ".to_string(),
+            cloud_pro_plan: true,
+            ..AppConfig::default()
+        };
+
+        let yaml = serde_yml::to_string(&original.clone().sanitized()).unwrap();
+        let loaded: AppConfig = serde_yml::from_str::<AppConfig>(&yaml).unwrap().sanitized();
+
+        assert_eq!(loaded.cloud_plan_tier, "team");
+        assert!(loaded.cloud_pro_plan);
+    }
+
+    #[test]
+    fn config_without_cloud_plan_tier_defaults_to_empty() {
+        let cfg: AppConfig = serde_yml::from_str("cloud_api_token: tok\n").unwrap();
+        assert!(cfg.cloud_plan_tier.is_empty());
     }
 
     #[test]
