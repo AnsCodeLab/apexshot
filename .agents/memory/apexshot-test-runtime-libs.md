@@ -32,12 +32,8 @@ also inject the paths into build scripts, bindgen, and the cmake overlay build, 
 system libs can break the build. Keep it in the test invocation.
 
 ## Other notes
-- The `Doc-tests` phase always fails here with `error[E0514]: found crate ... compiled by an
-  incompatible version of rustc` (for `image`, `gtk4`, `rten_tensor`, …). `.cargo/config.toml`
-  overrides `rustc` to the nix nightly but leaves `rustdoc` as stable, so rustdoc cannot load
-  nightly-built rlibs. All real test binaries pass before this phase. Judge `cargo test` on the
-  per-target `test result: ok` lines, not the final exit code, and use `--doc`-free invocations
-  (e.g. `--lib`, `--tests`) when you need a clean exit status.
+- Do not add Replit/Nix runtime library paths to `.cargo/config.toml`. Keep changing
+  machine-specific paths in the local test invocation or user environment.
 - `recording::tests::reap_child_if_exited_clears_completed_child` is timing-dependent: it sleeps
   50 ms and asserts a spawned `sh -c 'exit 0'` has been reaped. It fails under CPU contention
   (e.g. parallel test threads plus rust-analyzer) and passes reliably on its own. Treat a lone
