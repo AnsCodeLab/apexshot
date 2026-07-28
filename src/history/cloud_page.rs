@@ -629,11 +629,13 @@ struct PageOutcome {
 fn empty_state(title: &str, detail: &str) -> GtkBox {
     let state = GtkBox::new(Orientation::Vertical, 0);
     state.add_css_class("recent-captures-empty-state");
+    // History-only hook: flat, borderless panel sitting higher on the page.
+    state.add_css_class("history-cloud-state");
     state.set_halign(Align::Center);
     state.set_valign(Align::Center);
     state.set_hexpand(true);
     state.set_vexpand(true);
-    state.set_margin_top(40);
+    state.set_margin_top(12);
 
     let title_lbl = Label::new(Some(title));
     title_lbl.add_css_class("recent-captures-empty-title");

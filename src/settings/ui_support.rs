@@ -1792,7 +1792,7 @@ const SETTINGS_CSS: &str = r#"
 
             .history-root .settings-sidebar-wrapper {
                 border-right: none;
-                min-width: 220px;
+                min-width: 190px;
             }
 
             /* Scoped under .history-root so these header-bar widgets always
@@ -1804,14 +1804,13 @@ const SETTINGS_CSS: &str = r#"
                 border-radius: 8px;
                 background-color: alpha(white, 0.07);
                 color: #F1F1F3;
-                border: 1px solid alpha(white, 0.10);
+                border: none;
                 box-shadow: none;
                 caret-color: #F1F1F3;
             }
 
             .history-root .history-header-search:focus-within {
                 background-color: alpha(white, 0.10);
-                border-color: alpha(white, 0.22);
             }
 
             .history-root .history-header-search:disabled {
@@ -1970,13 +1969,21 @@ const SETTINGS_CSS: &str = r#"
             .editor-root.editor-theme-light.history-root .history-header-search {
                 background-color: alpha(#111827, 0.06);
                 color: #1d2129;
-                border-color: alpha(#111827, 0.12);
+                border: none;
                 caret-color: #1d2129;
             }
 
             .editor-root.editor-theme-light.history-root .history-header-search:focus-within {
                 background-color: alpha(#111827, 0.08);
-                border-color: alpha(#111827, 0.25);
+            }
+
+            /* Cloud page message panels: flat (no card border) and pushed up. */
+            .history-root .history-cloud-state {
+                border: none;
+            }
+
+            .editor-root.editor-theme-light.history-root .history-cloud-state {
+                border: none;
             }
 
             .editor-root.editor-theme-light.history-root .history-header-refresh {
