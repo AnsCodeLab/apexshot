@@ -1,6 +1,9 @@
-# History Window — Remaining Work
+# History Window — Completed
 
-The `src/history/` module has its GUI-free foundations (scan, thumbnails, actions) committed. Everything below still needs to be built before the feature is complete.
+**Status:** Complete as of July 28, 2026.
+
+The `src/history/` module now includes the GUI-free foundations, GTK window,
+local and cloud galleries, command/tray/daemon integration, and documentation.
 
 ---
 
@@ -20,7 +23,7 @@ Supporting changes already landed:
 
 ---
 
-## What remains
+## Completed implementation
 
 ### Step 1 — Window shell (`src/history/window.rs`)
 

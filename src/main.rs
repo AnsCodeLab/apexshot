@@ -127,6 +127,13 @@ fn main() {
             }
             return;
         }
+        "history-internal" => {
+            if let Err(e) = apexshot::history::show_history_window() {
+                eprintln!("Failed to open history window: {e}");
+                std::process::exit(1);
+            }
+            return;
+        }
         "video-editor" => {
             let result = if args.len() < 3 {
                 open_empty_recording_editor()
@@ -367,6 +374,17 @@ async fn async_main(args: Vec<String>) {
                 .arg("settings-internal")
                 .status()
                 .expect("Failed to spawn settings");
+            if !status.success() {
+                std::process::exit(status.code().unwrap_or(1));
+            }
+        }
+        "history" => {
+            // Run history as a subprocess to avoid tokio runtime conflicts
+            let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("apexshot"));
+            let status = std::process::Command::new(&exe)
+                .arg("history-internal")
+                .status()
+                .expect("Failed to spawn history");
             if !status.success() {
                 std::process::exit(status.code().unwrap_or(1));
             }
@@ -1629,6 +1647,7 @@ fn print_usage() {
     println!("  edit <image>      Open image editor window");
     println!("  show-last-preview Reopen the last capture preview via daemon");
     println!("  settings          Open settings window");
+    println!("  history           Open capture history window");
     println!("  login             Sign in to ApexShot Cloud (device authorization)");
     println!("  logout            Sign out of ApexShot Cloud");
     println!("  native-host <sub> Install/uninstall native messaging host");
