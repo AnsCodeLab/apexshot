@@ -1790,9 +1790,9 @@ const SETTINGS_CSS: &str = r#"
                 padding: 8px 12px;
             }
 
+            /* Same width as the Settings sidebar (170px), just borderless. */
             .history-root .settings-sidebar-wrapper {
                 border-right: none;
-                min-width: 190px;
             }
 
             /* Scoped under .history-root so these header-bar widgets always
