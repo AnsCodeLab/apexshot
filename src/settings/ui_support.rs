@@ -1790,9 +1790,11 @@ const SETTINGS_CSS: &str = r#"
                 padding: 8px 12px;
             }
 
-            /* Same width as the Settings sidebar (170px), just borderless. */
+            /* The scroller constrains History to 170px in code; remove the
+               shared Settings minimum so it cannot force this wrapper wider. */
             .history-root .settings-sidebar-wrapper {
                 border-right: none;
+                min-width: 0;
             }
 
             /* Scoped under .history-root so these header-bar widgets always
@@ -1872,6 +1874,21 @@ const SETTINGS_CSS: &str = r#"
                 margin: 0 10px 0 14px;
             }
 
+            .history-root .history-nav-item:focus {
+                background-color: alpha(white, 0.10);
+                outline: none;
+            }
+
+            .history-root .history-nav-item:focus .settings-nav-icon {
+                opacity: 1;
+                color: #e8764a;
+            }
+
+            .history-root .history-nav-item:focus .settings-nav-label {
+                opacity: 1;
+                color: white;
+            }
+
             .history-root .history-action-separator {
                 min-height: 1px;
                 margin: 4px 2px;
@@ -1921,10 +1938,10 @@ const SETTINGS_CSS: &str = r#"
                 color: alpha(white, 0.85);
             }
 
-            /* Keyboard focus paints too, but window.rs parks the popover's
-               initial focus on the container so no row looks pre-selected. */
+            /* Mouse-open focus stays visually neutral; only hover or genuine
+               keyboard focus paints a row. */
             .history-action-popover .history-action-btn:hover,
-            .history-action-popover .history-action-btn:focus {
+            .history-action-popover .history-action-btn:focus-visible {
                 background-color: alpha(white, 0.08);
                 color: white;
             }
@@ -1944,7 +1961,7 @@ const SETTINGS_CSS: &str = r#"
             }
 
             .history-action-popover .history-action-btn-destructive:hover,
-            .history-action-popover .history-action-btn-destructive:focus {
+            .history-action-popover .history-action-btn-destructive:focus-visible {
                 background-color: alpha(#e34a4a, 0.18);
                 color: #ffb3ad;
             }
@@ -2004,6 +2021,18 @@ const SETTINGS_CSS: &str = r#"
                 opacity: 1;
             }
 
+            .editor-root.editor-theme-light.history-root .history-nav-item:focus {
+                background-color: alpha(#111827, 0.08);
+            }
+
+            .editor-root.editor-theme-light.history-root .history-nav-item:focus .settings-nav-icon {
+                color: #b05c38;
+            }
+
+            .editor-root.editor-theme-light.history-root .history-nav-item:focus .settings-nav-label {
+                color: #1d2129;
+            }
+
             .editor-root.editor-theme-light.history-root button.recent-captures-card:active {
                 background: alpha(#111827, 0.10);
                 opacity: 1;
@@ -2035,7 +2064,7 @@ const SETTINGS_CSS: &str = r#"
             }
 
             .editor-root.editor-theme-light .history-action-popover .history-action-btn:hover,
-            .editor-root.editor-theme-light .history-action-popover .history-action-btn:focus {
+            .editor-root.editor-theme-light .history-action-popover .history-action-btn:focus-visible {
                 background-color: alpha(#111827, 0.06);
                 color: #1d2129;
             }
@@ -2055,7 +2084,7 @@ const SETTINGS_CSS: &str = r#"
             }
 
             .editor-root.editor-theme-light .history-action-popover .history-action-btn-destructive:hover,
-            .editor-root.editor-theme-light .history-action-popover .history-action-btn-destructive:focus {
+            .editor-root.editor-theme-light .history-action-popover .history-action-btn-destructive:focus-visible {
                 background-color: alpha(#e34a4a, 0.12);
                 color: #8a2822;
             }
