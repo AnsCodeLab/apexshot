@@ -320,6 +320,46 @@ the C++ Qt5 overlay (`capture-overlay/`) handles area selection instead.
 
 ---
 
+### History Module (`src/history/`)
+
+**Purpose:** GTK4 capture-history browser for reviewing past local captures
+(screenshots and recordings) and ApexShot Cloud uploads. The window is built as
+a visual sibling of the Settings window — it reuses the same chromeless shell,
+CSS vocabulary, sidebar/page-stack pattern, edge-drag resize, and window-drag
+helpers from `src/settings/` so the two windows look and behave consistently.
+
+**Submodules:**
+- `mod.rs` — Module root and `show_history_window()` entry point. Uses its own
+  application id (`"<app_id>.history"`) with default GTK `ApplicationFlags` so it
+  is single-instance and independent of the Settings window (opening History
+  while Settings is open yields two separate windows).
+- `window.rs` — `ApplicationWindow` shell + sidebar and page stack, mirroring
+  `src/settings/mod.rs`
+- `local_page.rs` — Screenshots / Recordings grid pages with search, refresh,
+  empty states, and per-item action popovers
+- `cloud_page.rs` — Cloud page state machine (signed-out / free / XBackBone /
+  error / subscribed) and paged cloud upload grid
+- `scan.rs` — GUI-free local capture scanner (image/video, newest-first)
+- `thumbnails.rs` — Off-main-thread thumbnail pool with on-disk cache, ffmpeg
+  poster-frame extraction, and remote thumbnail caching
+- `actions.rs` — Per-item actions reusing existing plumbing: open in default
+  app, open in editor, copy to clipboard, reveal in file manager, upload to
+  cloud, delete, copy share link, open in browser
+
+**Key Functions:**
+- `show_history_window()` — Entry point invoked by `apexshot history` /
+  `history-internal` and by the tray/daemon `OpenHistory` action
+
+**Relationship to Settings:** History adopts the Settings stylesheet
+(`recent-captures-*` gallery classes and shared window CSS) and the same
+windowing helpers (`install_window_drag`, `install_edge_resize`). It is launched
+as a subprocess (`apexshot history` → `history-internal`) to avoid tokio/GTK
+runtime conflicts, exactly like `apexshot settings`. The daemon exposes it via
+the tray menu (`TrayAction::OpenHistory`) and the D-Bus `"history"` trigger
+(`DaemonAction::OpenHistory` → `spawn_history_subprocess`).
+
+---
+
 ### Annotation Persistence (`src/annotations/`)
 
 **Purpose:** Non-destructive annotation storage by image SHA256 hash.
@@ -423,7 +463,7 @@ English, Spanish, French, German, Italian, Portuguese, Chinese (Simplified), Jap
 
 **Key Types:**
 - `TrayAction` — Enum of actions triggerable from tray menu:
-  `CaptureArea`, `CaptureCrosshair`, `CaptureScreen`, `CaptureWindow`, `OpenRecordingUi`, `OpenVideoEditor`, `RecordScreen`, `StopRecordingSave`, `ShowLastPreview`, `OpenLastCapture`, `OpenSettings`, `Quit`
+  `CaptureArea`, `CaptureCrosshair`, `CaptureScreen`, `CaptureWindow`, `OpenRecordingUi`, `OpenVideoEditor`, `RecordScreen`, `StopRecordingSave`, `ShowLastPreview`, `OpenLastCapture`, `OpenHistory`, `OpenSettings`, `Quit`
 - `ApexShotTray` — ksni tray icon state struct
 - `TrayPresentation` — `Idle` or `Recording { elapsed_text }`
 

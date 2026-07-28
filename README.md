@@ -503,6 +503,7 @@ apexshot video-editor <video>    # Open video editor with a specific video
 
 # Settings and cloud
 apexshot settings                # Open settings window
+apexshot history                 # Open capture history window (screenshots, recordings, cloud)
 apexshot login                   # Sign in to ApexShot Cloud (device flow)
 apexshot logout                  # Sign out of ApexShot Cloud
 

@@ -67,6 +67,7 @@ pub enum DaemonAction {
     ShowLastPreview,
     ShowPreviewForPath(std::path::PathBuf),
     OpenLastCapture,
+    OpenHistory,
     OpenSettings,
     SetTrayVisible(bool),
     RecordingSessionStarted,
@@ -96,6 +97,7 @@ impl From<TrayAction> for DaemonAction {
             TrayAction::DiscardRecording => DaemonAction::DiscardRecording,
             TrayAction::ShowLastPreview => DaemonAction::ShowLastPreview,
             TrayAction::OpenLastCapture => DaemonAction::OpenLastCapture,
+            TrayAction::OpenHistory => DaemonAction::OpenHistory,
             TrayAction::OpenSettings => DaemonAction::OpenSettings,
             TrayAction::Quit => DaemonAction::Quit,
         }
@@ -856,6 +858,9 @@ async fn run_daemon_inner(gtk_tx: Option<std::sync::mpsc::Sender<GtkWork>>) -> a
                     eprintln!("[daemon] No capture yet.");
                 }
             }
+            DaemonAction::OpenHistory => {
+                tokio::task::spawn_blocking(spawn_history_subprocess);
+            }
             DaemonAction::OpenSettings => {
                 tokio::task::spawn_blocking(show_settings_subprocess);
             }
@@ -1198,6 +1203,7 @@ impl DaemonIpc {
             "toggle_overlays" => DaemonAction::ToggleOverlays,
             "show_last_preview" => DaemonAction::ShowLastPreview,
             "open_last" => DaemonAction::OpenLastCapture,
+            "history" => DaemonAction::OpenHistory,
             "settings" => DaemonAction::OpenSettings,
             "quit" => DaemonAction::Quit,
             other => {
@@ -2727,6 +2733,14 @@ fn show_settings_subprocess() {
 
     if let Err(e) = std::process::Command::new(&exe).arg("settings").spawn() {
         eprintln!("[daemon] Failed to spawn settings window: {e}");
+    }
+}
+
+fn spawn_history_subprocess() {
+    let exe = std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("apexshot"));
+
+    if let Err(e) = std::process::Command::new(&exe).arg("history").spawn() {
+        eprintln!("[daemon] Failed to spawn history window: {e}");
     }
 }
 

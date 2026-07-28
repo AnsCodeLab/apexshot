@@ -29,6 +29,7 @@ pub enum TrayAction {
     DiscardRecording,
     ShowLastPreview,
     OpenLastCapture,
+    OpenHistory,
     OpenSettings,
     Quit,
 }
@@ -367,6 +368,12 @@ impl ksni::Tray for ApexShotTray {
             StandardItem {
                 label: ltr("Open Last Capture"),
                 activate: Box::new(|tray: &mut Self| tray.send(TrayAction::OpenLastCapture)),
+                ..Default::default()
+            }
+            .into(),
+            StandardItem {
+                label: ltr("History"),
+                activate: Box::new(|tray: &mut Self| tray.send(TrayAction::OpenHistory)),
                 ..Default::default()
             }
             .into(),
