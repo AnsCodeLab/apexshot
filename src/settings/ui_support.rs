@@ -1512,13 +1512,6 @@ const SETTINGS_CSS: &str = r#"
                 background: alpha(white, 0.04);
             }
 
-            .recent-captures-media-badge {
-                color: white;
-                background: alpha(black, 0.5);
-                border: 1px solid alpha(white, 0.2);
-                border-radius: 99px;
-                padding: 12px;
-            }
 
             button.recent-captures-wm-btn {
                 min-width: 24px;
@@ -1780,6 +1773,127 @@ const SETTINGS_CSS: &str = r#"
                 font-size: 11px;
                 font-weight: bold;
                 margin: 12px;
+            }
+
+            /* ── History window ── */
+            .history-page-subtitle {
+                font-size: 13px;
+                opacity: 0.55;
+                margin-top: 2px;
+            }
+
+            .history-toolbar {
+                margin-top: 12px;
+                margin-bottom: 18px;
+            }
+
+            .history-search {
+                min-width: 240px;
+            }
+
+            .history-card-placeholder {
+                color: alpha(white, 0.28);
+            }
+
+            .history-media-badge {
+                color: white;
+                background: alpha(black, 0.55);
+                border: 1px solid alpha(white, 0.18);
+                border-radius: 999px;
+                padding: 6px;
+            }
+
+            .history-action-popover {
+                background: transparent;
+                border: none;
+                box-shadow: none;
+            }
+
+            .history-action-popover contents {
+                background-color: #1d1d1d;
+                color: #F1F1F3;
+                border: 1px solid alpha(white, 0.12);
+                border-radius: 10px;
+                padding: 4px;
+                box-shadow: 0 12px 32px alpha(black, 0.45);
+            }
+
+            .history-action-btn {
+                min-height: 0;
+                background: transparent;
+                border: none;
+                box-shadow: none;
+                border-radius: 6px;
+                padding: 7px 10px;
+                font-size: 13px;
+                font-weight: 500;
+                color: alpha(white, 0.85);
+            }
+
+            .history-action-btn:hover,
+            .history-action-btn:focus {
+                background: alpha(white, 0.08);
+                color: white;
+            }
+
+            .history-action-btn:disabled {
+                color: alpha(white, 0.35);
+            }
+
+            .history-action-btn-destructive {
+                color: #f0a09a;
+            }
+
+            .history-action-btn-destructive:hover,
+            .history-action-btn-destructive:focus {
+                background: alpha(#e34a4a, 0.18);
+                color: #ffb3ad;
+            }
+
+            .history-empty-icon {
+                opacity: 0.25;
+                margin-bottom: 14px;
+            }
+
+            .history-load-more {
+                margin-top: 20px;
+                margin-bottom: 8px;
+            }
+
+            /* History — light theme */
+            .editor-root.editor-theme-light .history-card-placeholder {
+                color: alpha(#111827, 0.30);
+            }
+
+            .editor-root.editor-theme-light .history-action-popover contents {
+                background-color: #ffffff;
+                color: #1d2129;
+                border-color: alpha(#111827, 0.12);
+                box-shadow: 0 12px 32px alpha(#111827, 0.18);
+            }
+
+            .editor-root.editor-theme-light .history-action-btn {
+                color: alpha(#1d2129, 0.82);
+            }
+
+            .editor-root.editor-theme-light .history-action-btn:hover,
+            .editor-root.editor-theme-light .history-action-btn:focus {
+                background: alpha(#111827, 0.06);
+                color: #1d2129;
+            }
+
+            .editor-root.editor-theme-light .history-action-btn:disabled {
+                color: alpha(#111827, 0.35);
+            }
+
+            .editor-root.editor-theme-light .history-action-btn-destructive {
+                color: #8a2822;
+            }
+
+            .editor-root.editor-theme-light .history-action-btn-destructive:hover,
+            .editor-root.editor-theme-light .history-action-btn-destructive:focus {
+                background: alpha(#e34a4a, 0.12);
+                color: #8a2822;
             }
             "#;
 

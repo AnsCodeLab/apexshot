@@ -228,10 +228,7 @@ fn worker_loop(pool: &'static Pool) {
                         break request;
                     }
                     None => {
-                        inner = pool
-                            .wake
-                            .wait(inner)
-                            .unwrap_or_else(|e| e.into_inner());
+                        inner = pool.wake.wait(inner).unwrap_or_else(|e| e.into_inner());
                     }
                 }
             }
@@ -354,7 +351,11 @@ mod tests {
         submit(ThumbnailRequest {
             id: 7,
             generation,
-            source: ThumbnailSource::Local(entry("/nonexistent/apexshot-history-live.png", None, 0)),
+            source: ThumbnailSource::Local(entry(
+                "/nonexistent/apexshot-history-live.png",
+                None,
+                0,
+            )),
             reply: tx,
         });
 

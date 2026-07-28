@@ -208,10 +208,8 @@ mod tests {
 
     #[test]
     fn editor_action_rejects_recordings_the_video_editor_cannot_open() {
-        let dir = std::env::temp_dir().join(format!(
-            "apexshot-history-actions-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("apexshot-history-actions-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("create scratch dir");
         let path = dir.join("clip.gif");
         std::fs::write(&path, b"gif").expect("write clip");

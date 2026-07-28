@@ -40,6 +40,7 @@ struct PageState {
     grid: FlowBox,
     empty_state: GtkBox,
     scroller: ScrolledWindow,
+    subtitle: Label,
     cards: RefCell<Vec<Rc<Card>>>,
     /// Current scan/thumbnail batch. Bumped on refresh so stale deliveries drop.
     generation: Cell<u64>,
@@ -56,44 +57,57 @@ pub fn build_local_page(kind: MediaKind, toast: HistoryToast) -> gtk4::Widget {
 
     let column = GtkBox::new(Orientation::Vertical, 0);
     column.set_margin_top(20);
-    column.set_margin_bottom(28);
+    column.set_margin_bottom(32);
     column.set_margin_start(28);
     column.set_margin_end(28);
 
-    // Header: title + search + refresh, matching the settings page header.
-    let header = GtkBox::new(Orientation::Horizontal, 12);
-    header.set_margin_bottom(16);
-    header.set_valign(Align::Center);
+    // Header: gallery title + live count subtitle, then a toolbar row with the
+    // search entry and a refresh button, using the recent-captures vocabulary.
+    let header = GtkBox::new(Orientation::Vertical, 0);
 
     let title = Label::new(Some(match kind {
         MediaKind::Image => "Screenshots",
         MediaKind::Video => "Recordings",
     }));
-    title.add_css_class("settings-page-title");
+    title.add_css_class("recent-captures-title");
     title.set_halign(Align::Start);
-    title.set_hexpand(true);
 
-    let search = Entry::new();
-    search.set_placeholder_text(Some("Search"));
-    search.set_width_chars(18);
-    search.set_valign(Align::Center);
-
-    let refresh = Button::with_label("Refresh");
-    refresh.add_css_class("recent-captures-refresh-button");
-    refresh.set_valign(Align::Center);
+    let subtitle = Label::new(Some("Loading…"));
+    subtitle.add_css_class("history-page-subtitle");
+    subtitle.set_halign(Align::Start);
 
     header.append(&title);
-    header.append(&search);
-    header.append(&refresh);
+    header.append(&subtitle);
+
+    let toolbar = GtkBox::new(Orientation::Horizontal, 8);
+    toolbar.add_css_class("history-toolbar");
+
+    let search = Entry::new();
+    search.add_css_class("history-search");
+    search.set_placeholder_text(Some(match kind {
+        MediaKind::Image => "Search screenshots",
+        MediaKind::Video => "Search recordings",
+    }));
+    search.set_primary_icon_name(Some("system-search-symbolic"));
+    search.set_hexpand(true);
+
+    let refresh = Button::from_icon_name("view-refresh-symbolic");
+    refresh.add_css_class("recent-captures-refresh-button");
+    refresh.set_tooltip_text(Some("Refresh"));
+
+    toolbar.append(&search);
+    toolbar.append(&refresh);
+
     column.append(&header);
+    column.append(&toolbar);
 
     // The card grid.
     let grid = FlowBox::new();
     grid.add_css_class("recent-captures-grid");
     grid.set_selection_mode(SelectionMode::None);
-    grid.set_homogeneous(false);
-    grid.set_row_spacing(4);
-    grid.set_column_spacing(4);
+    grid.set_homogeneous(true);
+    grid.set_row_spacing(14);
+    grid.set_column_spacing(14);
     grid.set_max_children_per_line(6);
     grid.set_min_children_per_line(1);
     grid.set_valign(Align::Start);
@@ -111,6 +125,7 @@ pub fn build_local_page(kind: MediaKind, toast: HistoryToast) -> gtk4::Widget {
         grid,
         empty_state,
         scroller: scroller.clone(),
+        subtitle,
         cards: RefCell::new(Vec::new()),
         generation: Cell::new(0),
         next_card_id: Cell::new(0),
@@ -156,6 +171,19 @@ fn build_empty_state(kind: MediaKind) -> GtkBox {
     empty.set_valign(Align::Start);
     empty.set_margin_top(24);
 
+    let icon = Image::from_icon_name(match kind {
+        MediaKind::Image => {
+            crate::capture::editor::window::icon_names::custom::SCREENSHOOTER_SYMBOLIC
+        }
+        MediaKind::Video => {
+            crate::capture::editor::window::icon_names::custom::RECORD_SCREEN_SYMBOLIC
+        }
+    });
+    icon.set_pixel_size(48);
+    icon.add_css_class("history-empty-icon");
+    icon.set_halign(Align::Center);
+    empty.append(&icon);
+
     let title = Label::new(Some(match kind {
         MediaKind::Image => "No screenshots yet",
         MediaKind::Video => "No recordings yet",
@@ -192,6 +220,8 @@ fn reload(state: &Rc<PageState>) {
     state.cards.borrow_mut().clear();
     state.empty_state.set_visible(false);
     state.grid.set_visible(true);
+    state.subtitle.set_visible(true);
+    state.subtitle.set_text("Loading…");
 
     let kind = state.kind;
     let (scan_tx, scan_rx) = mpsc::channel::<Vec<CaptureEntry>>();
@@ -242,8 +272,18 @@ fn populate(
     if entries.is_empty() {
         state.grid.set_visible(false);
         state.empty_state.set_visible(true);
+        state.subtitle.set_visible(false);
         return;
     }
+
+    let noun = match state.kind {
+        MediaKind::Image => "screenshots",
+        MediaKind::Video => "recordings",
+    };
+    state
+        .subtitle
+        .set_text(&format!("{} {}", entries.len(), noun));
+    state.subtitle.set_visible(true);
 
     let now = SystemTime::now();
     let mut cards = state.cards.borrow_mut();
@@ -287,6 +327,20 @@ fn build_card(state: &Rc<PageState>, id: u64, entry: &CaptureEntry, now: SystemT
     placeholder.add_css_class("recent-captures-picture-missing");
     placeholder.set_size_request(THUMB_WIDTH as i32, THUMB_HEIGHT as i32);
 
+    let placeholder_icon = Image::from_icon_name(match entry.kind {
+        MediaKind::Image => {
+            crate::capture::editor::window::icon_names::custom::SCREENSHOOTER_SYMBOLIC
+        }
+        MediaKind::Video => {
+            crate::capture::editor::window::icon_names::custom::RECORD_SCREEN_SYMBOLIC
+        }
+    });
+    placeholder_icon.set_pixel_size(32);
+    placeholder_icon.add_css_class("history-card-placeholder");
+    placeholder_icon.set_vexpand(true);
+    placeholder_icon.set_valign(Align::Center);
+    placeholder.append(&placeholder_icon);
+
     let picture = Picture::new();
     picture.add_css_class("recent-captures-card-image");
     picture.set_size_request(THUMB_WIDTH as i32, THUMB_HEIGHT as i32);
@@ -302,8 +356,8 @@ fn build_card(state: &Rc<PageState>, id: u64, entry: &CaptureEntry, now: SystemT
         let badge = Image::from_icon_name(
             crate::capture::editor::window::icon_names::custom::RECORD_SCREEN_SYMBOLIC,
         );
-        badge.add_css_class("recent-captures-media-badge");
-        badge.set_pixel_size(16);
+        badge.add_css_class("history-media-badge");
+        badge.set_pixel_size(12);
         badge.set_halign(Align::End);
         badge.set_valign(Align::End);
         badge.set_margin_end(8);
@@ -424,35 +478,34 @@ fn apply_filter(state: &Rc<PageState>, needle: &str) {
 /// Present the per-item action popover anchored to the clicked card.
 fn show_action_popover(state: &Rc<PageState>, entry: &CaptureEntry, anchor: &Button) {
     let popover = Popover::new();
+    popover.add_css_class("history-action-popover");
     popover.set_has_arrow(true);
     popover.set_autohide(true);
     popover.set_position(gtk4::PositionType::Bottom);
     popover.set_parent(anchor);
 
-    let menu = GtkBox::new(Orientation::Vertical, 4);
-    menu.set_margin_top(8);
-    menu.set_margin_bottom(8);
-    menu.set_margin_start(8);
-    menu.set_margin_end(8);
+    let menu = GtkBox::new(Orientation::Vertical, 2);
 
-    let add_action = |label: &str| {
-        let btn = Button::with_label(label);
-        btn.add_css_class("recent-captures-secondary-button");
-        btn.set_halign(Align::Fill);
+    let add_action = |label_text: &str, destructive: bool| {
+        let btn = Button::new();
+        btn.add_css_class("history-action-btn");
+        if destructive {
+            btn.add_css_class("history-action-btn-destructive");
+        }
+        let label = Label::new(Some(label_text));
+        label.set_halign(Align::Start);
+        label.set_xalign(0.0);
+        btn.set_child(Some(&label));
         menu.append(&btn);
         btn
     };
 
-    let open_btn = add_action("Open");
-    let editor_btn = add_action("Open in editor");
-    let copy_btn = add_action("Copy");
-    let reveal_btn = add_action("Show in files");
-    let upload_btn = add_action("Upload to cloud");
-
-    let delete_btn = Button::with_label("Delete");
-    delete_btn.add_css_class("recent-captures-secondary-button");
-    delete_btn.set_halign(Align::Fill);
-    menu.append(&delete_btn);
+    let open_btn = add_action("Open", false);
+    let editor_btn = add_action("Open in editor", false);
+    let copy_btn = add_action("Copy", false);
+    let reveal_btn = add_action("Show in files", false);
+    let upload_btn = add_action("Upload to cloud", false);
+    let delete_btn = add_action("Delete", true);
 
     popover.set_child(Some(&menu));
 
@@ -560,9 +613,20 @@ fn remove_card(state: &Rc<PageState>, path: &PathBuf) {
         let card = cards.remove(pos);
         state.grid.remove(&card.root);
     }
-    if cards.is_empty() {
+    // Keep the header count and empty state in sync with what the grid shows.
+    let remaining = cards.len();
+    drop(cards);
+    if remaining == 0 {
         state.grid.set_visible(false);
         state.empty_state.set_visible(true);
+        state.subtitle.set_visible(false);
+    } else {
+        let noun = match state.kind {
+            MediaKind::Image => "screenshots",
+            MediaKind::Video => "recordings",
+        };
+        state.subtitle.set_text(&format!("{remaining} {noun}"));
+        state.subtitle.set_visible(true);
     }
 }
 
