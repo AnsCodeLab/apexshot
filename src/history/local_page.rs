@@ -502,21 +502,21 @@ fn show_action_popover(
     popover.add_css_class("history-action-popover");
     popover.set_has_arrow(false);
     popover.set_autohide(true);
-    popover.set_position(gtk4::PositionType::Bottom);
+    // Keep the menu body left of the pointer. The former bottom placement put
+    // the pointer directly over "Open", making that row look selected as soon
+    // as the popover appeared.
+    popover.set_position(gtk4::PositionType::Left);
     popover.set_parent(anchor);
-
-    // Park the initial focus on the popover container so no row looks
-    // pre-selected on mouse-open; arrow keys still move into the rows.
-    popover.set_can_focus(true);
-    popover.connect_map(|popover| {
-        popover.grab_focus();
-    });
 
     let menu = GtkBox::new(Orientation::Vertical, 2);
 
     let add_action = |label_text: &str, destructive: bool| {
         let btn = Button::new();
         btn.add_css_class("history-action-btn");
+        // Opening a pointer-driven popover may focus its first action. Keep
+        // that mouse focus visually neutral; keyboard focus is styled with
+        // `:focus-visible`.
+        btn.set_focus_on_click(false);
         if destructive {
             btn.add_css_class("history-action-btn-destructive");
         }
@@ -604,16 +604,17 @@ fn show_action_popover(
         });
     }
 
-    // Anchor left of the pointer so the menu body sits under it, Files-style,
-    // instead of hanging off to the right. The shift tracks the measured menu
-    // width (about a third) so it holds up across themes and scaling, and it
-    // never pushes the anchor rect off the card's left edge.
-    let (_, natural_width, _, _) = popover.measure(gtk4::Orientation::Horizontal, -1);
-    let offset = (natural_width / 3).max(0).min(x as i32);
+    // Give GTK a cursor-width exclusion zone rather than a one-pixel point.
+    // The menu then stays clear of the pointer even if edge constraints make
+    // GTK flip the preferred left placement to the right.
+    let pointer_x = x.round() as i32;
+    let anchor_width = anchor.width().max(1);
+    let exclusion_left = (pointer_x - 12).clamp(0, anchor_width - 1);
+    let exclusion_right = (pointer_x + 12).clamp(exclusion_left + 1, anchor_width);
     popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(
-        x as i32 - offset,
-        y as i32,
-        1,
+        exclusion_left,
+        y.round() as i32,
+        exclusion_right - exclusion_left,
         1,
     )));
 

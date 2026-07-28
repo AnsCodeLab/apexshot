@@ -112,6 +112,20 @@ pub fn build_history_window(app: &Application) {
         root_box.add_css_class("editor-reduced-transparency");
     }
 
+    // Clicking a new area first releases the previous widget's focus. The
+    // clicked entry/button/nav row can then take focus during normal event
+    // handling, so only one History control keeps its selected treatment.
+    let focus_reset = gtk4::GestureClick::new();
+    focus_reset.set_button(gtk4::gdk::BUTTON_PRIMARY);
+    focus_reset.set_propagation_phase(gtk4::PropagationPhase::Capture);
+    {
+        let window = window.clone();
+        focus_reset.connect_pressed(move |_, _, _, _| {
+            gtk4::prelude::RootExt::set_focus(&window, None::<&gtk4::Widget>);
+        });
+    }
+    root_box.add_controller(focus_reset);
+
     // --- TOOLBAR ---
     // GNOME-style borderless header bar: the shared search entry sits at the
     // far left and the refresh button immediately left of the window controls
@@ -206,8 +220,12 @@ pub fn build_history_window(app: &Application) {
     // --- SIDEBAR ---
     let sidebar_scroller = ScrolledWindow::new();
     sidebar_scroller.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
-    // Report the nav strip's real width so the wrapper can size to it.
-    sidebar_scroller.set_propagate_natural_width(true);
+    // Keep the nav strip at the History sidebar width. A widget
+    // `size_request` is only a minimum in GTK; propagating the child's natural
+    // width let the scroller silently grow wider than that minimum.
+    sidebar_scroller.set_propagate_natural_width(false);
+    sidebar_scroller.set_min_content_width(170);
+    sidebar_scroller.set_max_content_width(170);
 
     let nav_strip = GtkBox::new(Orientation::Vertical, 4);
     nav_strip.add_css_class("settings-sidebar");
@@ -223,9 +241,7 @@ pub fn build_history_window(app: &Application) {
     let sidebar_wrapper = GtkBox::new(Orientation::Vertical, 0);
     sidebar_wrapper.add_css_class("settings-sidebar-wrapper");
     sidebar_wrapper.set_vexpand(true);
-    // Pin to the Settings sidebar width in code as well as CSS, so nothing
-    // upstream (content sizing, theme quirks) can make it drift wider.
-    sidebar_wrapper.set_size_request(170, -1);
+    sidebar_wrapper.set_hexpand(false);
 
     let sidebar_head = GtkBox::new(Orientation::Horizontal, 0);
     sidebar_head.set_size_request(-1, 46);
@@ -257,8 +273,10 @@ pub fn build_history_window(app: &Application) {
     for (i, (label_text, icon_name)) in labels.iter().enumerate() {
         let item = GtkBox::new(Orientation::Horizontal, 8);
         item.add_css_class("settings-nav-item");
+        item.add_css_class("history-nav-item");
         item.set_halign(Align::Fill);
         item.set_valign(Align::Center);
+        item.set_focusable(true);
 
         let icon = Image::from_icon_name(icon_name);
         icon.add_css_class("settings-nav-icon");
@@ -271,12 +289,6 @@ pub fn build_history_window(app: &Application) {
 
         item.append(&icon);
         item.append(&label);
-
-        if i == 0 {
-            item.add_css_class("settings-nav-item-selected");
-            icon.add_css_class("settings-nav-icon-selected");
-            label.add_css_class("settings-nav-label-selected");
-        }
 
         let motion = gtk4::EventControllerMotion::new();
         {
@@ -302,9 +314,11 @@ pub fn build_history_window(app: &Application) {
         item.add_controller(motion);
 
         let s_clone = stack.clone();
+        let item_for_click = item.clone();
         let idx_str = i.to_string();
         let click = gtk4::GestureClick::new();
         click.connect_released(move |_, _, _, _| {
+            item_for_click.grab_focus();
             s_clone.set_visible_child_name(&idx_str);
         });
         item.add_controller(click);
@@ -355,9 +369,9 @@ pub fn build_history_window(app: &Application) {
 
     body_frame.append(&stack);
 
-    // Keep the sidebar selection and header-bar search in sync when the
-    // visible page changes.
-    let nav_items_clone = nav_items.clone();
+    // Keep the header-bar search in sync when the visible page changes.
+    // History nav rows deliberately use transient hover styling only: once
+    // the pointer leaves, no stale "selected" treatment remains.
     let search_for_switch = search.clone();
     stack.connect_visible_child_name_notify(move |s| {
         if let Some(name) = s.visible_child_name() {
@@ -365,17 +379,6 @@ pub fn build_history_window(app: &Application) {
                 if let Some(&(searchable, placeholder)) = search_meta.get(idx) {
                     search_for_switch.set_sensitive(searchable);
                     search_for_switch.set_placeholder_text(Some(placeholder));
-                }
-                for (i, (item, icon, label)) in nav_items_clone.iter().enumerate() {
-                    if i == idx {
-                        item.add_css_class("settings-nav-item-selected");
-                        icon.add_css_class("settings-nav-icon-selected");
-                        label.add_css_class("settings-nav-label-selected");
-                    } else {
-                        item.remove_css_class("settings-nav-item-selected");
-                        icon.remove_css_class("settings-nav-icon-selected");
-                        label.remove_css_class("settings-nav-label-selected");
-                    }
                 }
             }
         }
