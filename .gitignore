@@ -2,6 +2,9 @@
 /target/
 *.rs.bk
 
+# Pasted chat screenshots — references only, never committed
+/attached_assets/
+
 # Build artifacts
 *.deb
 *.rpm
