@@ -137,9 +137,19 @@ fn write_scaled_thumbnail(source: &Path, target: &Path) -> Result<(), String> {
             .map_err(|e| format!("Could not create the thumbnail cache: {e}"))?;
     }
 
-    let temp = target.with_extension(format!("{}.tmp", std::process::id()));
+    // Unique per call: two workers racing the same cache entry must not share
+    // a temp path (the counter is process-unique, the pid keeps cross-process
+    // names apart).
+    static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+    let temp = target.with_extension(format!(
+        "{}-{}.tmp",
+        std::process::id(),
+        TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+    ));
+    // `save` infers the encoder from the extension and `.tmp` matches nothing,
+    // so every write would fail — name the format explicitly.
     scaled
-        .save(&temp)
+        .save_with_format(&temp, image::ImageFormat::Png)
         .map_err(|e| format!("Could not write the thumbnail: {e}"))?;
     std::fs::rename(&temp, target).map_err(|e| {
         let _ = std::fs::remove_file(&temp);
@@ -365,6 +375,41 @@ mod tests {
         assert_eq!(ready.id, 7);
         assert_eq!(ready.generation, generation);
         assert!(ready.result.is_err());
+    }
+
+    #[test]
+    fn valid_images_produce_a_cached_thumbnail() {
+        // Regression: the cache write used to fail for every file because the
+        // temp path's `.tmp` extension gave `save` no format to infer.
+        let dir = std::env::temp_dir().join(format!(
+            "apexshot-history-thumb-valid-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("create scratch dir");
+        let path = dir.join("valid.png");
+
+        // A real decodable image, larger than the card so the scale path runs.
+        image::DynamicImage::new_rgb8(640, 360)
+            .save(&path)
+            .expect("write source image");
+        let size = std::fs::metadata(&path).expect("source metadata").len();
+
+        let valid = CaptureEntry {
+            path: path.clone(),
+            display_name: "valid.png".to_string(),
+            modified: None,
+            size_bytes: size,
+            kind: MediaKind::Image,
+        };
+
+        let thumb = thumbnail_for_entry(&valid).expect("thumbnail renders");
+        assert!(thumb.is_file());
+        let decoded = image::open(&thumb).expect("cached thumbnail decodes");
+        assert_eq!(decoded.width(), THUMB_WIDTH);
+        assert_eq!(decoded.height(), THUMB_HEIGHT);
+
+        let _ = std::fs::remove_file(&thumb);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
