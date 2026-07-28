@@ -115,7 +115,7 @@ support is improving over time.
 - **Multiple Capture Modes** — Full screen, area selection, window capture, and crosshair mode
   ![Crosshair capture to preview overlay](media/capture-workflow.gif)
   ![Capture area selection](media/capture-area.png)
-- **Image Editor** — Annotate with arrows, shapes, text, blur, pixelate, highlighter, and more
+- **Image Editor** — Annotate with arrows, shapes, text, blur, pixelate, highlighter, and more. Open from the tray menu or CLI (`apexshot image-editor`) and load any PNG/JPEG/WebP via drag-and-drop or the file chooser. The Done button saves the edited image and follows your General settings — copy to clipboard (image, file path, or both) and quick access overlay.
 - **OCR** — Extract text from images using Tesseract and ocrs dual-engine OCR
 - **QR Code Detection** — Automatically detect and copy QR codes from screenshots
 
@@ -493,8 +493,9 @@ apexshot record ui               # Open recording configuration UI
 # OCR (requires image path)
 apexshot ocr <image-path>        # Extract text from image
 
-# Editor (requires image path)
+# Image Editor
 apexshot edit <image-path>       # Open image in annotation editor
+apexshot image-editor            # Open empty image editor (drag & drop or browse to load)
 
 # Video Editor
 apexshot video-editor            # Open video editor (with optional MP4 path)
