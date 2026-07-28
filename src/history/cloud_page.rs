@@ -65,15 +65,21 @@ pub fn build_cloud_page(toast: HistoryToast) -> Widget {
     let column = GtkBox::new(Orientation::Vertical, 0);
     column.add_css_class("recent-captures-root");
     column.set_margin_top(20);
-    column.set_margin_bottom(28);
+    column.set_margin_bottom(32);
     column.set_margin_start(28);
     column.set_margin_end(28);
 
     let title = Label::new(Some("Cloud"));
-    title.add_css_class("settings-page-title");
+    title.add_css_class("recent-captures-title");
     title.set_halign(Align::Start);
-    title.set_margin_bottom(16);
+
+    let subtitle = Label::new(Some("Everything you have uploaded to ApexShot Cloud"));
+    subtitle.add_css_class("history-page-subtitle");
+    subtitle.set_halign(Align::Start);
+    subtitle.set_margin_bottom(18);
+
     column.append(&title);
+    column.append(&subtitle);
 
     // Body holds whichever state is currently rendered; a rebuild only ever
     // clears and refills this box, leaving the title header untouched.
@@ -277,6 +283,7 @@ impl CloudPage {
 
         let load_more = Button::with_label("Load more");
         load_more.add_css_class("recent-captures-secondary-button");
+        load_more.add_css_class("history-load-more");
         load_more.set_halign(Align::Center);
         load_more.set_margin_top(16);
         load_more.set_visible(false);
@@ -640,7 +647,8 @@ fn add_missing_badge(frame: &GtkBox) {
     frame.add_css_class("recent-captures-picture-missing");
 
     let badge = Image::from_icon_name("image-missing-symbolic");
-    badge.add_css_class("recent-captures-media-badge");
+    badge.add_css_class("history-media-badge");
+    badge.set_pixel_size(16);
     badge.set_halign(Align::Center);
     badge.set_valign(Align::Center);
     badge.set_hexpand(true);
