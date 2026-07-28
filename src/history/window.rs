@@ -206,6 +206,8 @@ pub fn build_history_window(app: &Application) {
     // --- SIDEBAR ---
     let sidebar_scroller = ScrolledWindow::new();
     sidebar_scroller.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
+    // Report the nav strip's real width so the wrapper can size to it.
+    sidebar_scroller.set_propagate_natural_width(true);
 
     let nav_strip = GtkBox::new(Orientation::Vertical, 4);
     nav_strip.add_css_class("settings-sidebar");
@@ -221,6 +223,9 @@ pub fn build_history_window(app: &Application) {
     let sidebar_wrapper = GtkBox::new(Orientation::Vertical, 0);
     sidebar_wrapper.add_css_class("settings-sidebar-wrapper");
     sidebar_wrapper.set_vexpand(true);
+    // Pin to the Settings sidebar width in code as well as CSS, so nothing
+    // upstream (content sizing, theme quirks) can make it drift wider.
+    sidebar_wrapper.set_size_request(170, -1);
 
     let sidebar_head = GtkBox::new(Orientation::Horizontal, 0);
     sidebar_head.set_size_request(-1, 46);
