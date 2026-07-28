@@ -1921,6 +1921,8 @@ const SETTINGS_CSS: &str = r#"
                 color: alpha(white, 0.85);
             }
 
+            /* Keyboard focus paints too, but window.rs parks the popover's
+               initial focus on the container so no row looks pre-selected. */
             .history-action-popover .history-action-btn:hover,
             .history-action-popover .history-action-btn:focus {
                 background-color: alpha(white, 0.08);

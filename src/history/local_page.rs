@@ -503,8 +503,14 @@ fn show_action_popover(
     popover.set_has_arrow(false);
     popover.set_autohide(true);
     popover.set_position(gtk4::PositionType::Bottom);
-    popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
     popover.set_parent(anchor);
+
+    // Park the initial focus on the popover container so no row looks
+    // pre-selected on mouse-open; arrow keys still move into the rows.
+    popover.set_can_focus(true);
+    popover.connect_map(|popover| {
+        popover.grab_focus();
+    });
 
     let menu = GtkBox::new(Orientation::Vertical, 2);
 
@@ -597,6 +603,19 @@ fn show_action_popover(
             confirm_delete(&state, &entry);
         });
     }
+
+    // Anchor left of the pointer so the menu body sits under it, Files-style,
+    // instead of hanging off to the right. The shift tracks the measured menu
+    // width (about a third) so it holds up across themes and scaling, and it
+    // never pushes the anchor rect off the card's left edge.
+    let (_, natural_width, _, _) = popover.measure(gtk4::Orientation::Horizontal, -1);
+    let offset = (natural_width / 3).max(0).min(x as i32);
+    popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(
+        x as i32 - offset,
+        y as i32,
+        1,
+        1,
+    )));
 
     popover.popup();
 }
