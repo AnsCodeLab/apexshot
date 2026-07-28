@@ -1798,7 +1798,7 @@ const SETTINGS_CSS: &str = r#"
             /* Scoped under .history-root so these header-bar widgets always
                outrank the shared stylesheet's generic entry/button rules. */
             .history-root .history-header-search {
-                min-width: 260px;
+                min-width: 340px;
                 min-height: 30px;
                 padding: 0 12px;
                 border-radius: 999px;
@@ -1837,6 +1837,48 @@ const SETTINGS_CSS: &str = r#"
                 color: white;
             }
 
+            /* File-manager-style icon items: flat until hovered, then a soft
+               rounded highlight behind thumbnail + filename (no fade). */
+            .history-root button.recent-captures-card {
+                padding: 8px;
+                border-radius: 12px;
+                transition: background 0.15s ease;
+            }
+
+            .history-root button.recent-captures-card:hover,
+            .history-root button.recent-captures-card:focus {
+                background: alpha(white, 0.08);
+                opacity: 1;
+            }
+
+            .history-root button.recent-captures-card:active {
+                background: alpha(white, 0.12);
+                opacity: 1;
+            }
+
+            .history-root .recent-captures-card-image {
+                border: none;
+                background: transparent;
+            }
+
+            .history-root .recent-captures-card-title {
+                font-size: 13px;
+                font-weight: 500;
+                margin-top: 6px;
+            }
+
+            .history-root .history-sidebar-title {
+                font-size: 16px;
+                font-weight: 700;
+                margin: 4px 10px 12px 10px;
+            }
+
+            .history-root .history-action-separator {
+                min-height: 1px;
+                margin: 4px 2px;
+                background: alpha(white, 0.10);
+            }
+
             .history-card-placeholder {
                 color: alpha(white, 0.28);
             }
@@ -1856,11 +1898,12 @@ const SETTINGS_CSS: &str = r#"
             }
 
             .history-action-popover contents {
+                min-width: 210px;
                 background-color: #1d1d1d;
                 color: #F1F1F3;
                 border: 1px solid alpha(white, 0.12);
-                border-radius: 10px;
-                padding: 4px;
+                border-radius: 12px;
+                padding: 6px;
                 box-shadow: 0 12px 32px alpha(black, 0.45);
             }
 
@@ -1870,7 +1913,7 @@ const SETTINGS_CSS: &str = r#"
                 border: none;
                 box-shadow: none;
                 border-radius: 6px;
-                padding: 7px 10px;
+                padding: 8px 12px;
                 font-size: 13px;
                 font-weight: 500;
                 color: alpha(white, 0.85);
@@ -1935,6 +1978,26 @@ const SETTINGS_CSS: &str = r#"
             .editor-root.editor-theme-light.history-root .history-header-refresh:focus {
                 background-color: alpha(#111827, 0.08);
                 color: #1d2129;
+            }
+
+            .editor-root.editor-theme-light.history-root button.recent-captures-card:hover,
+            .editor-root.editor-theme-light.history-root button.recent-captures-card:focus {
+                background: alpha(#111827, 0.06);
+                opacity: 1;
+            }
+
+            .editor-root.editor-theme-light.history-root button.recent-captures-card:active {
+                background: alpha(#111827, 0.10);
+                opacity: 1;
+            }
+
+            .editor-root.editor-theme-light.history-root .recent-captures-card-image {
+                border: none;
+                background: transparent;
+            }
+
+            .editor-root.editor-theme-light.history-root .history-action-separator {
+                background: alpha(#111827, 0.12);
             }
 
             .editor-root.editor-theme-light .history-card-placeholder {
