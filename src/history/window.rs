@@ -120,17 +120,23 @@ pub fn build_history_window(app: &Application) {
     toolbar.add_css_class("settings-window-controls");
     toolbar.set_size_request(-1, 46);
 
+    // Expanding drag spacers on both sides center the search entry in the
+    // header bar, Files-style, and stay draggable.
+    let left_spacer = GtkBox::new(Orientation::Horizontal, 0);
+    left_spacer.set_hexpand(true);
+    left_spacer.set_halign(Align::Fill);
+    toolbar.append(&left_spacer);
+
     let search = Entry::new();
     search.add_css_class("history-header-search");
     search.set_primary_icon_name(Some("system-search-symbolic"));
     search.set_valign(Align::Center);
     toolbar.append(&search);
 
-    let drag_handle = GtkBox::new(Orientation::Horizontal, 0);
-    drag_handle.set_hexpand(true);
-    drag_handle.set_halign(Align::Fill);
-    drag_handle.set_vexpand(false);
-    toolbar.append(&drag_handle);
+    let right_spacer = GtkBox::new(Orientation::Horizontal, 0);
+    right_spacer.set_hexpand(true);
+    right_spacer.set_halign(Align::Fill);
+    toolbar.append(&right_spacer);
 
     let refresh_btn = Button::from_icon_name("view-refresh-symbolic");
     refresh_btn.add_css_class("history-header-refresh");
@@ -190,7 +196,8 @@ pub fn build_history_window(app: &Application) {
     root_box.append(&toolbar);
 
     // --- WINDOW GESTURES ---
-    install_window_drag(&drag_handle, &window);
+    install_window_drag(&left_spacer, &window);
+    install_window_drag(&right_spacer, &window);
     install_edge_resize(&root_box, &window);
 
     // --- LAYOUT SPLIT ---
@@ -215,6 +222,12 @@ pub fn build_history_window(app: &Application) {
     sidebar_wrapper.add_css_class("settings-sidebar-wrapper");
     sidebar_wrapper.set_vexpand(true);
     sidebar_wrapper.append(&sidebar_scroller);
+
+    // Sidebar header, GNOME-Settings-style.
+    let sidebar_title = Label::new(Some("History"));
+    sidebar_title.add_css_class("history-sidebar-title");
+    sidebar_title.set_halign(Align::Start);
+    nav_strip.append(&sidebar_title);
 
     use crate::capture::editor::window::icon_names::custom;
     let labels = [

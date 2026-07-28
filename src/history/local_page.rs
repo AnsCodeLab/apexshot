@@ -18,10 +18,14 @@ use gtk4::{
 };
 
 use super::scan::{self, CaptureEntry, MediaKind};
-use super::thumbnails::{
-    self, ThumbnailReady, ThumbnailRequest, ThumbnailSource, THUMB_HEIGHT, THUMB_WIDTH,
-};
+use super::thumbnails::{self, ThumbnailReady, ThumbnailRequest, ThumbnailSource};
 use super::window::{HistoryToast, ToastKind};
+
+/// On-card thumbnail display size — smaller than the baked 260×150 (same
+/// aspect ratio) so the grid reads like a file manager's icon view. The
+/// Picture scales the baked thumbnail down with no quality loss.
+const CARD_THUMB_WIDTH: i32 = 160;
+const CARD_THUMB_HEIGHT: i32 = 92;
 
 /// One card widget plus the metadata needed to filter and act on it.
 struct Card {
@@ -99,7 +103,7 @@ pub fn build_local_page(
     grid.set_homogeneous(true);
     grid.set_row_spacing(14);
     grid.set_column_spacing(14);
-    grid.set_max_children_per_line(6);
+    grid.set_max_children_per_line(8);
     grid.set_min_children_per_line(1);
     grid.set_valign(Align::Start);
     column.append(&grid);
@@ -323,12 +327,13 @@ fn build_card(state: &Rc<PageState>, id: u64, entry: &CaptureEntry, now: SystemT
 
     // Image area: a placeholder box until the thumbnail lands, then a Picture.
     let image_wrap = gtk4::Overlay::new();
-    image_wrap.set_size_request(THUMB_WIDTH as i32, THUMB_HEIGHT as i32);
+    image_wrap.set_size_request(CARD_THUMB_WIDTH, CARD_THUMB_HEIGHT);
+    image_wrap.set_halign(Align::Center);
 
     let placeholder = GtkBox::new(Orientation::Vertical, 0);
     placeholder.add_css_class("recent-captures-card-image");
     placeholder.add_css_class("recent-captures-picture-missing");
-    placeholder.set_size_request(THUMB_WIDTH as i32, THUMB_HEIGHT as i32);
+    placeholder.set_size_request(CARD_THUMB_WIDTH, CARD_THUMB_HEIGHT);
 
     let placeholder_icon = Image::from_icon_name(match entry.kind {
         MediaKind::Image => {
@@ -346,7 +351,7 @@ fn build_card(state: &Rc<PageState>, id: u64, entry: &CaptureEntry, now: SystemT
 
     let picture = Picture::new();
     picture.add_css_class("recent-captures-card-image");
-    picture.set_size_request(THUMB_WIDTH as i32, THUMB_HEIGHT as i32);
+    picture.set_size_request(CARD_THUMB_WIDTH, CARD_THUMB_HEIGHT);
     // Thumbnails are pre-baked to exactly THUMB_WIDTH×THUMB_HEIGHT, so no
     // content-fit is needed (and GTK 4.6 has none).
     picture.set_visible(false);
@@ -370,22 +375,24 @@ fn build_card(state: &Rc<PageState>, id: u64, entry: &CaptureEntry, now: SystemT
 
     content.append(&image_wrap);
 
+    // Filename only, centered and wrapping like a file-manager icon; the
+    // size and timestamp move into the tooltip.
     let title = Label::new(Some(&entry.display_name));
     title.add_css_class("recent-captures-card-title");
-    title.set_halign(Align::Start);
-    title.set_ellipsize(gtk4::pango::EllipsizeMode::Middle);
-    title.set_max_width_chars(24);
+    title.set_halign(Align::Fill);
+    title.set_justify(gtk4::Justification::Center);
+    title.set_wrap(true);
+    title.set_lines(2);
+    title.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+    title.set_max_width_chars(18);
     content.append(&title);
 
-    let timestamp = Label::new(Some(&scan::format_relative_time(entry.modified, now)));
-    timestamp.add_css_class("recent-captures-card-timestamp");
-    timestamp.set_halign(Align::Start);
-    content.append(&timestamp);
-
-    let meta = Label::new(Some(&scan::format_size(entry.size_bytes)));
-    meta.add_css_class("recent-captures-card-meta");
-    meta.set_halign(Align::Start);
-    content.append(&meta);
+    clickable.set_tooltip_text(Some(&format!(
+        "{}\n{} · {}",
+        entry.display_name,
+        scan::format_relative_time(entry.modified, now),
+        scan::format_size(entry.size_bytes),
+    )));
 
     clickable.set_child(Some(&content));
     card_box.append(&clickable);
@@ -393,14 +400,19 @@ fn build_card(state: &Rc<PageState>, id: u64, entry: &CaptureEntry, now: SystemT
     let child = gtk4::FlowBoxChild::new();
     child.set_child(Some(&card_box));
 
-    // Clicking the card raises the action popover.
+    // Right-click raises the action popover at the pointer, like a file
+    // manager's context menu.
     {
         let state = Rc::clone(state);
         let entry = entry.clone();
         let anchor = clickable.clone();
-        clickable.connect_clicked(move |_| {
-            show_action_popover(&state, &entry, &anchor);
+        let gesture = gtk4::GestureClick::new();
+        gesture.set_button(gtk4::gdk::BUTTON_SECONDARY);
+        gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
+        gesture.connect_pressed(move |_, _, x, y| {
+            show_action_popover(&state, &entry, &anchor, x, y);
         });
+        clickable.add_controller(gesture);
     }
 
     Card {
@@ -478,13 +490,20 @@ fn apply_filter(state: &Rc<PageState>, needle: &str) {
     }
 }
 
-/// Present the per-item action popover anchored to the clicked card.
-fn show_action_popover(state: &Rc<PageState>, entry: &CaptureEntry, anchor: &Button) {
+/// Present the per-item context menu at the right-click position on `anchor`.
+fn show_action_popover(
+    state: &Rc<PageState>,
+    entry: &CaptureEntry,
+    anchor: &Button,
+    x: f64,
+    y: f64,
+) {
     let popover = Popover::new();
     popover.add_css_class("history-action-popover");
-    popover.set_has_arrow(true);
+    popover.set_has_arrow(false);
     popover.set_autohide(true);
     popover.set_position(gtk4::PositionType::Bottom);
+    popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
     popover.set_parent(anchor);
 
     let menu = GtkBox::new(Orientation::Vertical, 2);
@@ -508,6 +527,11 @@ fn show_action_popover(state: &Rc<PageState>, entry: &CaptureEntry, anchor: &But
     let copy_btn = add_action("Copy", false);
     let reveal_btn = add_action("Show in files", false);
     let upload_btn = add_action("Upload to cloud", false);
+
+    let separator = gtk4::Separator::new(Orientation::Horizontal);
+    separator.add_css_class("history-action-separator");
+    menu.append(&separator);
+
     let delete_btn = add_action("Delete", true);
 
     popover.set_child(Some(&menu));
