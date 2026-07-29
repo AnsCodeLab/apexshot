@@ -1782,24 +1782,29 @@ const SETTINGS_CSS: &str = r#"
                 margin-top: 2px;
             }
 
-            /* Borderless GNOME-style chrome for the History window: no header
-               divider, no sidebar divider, and a wider sidebar. Scoped under
-               .history-root so Settings keeps its own chrome. */
-            .history-root .settings-window-controls {
+            /* Borderless GNOME-style chrome shared by the History and Settings
+               windows: no header divider, no sidebar divider, and a full-height
+               sidebar at one fixed width. Scoped under .settings-shell, which
+               both window roots carry, so other windows using these classes
+               (onboarding) keep the original chrome.
+
+               290px is stated as a minimum because GTK has no CSS upper-bound
+               width property; both sidebar wrappers are set non-expanding in
+               code, which is what holds them at exactly this width. */
+            .settings-shell .settings-window-controls {
                 border-bottom: none;
                 padding: 8px 12px;
             }
 
-            /* The scroller constrains History to 170px in code; remove the
-               shared Settings minimum so it cannot force this wrapper wider. */
-            /* Settings' sidebar is ~290px because its Save button sets
-               hexpand, which propagates up and makes the whole sidebar share
-               the window's leftover space. History has no Save button, so it
-               states that width directly to stay level with Settings. */
-            .history-root .settings-sidebar-wrapper {
+            .settings-shell .settings-sidebar-wrapper {
                 border-right: none;
                 min-width: 290px;
-                max-width: 290px;
+            }
+
+            .settings-shell .settings-sidebar-title {
+                font-size: 16px;
+                font-weight: 700;
+                margin: 0 10px 0 14px;
             }
 
             /* Scoped under .history-root so these header-bar widgets always
@@ -1871,12 +1876,6 @@ const SETTINGS_CSS: &str = r#"
                 font-size: 13px;
                 font-weight: 500;
                 margin-top: 6px;
-            }
-
-            .history-root .history-sidebar-title {
-                font-size: 16px;
-                font-weight: 700;
-                margin: 0 10px 0 14px;
             }
 
             .history-root .history-action-separator {
@@ -1967,11 +1966,11 @@ const SETTINGS_CSS: &str = r#"
             }
 
             /* History — light theme */
-            .editor-root.editor-theme-light.history-root .settings-window-controls {
+            .editor-root.editor-theme-light.settings-shell .settings-window-controls {
                 border-bottom: none;
             }
 
-            .editor-root.editor-theme-light.history-root .settings-sidebar-wrapper {
+            .editor-root.editor-theme-light.settings-shell .settings-sidebar-wrapper {
                 border-right: none;
             }
 
