@@ -220,13 +220,10 @@ pub fn build_history_window(app: &Application) {
     // --- SIDEBAR ---
     let sidebar_scroller = ScrolledWindow::new();
     sidebar_scroller.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
-    // Keep the nav strip at the History sidebar width. A widget
-    // `size_request` is only a minimum in GTK; propagating the child's natural
-    // width let the scroller silently grow wider than that minimum. Min and
-    // max are pinned together so the width is exact.
-    sidebar_scroller.set_propagate_natural_width(false);
-    sidebar_scroller.set_min_content_width(180);
-    sidebar_scroller.set_max_content_width(180);
+    // The sidebar's width comes from the wrapper's CSS `min-width`. A
+    // ScrolledWindow whose horizontal policy is `Never` measures its child
+    // directly and ignores min/max-content-width, so pinning those here does
+    // nothing — that was why earlier width changes appeared to have no effect.
 
     let nav_strip = GtkBox::new(Orientation::Vertical, 4);
     nav_strip.add_css_class("settings-sidebar");
