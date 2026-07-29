@@ -1792,9 +1792,14 @@ const SETTINGS_CSS: &str = r#"
 
             /* The scroller constrains History to 170px in code; remove the
                shared Settings minimum so it cannot force this wrapper wider. */
+            /* Settings' sidebar is ~290px because its Save button sets
+               hexpand, which propagates up and makes the whole sidebar share
+               the window's leftover space. History has no Save button, so it
+               states that width directly to stay level with Settings. */
             .history-root .settings-sidebar-wrapper {
                 border-right: none;
-                min-width: 0;
+                min-width: 290px;
+                max-width: 290px;
             }
 
             /* Scoped under .history-root so these header-bar widgets always
