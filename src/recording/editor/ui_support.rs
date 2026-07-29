@@ -287,11 +287,16 @@ pub fn install_recording_editor_css() {
             }
 
             /* ── Bottom tools ── */
+            /* A third, deeper black than the #111111 preview/top so the
+               controls band reads as its own zone without a divider line.
+               The timeline card and strip paint translucent white on top of
+               it, so they lift back above it (~#141414 / ~#1d1d1d) and stay
+               visibly distinct from both this band and the top. */
             .recording-editor-bottom-tools {
                 padding: 0;
                 margin: 0;
-                background-color: #141414;
-                border-top: 1px solid alpha(white, 0.06);
+                background-color: #0c0c0c;
+                border: none;
                 border-radius: 0 0 10px 10px;
             }
 
@@ -789,9 +794,11 @@ pub fn install_recording_editor_css() {
                 color: #ffffff;
             }
 
+            /* Light-theme counterpart of the darker controls band: one step
+               off the white top, still clearly lighter than the timeline card
+               and strip that sit on it. */
             .editor-theme-light .recording-editor-bottom-tools {
-                background-color: #ffffff;
-                border-top-color: alpha(#111827, 0.06);
+                background-color: #f0f1f4;
             }
 
             .editor-theme-light .recording-editor-timeline-card {

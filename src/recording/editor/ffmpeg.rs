@@ -236,12 +236,12 @@ pub fn extract_poster_frame(
     Ok(())
 }
 
-fn thumbnail_count(duration_seconds: f64) -> usize {
-    if duration_seconds < 1.0 {
-        1
-    } else {
-        12
-    }
+fn thumbnail_count(_duration_seconds: f64) -> usize {
+    // Fixed for every clip: the timeline strip stretches its tiles to fill the
+    // window width, so a variable count would change tile width per video. A
+    // sub-1s clip sampled 12 times still yields distinct, valid frames because
+    // thumbnail_timestamp spaces them across the (short) duration.
+    12
 }
 
 /// Sample times for filmstrip frames.
@@ -596,5 +596,17 @@ mod tests {
         let last = thumbnail_timestamp(1.0, 11, 12);
         assert!(last < 1.0);
         assert!(last >= 0.0);
+    }
+
+    #[test]
+    fn thumbnail_count_is_fixed_so_tile_width_never_depends_on_duration() {
+        // The timeline strip stretches its tiles to fill the window width, so a
+        // duration-dependent count would make tiles visibly wider for short
+        // clips. Every clip gets the same 12, including sub-1s ones.
+        assert_eq!(thumbnail_count(0.4), 12);
+        assert_eq!(thumbnail_count(0.99), 12);
+        assert_eq!(thumbnail_count(1.0), 12);
+        assert_eq!(thumbnail_count(60.0), 12);
+        assert_eq!(thumbnail_count(3600.0), 12);
     }
 }
