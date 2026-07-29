@@ -30,11 +30,10 @@ use crate::cloud::listing::{
     cached_is_subscribed, CloudReadError, CloudUpload, UploadsPage, UploadsPager, DEFAULT_PAGE_SIZE,
 };
 use crate::config::{is_cloud_logged_in, load_config, AppConfig};
-use crate::history::thumbnails::{
-    self, ThumbnailReady, ThumbnailRequest, ThumbnailSource, THUMB_HEIGHT, THUMB_WIDTH,
-};
+use crate::history::thumbnails::{self, ThumbnailReady, ThumbnailRequest, ThumbnailSource};
 
 use super::actions;
+use super::local_page::{CARD_THUMB_HEIGHT, CARD_THUMB_WIDTH};
 use super::window::{HistoryToast, ToastKind};
 
 /// How long an action-outcome toast stays up before fading.
@@ -97,6 +96,7 @@ pub fn build_cloud_page(toast: HistoryToast) -> super::HistoryPage {
         scroller: scroller.clone(),
         toast,
         polling: Cell::new(false),
+        tier_checked: Cell::new(false),
     });
 
     page.render_current_state();
@@ -104,7 +104,11 @@ pub fn build_cloud_page(toast: HistoryToast) -> super::HistoryPage {
     // The header-bar refresh button re-renders from the current config.
     let refresh = {
         let page = Rc::clone(&page);
-        Rc::new(move || page.render_current_state()) as Rc<dyn Fn()>
+        // An explicit refresh should re-ask the server, not trust the cache.
+        Rc::new(move || {
+            page.tier_checked.set(false);
+            page.render_current_state()
+        }) as Rc<dyn Fn()>
     };
 
     super::HistoryPage {
@@ -123,6 +127,9 @@ struct CloudPage {
     toast: HistoryToast,
     /// True while a login poll timer is running, so we never start a second.
     polling: Cell<bool>,
+    /// True once this page has re-checked the plan tier with the server, so a
+    /// stale cache costs at most one lookup per window.
+    tier_checked: Cell<bool>,
 }
 
 impl CloudPage {
@@ -145,9 +152,68 @@ impl CloudPage {
 
         if cached_is_subscribed(&config) {
             self.show_subscribed_grid(config);
-        } else {
+        } else if self.tier_checked.get() {
+            // The server has confirmed there is no paid plan on this account.
             self.show_free_plan(&config);
+        } else {
+            // A cached "free" can be stale or never written (a login from before
+            // the tier was persisted, or a plan bought after signing in), so
+            // check before telling a paying user to upgrade.
+            self.show_checking_plan();
+            self.verify_tier_once();
         }
+    }
+
+    /// Neutral placeholder shown while the plan tier is being confirmed, so a
+    /// paying user never reads an upgrade prompt that is about to disappear.
+    fn show_checking_plan(self: &Rc<Self>) {
+        self.toast
+            .show("Checking your plan\u{2026}", ToastKind::Neutral, None);
+
+        let status = Label::new(Some("Checking your ApexShot Cloud plan\u{2026}"));
+        status.add_css_class("recent-captures-empty-detail");
+        status.set_halign(Align::Center);
+        status.set_valign(Align::Center);
+        status.set_hexpand(true);
+        status.set_vexpand(true);
+        self.body.append(&status);
+    }
+
+    /// Re-check the plan tier with the server once, then render the real state.
+    ///
+    /// `fetch_account` writes the fresh tier to config, so the re-render below
+    /// picks the right branch; `tier_checked` keeps it to one lookup per window.
+    fn verify_tier_once(self: &Rc<Self>) {
+        if self.tier_checked.get() {
+            return;
+        }
+
+        let config = load_config();
+        let (tx, rx) = mpsc::channel::<()>();
+        std::thread::spawn(move || {
+            // The tier is cached to config as a side effect; a failed lookup
+            // leaves the cached answer in place, which the re-render then uses.
+            let _ = crate::cloud::listing::fetch_account(&config);
+            let _ = tx.send(());
+        });
+
+        let page = Rc::clone(self);
+        glib::source::idle_add_local(move || match rx.try_recv() {
+            Ok(()) => {
+                page.tier_checked.set(true);
+                page.toast.hide();
+                page.render_current_state();
+                glib::ControlFlow::Break
+            }
+            Err(mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
+            // The worker vanished: fall back to the cached answer rather than
+            // leaving the page stuck on the placeholder.
+            Err(mpsc::TryRecvError::Disconnected) => {
+                page.tier_checked.set(true);
+                page.render_current_state();
+                glib::ControlFlow::Break
+            }
+        });
     }
 
     // --- signed-out state ---
@@ -221,7 +287,7 @@ impl CloudPage {
         let state = empty_state("Upgrade to browse your cloud uploads", &detail);
 
         let upgrade = Button::with_label("See plans");
-        upgrade.add_css_class("recent-captures-primary-button");
+        upgrade.add_css_class("settings-primary-btn");
         upgrade.set_halign(Align::Center);
         upgrade.set_margin_top(20);
         {
@@ -279,10 +345,11 @@ impl CloudPage {
         grid.add_css_class("recent-captures-grid");
         grid.set_selection_mode(SelectionMode::None);
         grid.set_homogeneous(true);
-        grid.set_max_children_per_line(4);
+        // Same grid geometry as the local pages so all three read alike.
+        grid.set_max_children_per_line(8);
         grid.set_min_children_per_line(1);
-        grid.set_row_spacing(8);
-        grid.set_column_spacing(8);
+        grid.set_row_spacing(14);
+        grid.set_column_spacing(14);
         grid.set_halign(Align::Fill);
         grid.set_valign(Align::Start);
         grid.set_hexpand(true);
@@ -470,26 +537,40 @@ impl GridContext {
     }
 
     fn build_card(self: &Rc<Self>, upload: &CloudUpload) -> Widget {
-        let card = GtkBox::new(Orientation::Vertical, 0);
-        card.add_css_class("recent-captures-card");
-        card.set_hexpand(true);
+        // Same geometry the local pages use: a fixed-size centred thumbnail with
+        // a centred, wrapping filename underneath, wrapped in a clickable card.
+        let card_box = GtkBox::new(Orientation::Vertical, 0);
+        card_box.set_halign(Align::Fill);
 
-        // Thumbnail area, sized to the card so the grid stays even while images
-        // stream in. A remote thumbnail decodes on the shared pool; uploads with
-        // no thumbnail URL keep the placeholder frame.
-        let frame = GtkBox::new(Orientation::Vertical, 0);
-        frame.add_css_class("recent-captures-card-image");
-        frame.set_size_request(THUMB_WIDTH as i32, THUMB_HEIGHT as i32);
-        frame.set_overflow(gtk4::Overflow::Hidden);
+        let clickable = Button::new();
+        clickable.add_css_class("recent-captures-card");
+        clickable.set_halign(Align::Fill);
+
+        let content = GtkBox::new(Orientation::Vertical, 0);
+
+        // Image area, built exactly like the local pages': a fixed-size overlay
+        // whose measured child is the placeholder, with the Picture layered on
+        // top. A Picture with a filename reports the image's intrinsic width as
+        // its natural width, and an unmeasured overlay is what stops that from
+        // inflating every card in the homogeneous grid.
+        let image_wrap = gtk4::Overlay::new();
+        image_wrap.set_size_request(CARD_THUMB_WIDTH, CARD_THUMB_HEIGHT);
+        image_wrap.set_halign(Align::Center);
+        image_wrap.set_overflow(gtk4::Overflow::Hidden);
+
+        let placeholder = GtkBox::new(Orientation::Vertical, 0);
+        placeholder.add_css_class("recent-captures-card-image");
+        placeholder.set_size_request(CARD_THUMB_WIDTH, CARD_THUMB_HEIGHT);
 
         let picture = Picture::new();
-        picture.set_hexpand(true);
-        picture.set_vexpand(true);
+        picture.add_css_class("recent-captures-card-image");
+        picture.set_size_request(CARD_THUMB_WIDTH, CARD_THUMB_HEIGHT);
         picture.set_can_shrink(true);
-        picture.set_valign(Align::Fill);
-        picture.set_halign(Align::Fill);
-        frame.append(&picture);
-        card.append(&frame);
+        picture.set_visible(false);
+
+        image_wrap.set_child(Some(&placeholder));
+        image_wrap.add_overlay(&picture);
+        content.append(&image_wrap);
 
         if let Some(url) = upload
             .thumbnail_url
@@ -497,94 +578,67 @@ impl GridContext {
             .map(str::trim)
             .filter(|url| !url.is_empty())
         {
-            self.load_thumbnail(url, &picture, &frame);
+            self.load_thumbnail(url, &picture, &placeholder);
         } else {
-            add_missing_badge(&frame);
+            add_missing_badge(&placeholder);
         }
 
-        // Filename.
+        // Filename only, centred and wrapping; size and time go in the tooltip,
+        // exactly as the local grids do.
         let title = Label::new(Some(&upload.display_name()));
         title.add_css_class("recent-captures-card-title");
-        title.set_xalign(0.0);
-        title.set_halign(Align::Start);
-        title.set_max_width_chars(24);
+        title.set_halign(Align::Fill);
+        title.set_justify(gtk4::Justification::Center);
+        title.set_wrap(true);
+        // Upload names are usually one unbreakable token, so allow a mid-word
+        // break: otherwise Pango's minimum width is the whole word and the
+        // homogeneous FlowBox stretches every card to fit it.
+        title.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
+        title.set_lines(2);
         title.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-        card.append(&title);
+        title.set_max_width_chars(18);
+        content.append(&title);
 
-        // Timestamp.
-        let when = format_upload_time(upload);
-        if !when.is_empty() {
-            let ts = Label::new(Some(&when));
-            ts.add_css_class("recent-captures-card-timestamp");
-            ts.set_xalign(0.0);
-            ts.set_halign(Align::Start);
-            card.append(&ts);
+        clickable.set_tooltip_text(Some(&card_tooltip(upload)));
+        clickable.set_child(Some(&content));
+        card_box.append(&clickable);
+
+        // Left-click opens the share link; the actions also live in the
+        // right-click popover, matching the local pages.
+        let share_url = share_url_of(upload);
+        {
+            let toast = self.page.toast.clone();
+            let url = share_url.clone();
+            clickable.connect_clicked(move |_| match url.as_deref() {
+                Some(url) => report(&toast, actions::open_in_browser(url)),
+                None => toast.show(
+                    "This upload has no share link",
+                    ToastKind::Error,
+                    Some(TOAST_ERROR),
+                ),
+            });
         }
 
-        // Size.
-        if let Some(size) = upload.size_bytes.filter(|bytes| *bytes > 0) {
-            let meta = Label::new(Some(&super::scan::format_size(size as u64)));
-            meta.add_css_class("recent-captures-card-meta");
-            meta.set_xalign(0.0);
-            meta.set_halign(Align::Start);
-            card.append(&meta);
+        {
+            let page = Rc::clone(&self.page);
+            let anchor = clickable.clone();
+            let url = share_url.clone();
+            let gesture = gtk4::GestureClick::new();
+            gesture.set_button(gtk4::gdk::BUTTON_SECONDARY);
+            gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
+            gesture.connect_pressed(move |_, _, x, y| {
+                show_cloud_popover(&page, url.as_deref(), &anchor, x, y);
+            });
+            clickable.add_controller(gesture);
         }
 
-        // Per-card actions: copy the share link, open it in the browser.
-        card.append(&self.build_card_actions(upload));
-
-        card.upcast()
-    }
-
-    fn build_card_actions(self: &Rc<Self>, upload: &CloudUpload) -> GtkBox {
-        let actions_row = GtkBox::new(Orientation::Horizontal, 4);
-        actions_row.set_halign(Align::Start);
-        actions_row.set_margin_top(6);
-
-        let share_url = upload
-            .share_url
-            .as_deref()
-            .map(str::trim)
-            .filter(|url| !url.is_empty())
-            .map(str::to_string);
-
-        let copy = Button::with_label("Copy link");
-        copy.add_css_class("recent-captures-icon-btn");
-        let open = Button::with_label("Open");
-        open.add_css_class("recent-captures-icon-btn");
-
-        match share_url {
-            Some(url) => {
-                {
-                    let toast = self.page.toast.clone();
-                    let url = url.clone();
-                    copy.connect_clicked(move |_| {
-                        report(&toast, actions::copy_link_to_clipboard(&url));
-                    });
-                }
-                {
-                    let toast = self.page.toast.clone();
-                    open.connect_clicked(move |_| {
-                        report(&toast, actions::open_in_browser(&url));
-                    });
-                }
-            }
-            None => {
-                // No share link on this upload: keep the buttons visible but
-                // inert so the card layout stays uniform.
-                copy.set_sensitive(false);
-                open.set_sensitive(false);
-            }
-        }
-
-        actions_row.append(&copy);
-        actions_row.append(&open);
-        actions_row
+        card_box.upcast()
     }
 
     /// Decode a remote thumbnail on the shared pool and drop it into `picture`
     /// when it arrives, discarding results from a superseded page generation.
-    fn load_thumbnail(self: &Rc<Self>, url: &str, picture: &Picture, frame: &GtkBox) {
+    /// Fetch and decode a remote thumbnail, then reveal it over `placeholder`.
+    fn load_thumbnail(self: &Rc<Self>, url: &str, picture: &Picture, placeholder: &GtkBox) {
         let id = self.next_card_id.get();
         self.next_card_id.set(id + 1);
 
@@ -598,13 +652,16 @@ impl GridContext {
 
         let generation = self.generation;
         let picture = picture.clone();
-        let frame = frame.clone();
+        let placeholder = placeholder.clone();
         glib::source::idle_add_local(move || match rx.try_recv() {
             Ok(ready) => {
                 if ready.generation == generation {
                     match ready.result {
-                        Ok(path) => picture.set_filename(Some(&path)),
-                        Err(_) => add_missing_badge(&frame),
+                        Ok(path) => {
+                            picture.set_filename(Some(&path));
+                            picture.set_visible(true);
+                        }
+                        Err(_) => add_missing_badge(&placeholder),
                     }
                 }
                 glib::ControlFlow::Break
@@ -624,18 +681,21 @@ struct PageOutcome {
 
 // --- shared helpers ---
 
-/// A centred empty-state card matching the gallery vocabulary. Callers append
-/// their own action button.
+/// A centred block of plain title + detail text. Callers append their own
+/// action button.
 fn empty_state(title: &str, detail: &str) -> GtkBox {
     let state = GtkBox::new(Orientation::Vertical, 0);
-    state.add_css_class("recent-captures-empty-state");
-    // History-only hook: flat, borderless panel sitting higher on the page.
-    state.add_css_class("history-cloud-state");
+    // Plain centred text: no card padding, background or border.
     state.set_halign(Align::Center);
     state.set_valign(Align::Center);
     state.set_hexpand(true);
     state.set_vexpand(true);
-    state.set_margin_top(12);
+    // The page header (title + subtitle) sits above `body`, so centring inside
+    // body alone lands low on the page. This bottom margin lifts the block back
+    // to the optical centre of the page.
+    // ponytail: fixed offset matched to the header height, recompute if the
+    // header gains rows.
+    state.set_margin_bottom(76);
 
     let title_lbl = Label::new(Some(title));
     title_lbl.add_css_class("recent-captures-empty-title");
@@ -654,13 +714,13 @@ fn empty_state(title: &str, detail: &str) -> GtkBox {
     state
 }
 
-/// Drop a "no preview" badge into a thumbnail frame that has no image.
+/// Drop a "no preview" badge into a thumbnail placeholder that has no image.
 ///
 /// Idempotent: adding the marker class more than once is harmless, and a frame
 /// that already shows a badge simply gets a second identical one only if called
 /// twice, which never happens (build-time xor thumbnail-failure, not both).
-fn add_missing_badge(frame: &GtkBox) {
-    frame.add_css_class("recent-captures-picture-missing");
+fn add_missing_badge(placeholder: &GtkBox) {
+    placeholder.add_css_class("recent-captures-picture-missing");
 
     let badge = Image::from_icon_name("image-missing-symbolic");
     badge.add_css_class("history-media-badge");
@@ -669,7 +729,7 @@ fn add_missing_badge(frame: &GtkBox) {
     badge.set_valign(Align::Center);
     badge.set_hexpand(true);
     badge.set_vexpand(true);
-    frame.append(&badge);
+    placeholder.append(&badge);
 }
 
 /// Human-readable timestamp for an upload, empty when the server sent nothing
@@ -682,6 +742,104 @@ fn format_upload_time(upload: &CloudUpload) -> String {
             .to_string(),
         None => String::new(),
     }
+}
+
+/// The share link of an upload, or `None` when the server sent none.
+fn share_url_of(upload: &CloudUpload) -> Option<String> {
+    upload
+        .share_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|url| !url.is_empty())
+        .map(str::to_string)
+}
+
+/// Filename, date and size, matching the local pages' card tooltip.
+fn card_tooltip(upload: &CloudUpload) -> String {
+    let mut lines = upload.display_name();
+    let when = format_upload_time(upload);
+    let size = upload
+        .size_bytes
+        .filter(|bytes| *bytes > 0)
+        .map(|bytes| super::scan::format_size(bytes as u64));
+
+    let meta = match (when.is_empty(), size) {
+        (false, Some(size)) => format!("{when} \u{b7} {size}"),
+        (false, None) => when,
+        (true, Some(size)) => size,
+        (true, None) => String::new(),
+    };
+    if !meta.is_empty() {
+        lines.push('\n');
+        lines.push_str(&meta);
+    }
+    lines
+}
+
+/// Right-click menu for a cloud card, styled like the local pages' popover.
+fn show_cloud_popover(
+    page: &Rc<CloudPage>,
+    share_url: Option<&str>,
+    anchor: &Button,
+    x: f64,
+    y: f64,
+) {
+    let popover = gtk4::Popover::new();
+    popover.add_css_class("history-action-popover");
+    popover.set_has_arrow(false);
+    popover.set_autohide(true);
+    popover.set_position(gtk4::PositionType::Bottom);
+    popover.set_parent(anchor);
+
+    let menu = GtkBox::new(Orientation::Vertical, 2);
+
+    let add_action = |label_text: &str| {
+        let btn = Button::new();
+        btn.add_css_class("history-action-btn");
+        btn.set_focus_on_click(false);
+        let label = Label::new(Some(label_text));
+        label.set_halign(Align::Start);
+        label.set_xalign(0.0);
+        btn.set_child(Some(&label));
+        menu.append(&btn);
+        btn
+    };
+
+    let open_btn = add_action("Open in browser");
+    let copy_btn = add_action("Copy link");
+
+    popover.set_child(Some(&menu));
+
+    match share_url {
+        Some(url) => {
+            {
+                let toast = page.toast.clone();
+                let url = url.to_string();
+                let popover = popover.clone();
+                open_btn.connect_clicked(move |_| {
+                    report(&toast, actions::open_in_browser(&url));
+                    popover.popdown();
+                });
+            }
+            {
+                let toast = page.toast.clone();
+                let url = url.to_string();
+                let popover = popover.clone();
+                copy_btn.connect_clicked(move |_| {
+                    report(&toast, actions::copy_link_to_clipboard(&url));
+                    popover.popdown();
+                });
+            }
+        }
+        None => {
+            // Keep the menu shape stable; nothing to act on without a link.
+            open_btn.set_sensitive(false);
+            copy_btn.set_sensitive(false);
+        }
+    }
+
+    popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+    popover.popup();
 }
 
 /// Send an action outcome to the window's toast: the `Ok` message as success,
@@ -697,5 +855,44 @@ fn report<T: AsRef<str>>(toast: &HistoryToast, outcome: Result<T, String>) {
 fn clear_box(container: &GtkBox) {
     while let Some(child) = container.first_child() {
         container.remove(&child);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn upload(share: Option<&str>, size: Option<i64>) -> CloudUpload {
+        CloudUpload {
+            id: "up_1".to_string(),
+            filename: "shot.png".to_string(),
+            share_url: share.map(str::to_string),
+            thumbnail_url: None,
+            size_bytes: size,
+            content_type: None,
+            created_at: None,
+        }
+    }
+
+    #[test]
+    fn share_url_treats_blank_as_absent() {
+        assert_eq!(
+            share_url_of(&upload(Some(" https://a/b "), None)).as_deref(),
+            Some("https://a/b")
+        );
+        assert!(share_url_of(&upload(Some("   "), None)).is_none());
+        assert!(share_url_of(&upload(None, None)).is_none());
+    }
+
+    #[test]
+    fn tooltip_keeps_the_name_and_omits_missing_metadata() {
+        // No date and no usable size: the name stands alone with no stray separator.
+        let bare = card_tooltip(&upload(None, Some(0)));
+        assert_eq!(bare, "shot.png");
+
+        // A size but still no date: one metadata line, no leading separator.
+        let sized = card_tooltip(&upload(None, Some(2048)));
+        assert!(sized.starts_with("shot.png\n"), "got {sized:?}");
+        assert!(!sized.contains('\u{b7}'), "got {sized:?}");
     }
 }

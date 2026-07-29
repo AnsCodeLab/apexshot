@@ -24,8 +24,9 @@ use super::window::{HistoryToast, ToastKind};
 /// On-card thumbnail display size — smaller than the baked 260×150 (same
 /// aspect ratio) so the grid reads like a file manager's icon view. The
 /// Picture scales the baked thumbnail down with no quality loss.
-const CARD_THUMB_WIDTH: i32 = 160;
-const CARD_THUMB_HEIGHT: i32 = 92;
+/// Shared with the Cloud grid so all three History pages match.
+pub(super) const CARD_THUMB_WIDTH: i32 = 160;
+pub(super) const CARD_THUMB_HEIGHT: i32 = 92;
 
 /// One card widget plus the metadata needed to filter and act on it.
 struct Card {
@@ -382,6 +383,10 @@ fn build_card(state: &Rc<PageState>, id: u64, entry: &CaptureEntry, now: SystemT
     title.set_halign(Align::Fill);
     title.set_justify(gtk4::Justification::Center);
     title.set_wrap(true);
+    // Cloud-style names are one unbreakable token; without char fallback Pango
+    // reports the whole word as the minimum width and the homogeneous FlowBox
+    // sizes every card to it, collapsing the grid to two columns.
+    title.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
     title.set_lines(2);
     title.set_ellipsize(gtk4::pango::EllipsizeMode::End);
     title.set_max_width_chars(18);
@@ -552,19 +557,13 @@ fn show_action_popover(
             });
         };
 
-    wire_simple(
-        &open_btn,
-        Rc::new(|e| super::actions::open_in_default_app(e)),
-    );
+    wire_simple(&open_btn, Rc::new(super::actions::open_in_default_app));
     wire_simple(
         &editor_btn,
-        Rc::new(|e| super::actions::open_in_apexshot_editor(e)),
+        Rc::new(super::actions::open_in_apexshot_editor),
     );
-    wire_simple(&copy_btn, Rc::new(|e| super::actions::copy_to_clipboard(e)));
-    wire_simple(
-        &reveal_btn,
-        Rc::new(|e| super::actions::reveal_in_file_manager(e)),
-    );
+    wire_simple(&copy_btn, Rc::new(super::actions::copy_to_clipboard));
+    wire_simple(&reveal_btn, Rc::new(super::actions::reveal_in_file_manager));
 
     // Upload hits the network, so it runs on a worker thread and delivers back.
     {
