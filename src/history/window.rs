@@ -104,6 +104,8 @@ pub fn build_history_window(app: &Application) {
 
     let root_box = GtkBox::new(Orientation::Vertical, 0);
     root_box.add_css_class("editor-root");
+    // Shared borderless chrome (header, full-height sidebar) with Settings.
+    root_box.add_css_class("settings-shell");
     root_box.add_css_class("history-root");
     if !prefers_dark {
         root_box.add_css_class("editor-theme-light");
@@ -245,7 +247,7 @@ pub fn build_history_window(app: &Application) {
     sidebar_head.set_size_request(-1, 46);
 
     let sidebar_title = Label::new(Some("History"));
-    sidebar_title.add_css_class("history-sidebar-title");
+    sidebar_title.add_css_class("settings-sidebar-title");
     sidebar_title.set_halign(Align::Start);
     sidebar_title.set_valign(Align::Center);
     sidebar_title.set_hexpand(true);

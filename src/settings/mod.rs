@@ -168,6 +168,8 @@ fn build_settings_window(app: &Application) {
 
     let root_box = GtkBox::new(Orientation::Vertical, 0);
     root_box.add_css_class("editor-root");
+    // Shared borderless chrome (header, full-height sidebar) with History.
+    root_box.add_css_class("settings-shell");
     if !prefers_dark {
         root_box.add_css_class("editor-theme-light");
     }
@@ -178,7 +180,8 @@ fn build_settings_window(app: &Application) {
     // --- TOOLBAR ---
     let toolbar = GtkBox::new(Orientation::Horizontal, 0);
     toolbar.add_css_class("settings-window-controls");
-    toolbar.set_size_request(-1, 30);
+    // Matches History's header height so the sidebar's own head sits level with it.
+    toolbar.set_size_request(-1, 46);
 
     let drag_handle = GtkBox::new(Orientation::Horizontal, 0);
     drag_handle.set_hexpand(true);
@@ -236,7 +239,8 @@ fn build_settings_window(app: &Application) {
     window_overlay.set_child(Some(&root_box));
     window_overlay.add_overlay(&toast);
 
-    root_box.append(&toolbar);
+    // The toolbar is appended to the right column, not the root: the sidebar
+    // beside it runs the full window height.
 
     // --- WINDOW GESTURES ---
     install_window_drag(&drag_handle, &window);
@@ -260,10 +264,30 @@ fn build_settings_window(app: &Application) {
 
     sidebar_scroller.set_child(Some(&nav_strip));
 
+    // The sidebar runs the full window height (GNOME Files-style): its own
+    // header zone sits level with the content header bar and holds the title.
     let sidebar_wrapper = GtkBox::new(Orientation::Vertical, 0);
     sidebar_wrapper.add_css_class("settings-sidebar-wrapper");
     sidebar_wrapper.set_vexpand(true);
+    // Stated explicitly: the Save button below sets hexpand, and GTK propagates
+    // that up through every parent that has no value of its own. That is what
+    // used to stretch this sidebar past its CSS width and made it disagree with
+    // History's.
+    sidebar_wrapper.set_hexpand(false);
+
+    let sidebar_head = GtkBox::new(Orientation::Horizontal, 0);
+    sidebar_head.set_size_request(-1, 46);
+
+    let sidebar_title = Label::new(Some("Settings"));
+    sidebar_title.add_css_class("settings-sidebar-title");
+    sidebar_title.set_halign(Align::Start);
+    sidebar_title.set_valign(Align::Center);
+    sidebar_title.set_hexpand(true);
+    sidebar_head.append(&sidebar_title);
+
+    sidebar_wrapper.append(&sidebar_head);
     sidebar_wrapper.append(&sidebar_scroller);
+    install_window_drag(&sidebar_head, &window);
 
     let save_box = GtkBox::new(Orientation::Vertical, 0);
     save_box.add_css_class("settings-save-box");
@@ -494,7 +518,14 @@ fn build_settings_window(app: &Application) {
     });
     stack.set_visible_child_name("0");
 
-    content_split.append(&body_frame);
+    // Right column: the header bar sits above the page body so the sidebar
+    // beside it can run the full window height.
+    let right_col = GtkBox::new(Orientation::Vertical, 0);
+    right_col.set_vexpand(true);
+    right_col.set_hexpand(true);
+    right_col.append(&toolbar);
+    right_col.append(&body_frame);
+    content_split.append(&right_col);
     root_box.append(&content_split);
     window.set_child(Some(&window_overlay));
 
