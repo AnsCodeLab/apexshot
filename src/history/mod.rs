@@ -39,13 +39,12 @@ pub struct HistoryPage {
     pub searchable: bool,
 }
 
-/// Open the History window, presenting the existing one when it is already up.
+/// Open the History window.
 ///
-/// History runs as its own single-instance application. It uses a dedicated
-/// application id (`<app_id>.history`) with the default GApplication flags so it
-/// never collides with the shared id that Settings claims: opening History while
-/// Settings is open yields two independent windows, and a second `history`
-/// invocation just presents the window already on screen.
+/// Uses the main application id with `NON_UNIQUE`, exactly like the image and
+/// video editors and the preview overlay. GNOME Shell matches that id to the
+/// installed desktop file, so the window gets the ApexShot icon and name, and
+/// `NON_UNIQUE` lets History coexist with Settings holding the same id.
 pub fn show_history_window() -> anyhow::Result<()> {
     // Force-set GIO_LAUNCHED_DESKTOP_FILE to the main app's desktop entry
     // so GNOME Shell shows the correct icon and name (mirrors Settings).
@@ -57,10 +56,11 @@ pub fn show_history_window() -> anyhow::Result<()> {
         );
     }
 
-    // A dedicated application id with the default flags keeps History
-    // single-instance and independent of the shared id Settings claims.
+    // Main app id so GNOME Shell finds the desktop file and icon; NON_UNIQUE so
+    // this process does not collide with Settings or the daemon on the same id.
     let app = Application::builder()
-        .application_id(format!("{}.history", crate::app_identity::app_id()))
+        .application_id(crate::app_identity::app_id())
+        .flags(gtk4::gio::ApplicationFlags::NON_UNIQUE)
         .build();
 
     app.connect_activate(|application| {

@@ -74,6 +74,14 @@ impl HistoryToast {
             });
         }
     }
+
+    /// Hide the toast immediately, cancelling any pending auto-hide.
+    pub fn hide(&self) {
+        self.generation.set(self.generation.get().wrapping_add(1));
+        self.label.set_opacity(0.0);
+        self.label.remove_css_class("settings-toast-success");
+        self.label.remove_css_class("settings-toast-error");
+    }
 }
 
 /// Build the History `ApplicationWindow`, following the Settings shell exactly.

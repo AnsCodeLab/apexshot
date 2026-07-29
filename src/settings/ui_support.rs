@@ -1985,15 +1985,6 @@ const SETTINGS_CSS: &str = r#"
                 background-color: alpha(#111827, 0.08);
             }
 
-            /* Cloud page message panels: flat (no card border) and pushed up. */
-            .history-root .history-cloud-state {
-                border: none;
-            }
-
-            .editor-root.editor-theme-light.history-root .history-cloud-state {
-                border: none;
-            }
-
             .editor-root.editor-theme-light.history-root .history-header-refresh {
                 color: alpha(#111827, 0.70);
             }
