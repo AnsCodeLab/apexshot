@@ -26,6 +26,11 @@ CleanShot X.
 ![Version](https://img.shields.io/github/v/release/apex-shot/apexshot?label=version&color=orange)
 ![Status](https://img.shields.io/badge/status-Public%20Beta-green.svg)
 
+## Support ApexShot
+
+Support ongoing development through [GitHub Sponsors](https://github.com/sponsors/codegoddy)
+or by choosing a plan on the [ApexShot pricing page](https://apexshot.org/pricing).
+
 ## ApexShot for Linux
 
 ApexShot is a native Linux screenshot and screen recording app, not a clone. It
