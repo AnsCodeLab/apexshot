@@ -385,18 +385,20 @@ sudo apexshot install --no-autostart --force
 sudo apexshot-dev uninstall --dev
 ```
 
-### GNOME Extension (Required)
+### GNOME Extension (Recommended)
 
-ApexShot requires the GNOME Shell extension for full functionality on GNOME
-Wayland. Without it, preview windows may not stay on top, recording masks will
-not appear, and shell-managed recording controls will not work.
+The GNOME Shell extension improves ApexShot on GNOME Wayland. Without it,
+preview windows may not stay on top, the recording mask will not appear, and the
+window picker cannot list windows.
 
 This is a GNOME platform limitation, not a sign that the app is unfinished:
-normal desktop apps cannot freely draw above every window or listen to every
-global input event on GNOME Wayland. The extension gives ApexShot the shell-side
-hooks needed for CleanShot-style recording overlays and preview behavior.
+normal desktop apps cannot freely draw above every window or enumerate windows on
+GNOME Wayland. The extension gives ApexShot the shell-side hooks it needs.
 
-**Supported GNOME versions:** 45–50
+Recording itself works without the extension. Pause, stop, and restart are always
+available through global shortcuts, the tray icon, and the recording notification.
+
+**Supported GNOME versions:** 48–50
 
 #### Install from GitHub Release (Recommended)
 
@@ -416,7 +418,9 @@ If you cloned the repository and want to install the development version:
 
 ```bash
 cd gnome-extension
-zip -r apexshot-gnome-integration.zip . -x "*.git*" "screenshots/*" "tests/*" "*.md"
+zip apexshot-gnome-integration.zip \
+  extension.js metadata.json \
+  shell-overlay.js window-list.js preview-stacking.js
 gnome-extensions install apexshot-gnome-integration.zip
 gnome-extensions enable apexshot-gnome-integration@apexshot.github.io
 ```
@@ -443,10 +447,8 @@ journalctl /usr/bin/gnome-shell -f | grep apexshot
 #### What the Extension Provides
 
 - **Always-on-top preview windows** — Screenshot previews and annotation editor windows stay above other applications during drag operations
-- **Shell-managed recording masks** — A dimmed fullscreen mask highlights the selected recording area
-- **Window tracking** — D-Bus signals keep preview windows stacked correctly when switching apps
-
-**Note:** The runtime click-overlay and keystroke-overlay features have been removed.
+- **Shell-managed recording mask** — A dimmed mask highlights the selected recording area
+- **Window list for the window picker** — Lets ApexShot enumerate and focus windows, which Wayland clients cannot do themselves
 
 #### Troubleshooting
 
@@ -454,7 +456,7 @@ journalctl /usr/bin/gnome-shell -f | grep apexshot
 |---|---|
 | Preview windows get hidden behind other apps | Verify extension is enabled: `gnome-extensions list` |
 | Recording mask does not appear | Check logs: `journalctl /usr/bin/gnome-shell -f | grep apexshot` |
-| Extension fails to enable | Confirm GNOME Shell version is 45–50 and matches `metadata.json` |
+| Extension fails to enable | Confirm GNOME Shell version is 48–50 and matches `metadata.json` |
 | D-Bus signals not working | Monitor session bus: `dbus-monitor --session | grep apexshot` |
 
 **Known Limitations:**

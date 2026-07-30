@@ -77,15 +77,9 @@ extension_dir=%{buildroot}%{_datadir}/gnome-shell/extensions/apexshot-gnome-inte
 install -d "${extension_dir}"
 install -Dm0644 gnome-extension/metadata.json "${extension_dir}/metadata.json"
 install -Dm0644 gnome-extension/extension.js "${extension_dir}/extension.js"
-install -Dm0644 gnome-extension/controls-ui.js "${extension_dir}/controls-ui.js"
-install -Dm0644 gnome-extension/controls-ui-layout.js "${extension_dir}/controls-ui-layout.js"
-install -Dm0644 gnome-extension/runtime-overlays.js "${extension_dir}/runtime-overlays.js"
-install -Dm0644 gnome-extension/runtime-overlays-visibility.js "${extension_dir}/runtime-overlays-visibility.js"
-install -Dm0644 gnome-extension/mask-ui.js "${extension_dir}/mask-ui.js"
+install -Dm0644 gnome-extension/shell-overlay.js "${extension_dir}/shell-overlay.js"
 install -Dm0644 gnome-extension/window-list.js "${extension_dir}/window-list.js"
-install -Dm0644 gnome-extension/session-state.js "${extension_dir}/session-state.js"
-install -Dm0644 gnome-extension/screenshot-lock.js "${extension_dir}/screenshot-lock.js"
-install -Dm0644 gnome-extension/gnome-version.js "${extension_dir}/gnome-version.js"
+install -Dm0644 gnome-extension/preview-stacking.js "${extension_dir}/preview-stacking.js"
 
 for img in src/capture/editor/background-images/*.jpg; do
     install -Dm0644 "${img}" "%{buildroot}%{_datadir}/apexshot/background-images/$(basename "${img}")"

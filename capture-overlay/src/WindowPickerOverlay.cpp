@@ -18,16 +18,9 @@
 #include <QImage>
 #include <QLinearGradient>
 #include <QPixmap>
-#include <QByteArray>
-#include <QCoreApplication>
 #include <QProcess>
-#include <QThread>
 #include <QResizeEvent>
 #include <QTimer>
-#include <QElapsedTimer>
-#include <QFile>
-#include <QFileInfo>
-#include <QDir>
 #include <cstdio>
 #include <cmath>
 #include <algorithm>
@@ -245,46 +238,6 @@ static QList<AppWindowInfo> fetchWindowsFromExtension()
 {
     QList<AppWindowInfo> result;
 
-    auto resolveCapturedPath = [](const QString& requestedPath) -> QString {
-        const QStringList candidates = {
-            requestedPath,
-            requestedPath + QStringLiteral(".png"),
-            requestedPath + QStringLiteral("-1.png"),
-            requestedPath + QStringLiteral("-0.png"),
-            requestedPath.endsWith(QStringLiteral(".png"))
-                ? requestedPath.left(requestedPath.size() - 4) + QStringLiteral("-1.png")
-                : QString(),
-            requestedPath.endsWith(QStringLiteral(".png"))
-                ? requestedPath.left(requestedPath.size() - 4) + QStringLiteral("-0.png")
-                : QString(),
-        };
-
-        for (const QString& candidate : candidates) {
-            if (candidate.isEmpty())
-                continue;
-            QFileInfo info(candidate);
-            if (info.exists() && info.isFile() && info.size() > 0) {
-                return candidate;
-            }
-        }
-        return QString();
-    };
-
-    auto waitForCapturedPath = [&](const QString& requestedPath, int timeoutMs) -> QString {
-        QElapsedTimer timer;
-        timer.start();
-
-        while (timer.elapsed() < timeoutMs) {
-            const QString found = resolveCapturedPath(requestedPath);
-            if (!found.isEmpty()) {
-                return found;
-            }
-            QThread::msleep(40);
-        }
-
-        return resolveCapturedPath(requestedPath);
-    };
-
     QDBusInterface iface(
         QStringLiteral("org.apexshot.WindowList"),
         QStringLiteral("/org/apexshot/WindowList"),
@@ -295,36 +248,6 @@ static QList<AppWindowInfo> fetchWindowsFromExtension()
         std::fprintf(stderr, "[WindowPicker] DBus interface not available\n");
         return result;
     }
-
-    auto captureWindowThumbnail = [&](quint64 windowId) -> QPixmap {
-        const QString requestedPath = QDir::tempPath() +
-            QStringLiteral("/apexshot-thumb-%1-%2.png")
-                .arg(QCoreApplication::applicationPid())
-                .arg(static_cast<qulonglong>(windowId));
-
-        QFile::remove(requestedPath);
-
-        QDBusReply<bool> captureReply = iface.call(
-            QStringLiteral("CaptureWindowById"),
-            static_cast<quint32>(windowId),
-            requestedPath);
-
-        if (!captureReply.isValid() || !captureReply.value()) {
-            return QPixmap();
-        }
-
-        const QString actualPath = waitForCapturedPath(requestedPath, 2200);
-        if (actualPath.isEmpty()) {
-            return QPixmap();
-        }
-
-        QPixmap pix(actualPath);
-        QFile::remove(actualPath);
-        if (actualPath != requestedPath)
-            QFile::remove(requestedPath);
-
-        return pix;
-    };
 
     QDBusReply<QString> reply = iface.call(QStringLiteral("GetWindows"));
     if (!reply.isValid()) {
@@ -348,18 +271,8 @@ static QList<AppWindowInfo> fetchWindowsFromExtension()
             obj[QStringLiteral("width")].toInt(),
             obj[QStringLiteral("height")].toInt());
 
-        const QString thumbnailB64 = obj[QStringLiteral("thumbnail_b64")].toString();
-        if (!thumbnailB64.isEmpty()) {
-            const QByteArray decoded = QByteArray::fromBase64(thumbnailB64.toUtf8());
-            if (!decoded.isEmpty()) {
-                info.icon.loadFromData(decoded, "PNG");
-            }
-        }
-
-        if (info.icon.isNull()) {
-            info.icon = captureWindowThumbnail(info.xid);
-        }
-
+        // The shell extension reports geometry only; cards render as titled
+        // placeholders when no thumbnail is available.
         result.append(info);
         std::fprintf(stderr, "[WindowPicker] Window: '%s' app='%s' @ %d,%d %dx%d\n",
             info.title.toLocal8Bit().constData(),

@@ -270,10 +270,7 @@ jobs:
           cd gnome-extension
           zip apexshot-gnome-integration.zip \
             extension.js metadata.json \
-            controls-ui.js controls-ui-layout.js \
-            mask-ui.js runtime-overlays.js runtime-overlays-visibility.js \
-            screenshot-lock.js session-state.js window-list.js \
-            gnome-version.js
+            shell-overlay.js window-list.js preview-stacking.js
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

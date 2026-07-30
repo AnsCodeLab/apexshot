@@ -121,16 +121,9 @@ package() {
     install -d "$ext_dir"
     install -Dm644 "gnome-extension/metadata.json"  "$ext_dir/metadata.json"
     install -Dm644 "gnome-extension/extension.js"    "$ext_dir/extension.js"
-    install -Dm644 "gnome-extension/controls-ui.js" "$ext_dir/controls-ui.js"
-    install -Dm644 "gnome-extension/controls-ui-layout.js" "$ext_dir/controls-ui-layout.js"
-    install -Dm644 "gnome-extension/runtime-overlays.js" "$ext_dir/runtime-overlays.js"
-    install -Dm644 "gnome-extension/runtime-overlays-visibility.js" "$ext_dir/runtime-overlays-visibility.js"
-    install -Dm644 "gnome-extension/mask-ui.js"     "$ext_dir/mask-ui.js"
+    install -Dm644 "gnome-extension/shell-overlay.js" "$ext_dir/shell-overlay.js"
     install -Dm644 "gnome-extension/window-list.js" "$ext_dir/window-list.js"
-    install -Dm644 "gnome-extension/session-state.js" "$ext_dir/session-state.js"
-
-    install -Dm644 "gnome-extension/screenshot-lock.js" "$ext_dir/screenshot-lock.js"
-    install -Dm644 "gnome-extension/gnome-version.js" "$ext_dir/gnome-version.js"
+    install -Dm644 "gnome-extension/preview-stacking.js" "$ext_dir/preview-stacking.js"
 
     # ── Background images for editor ──────────────────────────
     local bg_dir="$pkgdir/usr/share/apexshot/background-images"

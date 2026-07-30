@@ -332,15 +332,9 @@ install_system_files() {
     for ext_file in \
         metadata.json \
         extension.js \
-        controls-ui.js \
-        controls-ui-layout.js \
-        runtime-overlays.js \
-        runtime-overlays-visibility.js \
-        mask-ui.js \
+        shell-overlay.js \
         window-list.js \
-        session-state.js \
-        screenshot-lock.js \
-        gnome-version.js
+        preview-stacking.js
     do
         $SUDO install -Dm0644 "${REPO_DIR}/gnome-extension/${ext_file}" \
             "${extension_dir}/${ext_file}"

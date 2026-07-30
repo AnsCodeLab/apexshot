@@ -191,7 +191,6 @@ fn main() {
 async fn async_main(args: Vec<String>) {
     match args[1].as_str() {
         "daemon" => {
-            apexshot::gnome_shell::hide_recording_controls_best_effort();
             apexshot::gnome_shell::hide_recording_mask_best_effort();
 
             // Parse legacy flags that still apply to the new tray daemon.

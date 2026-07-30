@@ -154,14 +154,12 @@ The extension is plain ES modules in `gnome-extension/`. Two workflows:
 # Quick syntax check (the same one CI runs):
 pnpm check:gnome
 
-# Live-install into your session (works on GNOME 45–50):
+# Live-install into your session (works on GNOME 48–50):
 make -C gnome-extension install     # if a Makefile is present, otherwise:
 gnome-extensions pack gnome-extension --force \
-  --extra-source=controls-ui.js --extra-source=controls-ui-layout.js \
-  --extra-source=mask-ui.js --extra-source=runtime-overlays.js \
-  --extra-source=runtime-overlays-visibility.js \
-  --extra-source=screenshot-lock.js --extra-source=session-state.js \
-  --extra-source=window-list.js --extra-source=gnome-version.js
+  --extra-source=shell-overlay.js \
+  --extra-source=window-list.js \
+  --extra-source=preview-stacking.js
 gnome-extensions install --force apexshot-gnome-integration@apexshot.github.io.shell-extension.zip
 gnome-extensions enable apexshot-gnome-integration@apexshot.github.io
 ```
@@ -175,10 +173,8 @@ apexshot` to follow extension logs.
 ```bash
 cd gnome-extension
 zip apexshot-gnome-integration.zip \
-  extension.js metadata.json gnome-version.js \
-  controls-ui.js controls-ui-layout.js \
-  mask-ui.js runtime-overlays.js runtime-overlays-visibility.js \
-  screenshot-lock.js session-state.js window-list.js
+  extension.js metadata.json \
+  shell-overlay.js window-list.js preview-stacking.js
 ```
 
 This is identical to what the release workflow does in
