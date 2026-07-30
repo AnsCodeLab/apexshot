@@ -503,7 +503,10 @@ mod tests {
             Some("wayland-0"),
             Some("ubuntu:GNOME")
         ));
-        assert!(should_use_gnome_shell_mask(Some("wayland-1"), Some("GNOME")));
+        assert!(should_use_gnome_shell_mask(
+            Some("wayland-1"),
+            Some("GNOME")
+        ));
     }
 
     #[test]
