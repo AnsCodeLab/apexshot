@@ -4,14 +4,14 @@ fn packaged_desktop_identity_matches_primary_ui_application_id() {
     let capture_overlay_source = include_str!("../src/capture_overlay.rs");
     let settings_source = include_str!("../src/settings/mod.rs");
     let onboarding_source = include_str!("../src/onboarding/mod.rs");
-    let packaged_desktop = include_str!("../packaging/apexshot.desktop");
+    let packaged_desktop = include_str!("../packaging/io.github.codegoddy.apexshot.desktop");
     let packaged_daemon_desktop = include_str!("../packaging/apexshot-daemon.desktop");
     let main_source = include_str!("../src/main.rs");
     let windowing_source = include_str!("../src/settings/windowing.rs");
 
     assert!(
         cargo_toml.contains(
-            "[\"packaging/apexshot.desktop\", \"usr/share/applications/io.github.codegoddy.apexshot.desktop\", \"644\"]"
+            "[\"packaging/io.github.codegoddy.apexshot.desktop\", \"usr/share/applications/io.github.codegoddy.apexshot.desktop\", \"644\"]"
         ),
         "the packaged desktop entry should install under io.github.codegoddy.apexshot.desktop"
     );

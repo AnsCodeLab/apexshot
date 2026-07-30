@@ -144,7 +144,7 @@ KWin rejects unauthorized callers with errors like:
 - `The process is not authorized to take a screenshot`
 
 ### Files
-- `packaging/apexshot.desktop`
+- `packaging/io.github.codegoddy.apexshot.desktop`
 - `packaging/apexshot-daemon.desktop`
 - dev desktop-entry generation in `src/main.rs`
 - autostart desktop-entry generation in `src/settings/windowing.rs`

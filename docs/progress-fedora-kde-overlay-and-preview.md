@@ -64,7 +64,7 @@ For the actual screenshot UI path on Fedora KDE, we are **not depending on this 
 Added KDE restricted-interface metadata to desktop entries and generated launchers.
 
 Updated:
-- `packaging/apexshot.desktop`
+- `packaging/io.github.codegoddy.apexshot.desktop`
 - `packaging/apexshot-daemon.desktop`
 - dev desktop-entry generation in `src/main.rs`
 - autostart desktop-entry generation in `src/settings/windowing.rs`
@@ -291,7 +291,7 @@ Current debug logs are in:
 
 ### Updated files
 - `capture-overlay/src/main.cpp`
-- `packaging/apexshot.desktop`
+- `packaging/io.github.codegoddy.apexshot.desktop`
 - `packaging/apexshot-daemon.desktop`
 - `src/backend/mod.rs`
 - `src/backend/wayland.rs`

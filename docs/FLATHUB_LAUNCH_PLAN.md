@@ -95,7 +95,7 @@ Validate locally before submitting:
 
 ```bash
 appstreamcli validate --explain packaging/<app-id>.metainfo.xml
-desktop-file-validate packaging/apexshot.desktop
+desktop-file-validate packaging/<app-id>.desktop
 ```
 
 Also note: **`Categories=Graphics;` alone is invalid** for a menu entry — it needs a
@@ -129,7 +129,7 @@ subtle ways:
 - `src/app_identity.rs:3` — `OFFICIAL_APP_ID`, `OFFICIAL_DESKTOP_FILE`
 - `gnome-extension/window-list.js:37` — window-class matching for the always-on-top
   preview logic. **If this is missed, preview windows silently stop staying on top.**
-- `packaging/apexshot.desktop` — `StartupWMClass`
+- `packaging/<app-id>.desktop` — `StartupWMClass`
 - `native-host/io.github.codegoddy.apexshot.json` + both Chrome/Chromium install paths
 - `packaging/debian/postinst`, `scripts/ubuntu-update.sh`
 - `docs/ARCHITECTURE.md`, `docs/MODULES.md`, `docs/DEVELOPER_GUIDE.md`

@@ -96,8 +96,10 @@ package() {
     install -Dm755 "packaging/deb/apexshot-native-host" "$pkgdir/usr/bin/apexshot-native-host"
 
     # ── Desktop files ─────────────────────────────────────────
-    install -Dm644 "packaging/apexshot.desktop" \
+    install -Dm644 "packaging/io.github.codegoddy.apexshot.desktop" \
         "$pkgdir/usr/share/applications/io.github.codegoddy.apexshot.desktop"
+    install -Dm644 "packaging/io.github.codegoddy.apexshot.metainfo.xml" \
+        "$pkgdir/usr/share/metainfo/io.github.codegoddy.apexshot.metainfo.xml"
     install -Dm644 "packaging/apexshot-daemon.desktop" \
         "$pkgdir/etc/xdg/autostart/apexshot.desktop"
 
