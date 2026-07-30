@@ -60,7 +60,8 @@ install -Dm0755 target/release/apexshot %{buildroot}%{_bindir}/apexshot
 install -Dm0755 target/release/apexshot-capture %{buildroot}%{_bindir}/apexshot-capture
 install -Dm0755 packaging/deb/apexshot-native-host %{buildroot}%{_bindir}/apexshot-native-host
 
-install -Dm0644 packaging/apexshot.desktop %{buildroot}%{_datadir}/applications/io.github.codegoddy.apexshot.desktop
+install -Dm0644 packaging/io.github.codegoddy.apexshot.desktop %{buildroot}%{_datadir}/applications/io.github.codegoddy.apexshot.desktop
+install -Dm0644 packaging/io.github.codegoddy.apexshot.metainfo.xml %{buildroot}%{_datadir}/metainfo/io.github.codegoddy.apexshot.metainfo.xml
 install -Dm0644 packaging/apexshot-daemon.desktop %{buildroot}%{_sysconfdir}/xdg/autostart/apexshot.desktop
 install -Dm0644 packaging/apexshot.svg %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/apexshot.svg
 install -Dm0644 packaging/apexshot.svg %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/io.github.codegoddy.apexshot.svg
@@ -108,6 +109,7 @@ fi
 %{_bindir}/apexshot-capture
 %{_bindir}/apexshot-native-host
 %{_datadir}/applications/io.github.codegoddy.apexshot.desktop
+%{_datadir}/metainfo/io.github.codegoddy.apexshot.metainfo.xml
 %config %{_sysconfdir}/xdg/autostart/apexshot.desktop
 %{_datadir}/icons/hicolor/scalable/apps/apexshot.svg
 %{_datadir}/icons/hicolor/scalable/apps/io.github.codegoddy.apexshot.svg

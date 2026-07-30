@@ -291,7 +291,7 @@ apexshot/
 ├── web-scroll-extension/          # Chrome/Chromium full-page capture
 ├── native-host/                   # Native messaging host manifest
 ├── packaging/                     # Package assets
-│   ├── apexshot.desktop / apexshot-daemon.desktop / apexshot.svg
+ │   ├── io.github.codegoddy.apexshot.desktop / apexshot-daemon.desktop / apexshot.svg
 │   ├── deb/ + debian/             # Debian packaging
 │   ├── arch/                      # PKGBUILD + AUR install script
 │   ├── fedora/                    # RPM spec

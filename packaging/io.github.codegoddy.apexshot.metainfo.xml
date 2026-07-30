@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: CC0-1.0 -->
+<component type="desktop-application">
+  <id>io.github.codegoddy.apexshot</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>ApexShot</name>
+  <summary>Capture and annotate your screen</summary>
+  <developer id="io.github.codegoddy">
+    <name>codegoddy</name>
+  </developer>
+  <description>
+    <p>ApexShot captures screenshots and screen recordings on Linux with Wayland portals and PipeWire support.</p>
+    <p>Annotate captures, extract text with OCR, scan QR codes, and share results from one desktop application.</p>
+  </description>
+  <categories>
+    <category>Graphics</category>
+    <category>Photography</category>
+  </categories>
+  <content_rating type="oars-1.1">
+    <content_attribute id="social-info">mild</content_attribute>
+  </content_rating>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/apex-shot/apexshot/v0.2.33/media/capture-area.png</image>
+      <caption>Select a screen area to capture</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/apex-shot/apexshot/v0.2.33/media/video-recording.png</image>
+      <caption>Configure a screen recording</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/apex-shot/apexshot/v0.2.33/media/video-editor.png</image>
+      <caption>Edit a recorded video</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/apex-shot/apexshot/v0.2.33/media/setting-tray.png</image>
+      <caption>Configure capture settings and tray actions</caption>
+    </screenshot>
+  </screenshots>
+  <url type="homepage">https://apexshot.org/</url>
+  <url type="bugtracker">https://github.com/apex-shot/apexshot/issues</url>
+  <url type="vcs-browser">https://github.com/apex-shot/apexshot</url>
+  <url type="donation">https://apexshot.org/pricing</url>
+  <launchable type="desktop-id">io.github.codegoddy.apexshot.desktop</launchable>
+  <releases>
+    <release version="0.2.33" date="2026-07-21">
+      <description><p>Improved first-run activation and onboarding, including daemon startup and a capture guide.</p></description>
+    </release>
+    <release version="0.2.32" date="2026-07-18">
+      <description><p>Fixed image editor uploads to include saved annotations.</p></description>
+    </release>
+    <release version="0.2.31" date="2026-07-13">
+      <description><p>Improved KDE and Fedora capture support and clarified recording availability.</p></description>
+    </release>
+    <release version="0.2.30" date="2026-07-12">
+      <description><p>Added cloud upload options and improved editor and recording workflows.</p></description>
+    </release>
+    <release version="0.2.29" date="2026-06-25">
+      <description><p>Fixed KDE portal hotkeys and improved Fedora installation and updates.</p></description>
+    </release>
+    <release version="0.2.28" date="2026-05-28">
+      <description><p>Added the initial Fedora RPM packaging.</p></description>
+    </release>
+  </releases>
+</component>

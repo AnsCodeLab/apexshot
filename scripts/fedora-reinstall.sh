@@ -310,7 +310,7 @@ install_system_files() {
     $SUDO install -Dm0755 "$capture_src" /usr/bin/apexshot-capture
     $SUDO install -Dm0755 "${REPO_DIR}/packaging/deb/apexshot-native-host" /usr/bin/apexshot-native-host
 
-    $SUDO install -Dm0644 "${REPO_DIR}/packaging/apexshot.desktop" \
+    $SUDO install -Dm0644 "${REPO_DIR}/packaging/io.github.codegoddy.apexshot.desktop" \
         /usr/share/applications/io.github.codegoddy.apexshot.desktop
     $SUDO install -Dm0644 "${REPO_DIR}/packaging/apexshot-daemon.desktop" \
         /etc/xdg/autostart/apexshot.desktop
