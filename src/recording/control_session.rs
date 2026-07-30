@@ -24,7 +24,6 @@ impl RecordingControlCommand {
 
 #[derive(Clone)]
 struct ActiveRecordingControl {
-    session_id: String,
     command_tx: Arc<Mutex<Option<mpsc::UnboundedSender<RecordingControlCommand>>>>,
     paused: Arc<AtomicBool>,
 }
@@ -43,27 +42,7 @@ pub fn has_active_recording_control() -> bool {
         .is_some()
 }
 
-fn notify_shell_overlay(command: RecordingControlCommand, session_id: &str) {
-    let result = match command {
-        RecordingControlCommand::Pause => {
-            crate::gnome_shell::set_recording_paused(session_id, true)
-        }
-        RecordingControlCommand::Resume => {
-            crate::gnome_shell::set_recording_paused(session_id, false)
-        }
-        RecordingControlCommand::Restart => crate::gnome_shell::restart_recording_ui(session_id),
-        RecordingControlCommand::StopSave | RecordingControlCommand::StopDiscard => {
-            crate::gnome_shell::end_recording_ui(session_id)
-        }
-    };
-    let _ = result;
-}
-
-fn apply_command_side_effects(
-    command: RecordingControlCommand,
-    paused: &AtomicBool,
-    session_id: &str,
-) {
+fn apply_command_side_effects(command: RecordingControlCommand, paused: &AtomicBool) {
     match command {
         RecordingControlCommand::Pause => paused.store(true, Ordering::Relaxed),
         RecordingControlCommand::Resume
@@ -71,21 +50,14 @@ fn apply_command_side_effects(
         | RecordingControlCommand::StopSave
         | RecordingControlCommand::StopDiscard => paused.store(false, Ordering::Relaxed),
     }
-
-    notify_shell_overlay(command, session_id);
 }
 
 fn register_active_recording_control(
-    session_id: String,
     command_tx: Arc<Mutex<Option<mpsc::UnboundedSender<RecordingControlCommand>>>>,
     paused: Arc<AtomicBool>,
 ) {
     if let Ok(mut guard) = active_recording_control().lock() {
-        *guard = Some(ActiveRecordingControl {
-            session_id,
-            command_tx,
-            paused,
-        });
+        *guard = Some(ActiveRecordingControl { command_tx, paused });
     }
 }
 
@@ -124,7 +96,7 @@ pub fn send_active_recording_command(command: RecordingControlCommand) -> bool {
         return false;
     }
 
-    apply_command_side_effects(command, &active.paused, &active.session_id);
+    apply_command_side_effects(command, &active.paused);
     true
 }
 
@@ -165,7 +137,7 @@ impl RecordingControlIface {
         tx.send(command).map_err(|err| {
             zbus::fdo::Error::Failed(format!("recording command channel unavailable: {err}"))
         })?;
-        apply_command_side_effects(command, &self.paused, &self.session_id);
+        apply_command_side_effects(command, &self.paused);
         Ok(true)
     }
 }
@@ -194,8 +166,6 @@ impl RecordingControlIface {
 }
 
 pub struct RecordingControlServer {
-    bus_name: String,
-    session_id: String,
     command_tx: Arc<Mutex<Option<mpsc::UnboundedSender<RecordingControlCommand>>>>,
     paused: Arc<AtomicBool>,
     task: JoinHandle<()>,
@@ -207,17 +177,16 @@ impl RecordingControlServer {
         let command_tx = Arc::new(Mutex::new(None));
         let paused = Arc::new(AtomicBool::new(false));
         let iface = RecordingControlIface {
-            session_id: session_id.clone(),
+            session_id,
             command_tx: command_tx.clone(),
             paused: paused.clone(),
         };
-        let bus_name_for_task = bus_name.clone();
         let task = tokio::spawn(async move {
             let result = async {
                 let builder = zbus::connection::Builder::session()
                     .context("failed to open session bus for recording controls")?;
                 let _conn = builder
-                    .name(bus_name_for_task.as_str())?
+                    .name(bus_name.as_str())?
                     .serve_at(RECORDING_CONTROL_OBJECT_PATH, iface)?
                     .build()
                     .await
@@ -234,16 +203,10 @@ impl RecordingControlServer {
         });
 
         Ok(Self {
-            bus_name,
-            session_id,
             command_tx,
             paused,
             task,
         })
-    }
-
-    pub fn bus_name(&self) -> &str {
-        &self.bus_name
     }
 
     pub fn set_command_sender(&self, tx: mpsc::UnboundedSender<RecordingControlCommand>) {
@@ -251,11 +214,7 @@ impl RecordingControlServer {
             *guard = Some(tx);
         }
         self.paused.store(false, Ordering::Relaxed);
-        register_active_recording_control(
-            self.session_id.clone(),
-            self.command_tx.clone(),
-            self.paused.clone(),
-        );
+        register_active_recording_control(self.command_tx.clone(), self.paused.clone());
     }
 
     pub fn clear_command_sender(&self) {

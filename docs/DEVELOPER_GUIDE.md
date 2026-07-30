@@ -282,12 +282,11 @@ apexshot/
 │   ├── tray/                      # System tray (ksni)
 │   └── utils/                     # clipboard, desktop_env, notify
 ├── capture-overlay/               # C++ Qt5 overlay (CMake ≥ 3.16)
-├── gnome-extension/               # GNOME Shell extension (JS/GJS, shell 45–50)
+├── gnome-extension/               # GNOME Shell extension (JS/GJS, shell 48–50)
 │   ├── extension.js
-│   ├── gnome-version.js
-│   ├── controls-ui.js / controls-ui-layout.js
-│   ├── runtime-overlays.js / runtime-overlays-visibility.js
-│   ├── mask-ui.js / session-state.js / window-list.js / screenshot-lock.js
+│   ├── shell-overlay.js
+│   ├── window-list.js
+│   ├── preview-stacking.js
 │   └── metadata.json
 ├── web-scroll-extension/          # Chrome/Chromium full-page capture
 ├── native-host/                   # Native messaging host manifest
@@ -513,11 +512,10 @@ busctl monitor --session org.apexshot.ShellOverlay
 ```
 
 ### Extension File Guide
-- `extension.js` — Entry point; registers D-Bus services, connects signals
-- `controls-ui.js` — Recording control buttons rendered on the shell stage
-- `runtime-overlays.js` — Runtime overlay ownership and shell actor cleanup
-- `mask-ui.js` — Recording mask (dimmed region) rendered on the shell stage
-- `session-state.js` — Tracks active sessions, window lists
+- `extension.js` — Entry point; enables the three services and tears them down
+- `shell-overlay.js` — `org.apexshot.ShellOverlay`: recording mask (dimmed region outside the capture rect)
+- `window-list.js` — `org.apexshot.WindowList`: lists and focuses windows for the window picker
+- `preview-stacking.js` — Keeps ApexShot's own preview windows above other windows
 
 ## Browser Extension Development
 

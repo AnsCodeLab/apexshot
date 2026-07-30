@@ -145,7 +145,7 @@ whether the user interacts through the Qt overlay (GNOME) or the daemon/CLI
 - `record_wayland_with_ffmpeg_sync()` — Wayland recording: native PipeWire capture → RGBA frames → ffmpeg stdin pipe
 - `record_gif_wayland_native()` — Wayland GIF recording: native PipeWire + ffmpeg palettegen/paletteuse
 - `record_x11_with_gstreamer()` — X11 fallback using GStreamer ximagesrc pipeline
-- `run_recording_with_controls(params, stop_tx)` — Recording with floating stop overlay
+- `run_recording_with_controls(config, params)` — Recording session with shortcut / tray / notification controls; adds the GNOME shell mask when available
 - `run_recording_countdown_bar()` — Shows countdown then recording controls
 - `run_overlay_recording_request(request)` — Handles C++ overlay recording request
 
@@ -413,22 +413,19 @@ English, Spanish, French, German, Italian, Portuguese, Chinese (Simplified), Jap
 
 ### GNOME Integration (`src/gnome_shell.rs`, `src/gnome_integration/`)
 
-**Purpose:** D-Bus communication with the GNOME Shell extension for window stacking, recording masks, and runtime overlays.
+**Purpose:** D-Bus communication with the GNOME Shell extension for window stacking and the recording mask.
 
 **Key Functions (`gnome_shell.rs`):**
 - `emit_tracked_window_opened(title)` / `emit_tracked_window_closed(title)` — Window tracking signals on `org.apexshot.TrackedWindow`
-- `show_recording_mask(x, y, w, h)` / `hide_recording_mask()` — Recording mask on `org.apexshot.ShellOverlay`
-- `set_recording_paused(session_id, paused)` — Notify extension of pause state
-- `restart_recording_ui(session_id)` — Notify extension of recording restart
-- `end_recording_ui(session_id)` — Notify extension of recording end
-- `hide_recording_controls_best_effort()` / `hide_recording_mask_best_effort()` — Best-effort cleanup
+- `show_recording_mask(geometry)` / `hide_recording_mask()` — Recording mask on `org.apexshot.ShellOverlay`
+- `hide_recording_mask_best_effort()` — Best-effort cleanup on stop and daemon start
 
 **Key Functions (`gnome_integration/`):**
 - Extension installation, validation, and metadata parsing helpers
 
 **D-Bus Services:**
 - `org.apexshot.TrackedWindow` — Window stacking signals (emitted by daemon)
-- `org.apexshot.ShellOverlay` — Mask and recording control (methods called by ApexShot, implemented by extension)
+- `org.apexshot.ShellOverlay` — Recording mask (methods called by ApexShot, implemented by extension)
 
 **Extension UUID:** `apexshot-gnome-integration@apexshot.github.io`
 
@@ -714,27 +711,25 @@ without requiring the Qt overlay or GNOME Shell extension.
 
 ### GNOME Shell Extension (`gnome-extension/`)
 
-**Purpose:** JavaScript/GJS extension for GNOME Shell 45–50 providing always-on-top stacking, recording masks, and shell-side recording controls.
+**Purpose:** JavaScript/GJS extension for GNOME Shell 48–50 providing the recording mask, the window list the Qt window picker needs, and preview-window stacking.
 
 **Key Files:**
-- `extension.js` — Main extension logic, D-Bus service registration, cleanup
-- `controls-ui.js` — Recording controls UI shell elements (pause/stop buttons)
-- `controls-ui-layout.js` — Positioning logic for controls UI
-- `runtime-overlays.js` — Runtime overlay ownership and shell actor cleanup
-- `runtime-overlays-visibility.js` — Show/hide logic for runtime overlays
-- `mask-ui.js` — Recording mask shell actor (dimmed region around capture area)
-- `session-state.js` — Session tracking, window list management
-- `window-list.js` — Window enumeration for window capture
-- `screenshot-lock.js` — Screenshot inhibition during recording
+- `extension.js` — Enables and disables the three services
+- `shell-overlay.js` — Recording mask shell actors (dimmed bands around the capture area)
+- `window-list.js` — Window enumeration and activation for window capture
+- `preview-stacking.js` — Keeps ApexShot preview windows above other windows
 - `metadata.json` — Extension metadata (UUID, GNOME versions, name)
 
 **D-Bus Services Exposed:**
-- `org.apexshot.TrackedWindow` — Listens to `TrackedWindowOpened`/`TrackedWindowClosed` signals
-- `org.apexshot.ShellOverlay` — Implements `ShowMask`, `HideMask`, recording control methods
+- `org.apexshot.ShellOverlay` — `ShowMask`, `HideMask`
+- `org.apexshot.WindowList` — `GetWindows`, `ActivateWindowById`
+
+**D-Bus Signals Consumed:**
+- `org.apexshot.TrackedWindow` — `TrackedWindowOpened` / `TrackedWindowClosed`
 
 **UUID:** `apexshot-gnome-integration@apexshot.github.io`
 
-**Supported GNOME Versions:** 45–50 (see `gnome-extension/metadata.json`)
+**Supported GNOME Versions:** 48–50 (see `gnome-extension/metadata.json`)
 
 ---
 

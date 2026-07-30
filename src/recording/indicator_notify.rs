@@ -50,22 +50,11 @@ fn desktop_entry() -> &'static str {
     crate::app_identity::app_id()
 }
 
-/// Whether the blinking notification stop affordance should run.
-///
-/// Returns false when the ApexShot GNOME Shell extension is on the bus
-/// (Ubuntu/GNOME path with panel timer). True for sessions that need a
-/// notification-based stop control instead.
-pub fn should_show_recording_indicator() -> bool {
-    !crate::gnome_shell::is_shell_overlay_service_available()
-}
-
 /// Start (or re-assert) the persistent recording indicator.
+///
+/// Every session gets this notification: it is the one stop affordance that
+/// needs no tray host and no shell extension.
 pub fn show_recording_indicator() {
-    if !should_show_recording_indicator() {
-        eprintln!("[recording] indicator: skipped (GNOME Shell overlay service present)");
-        return;
-    }
-
     let mut slot = match indicator_slot().lock() {
         Ok(g) => g,
         Err(_) => return,

@@ -310,20 +310,18 @@ Native C++ overlay built with CMake and Qt5:
 - `src/request.cpp/h` — IPC request format
 
 ### GNOME Shell Extension (`gnome-extension/`)
-JavaScript/GJS extension for GNOME Shell 45–50:
-- `extension.js` — main extension logic, D-Bus service setup
-- `controls-ui.js` — recording controls UI shell elements
-- `controls-ui-layout.js` — layout positioning
-- `runtime-overlays.js` — runtime overlay ownership and shell actor cleanup
-- `runtime-overlays-visibility.js` — overlay show/hide logic
-- `mask-ui.js` — recording mask shell actor
-- `session-state.js` — session tracking, window list
-- `window-list.js` — window enumeration
-- `screenshot-lock.js` — screenshot inhibition
+JavaScript/GJS extension for GNOME Shell 48–50:
+- `extension.js` — enables and disables the three services
+- `shell-overlay.js` — recording mask shell actors (`ShowMask` / `HideMask`)
+- `window-list.js` — window enumeration and activation for the window picker
+- `preview-stacking.js` — keeps ApexShot preview windows above other windows
 
 **D-Bus services exposed:**
-- `org.apexshot.TrackedWindow` — window stacking signals
-- `org.apexshot.ShellOverlay` — mask and recording control
+- `org.apexshot.ShellOverlay` — recording mask
+- `org.apexshot.WindowList` — `GetWindows`, `ActivateWindowById`
+
+**D-Bus signals consumed:**
+- `org.apexshot.TrackedWindow` — preview-window stacking hints from ApexShot
 
 ### Chrome Web Scroll Extension (`web-scroll-extension/`)
 Browser extension for full-page webpage capture:
@@ -395,10 +393,10 @@ session is created. Screenshots on Fedora remain supported.
 8. Recording starts; `control_session.rs` registers the active session on D-Bus
    at `/org/apexshot/RecordingControl`, enabling pause/resume/restart/stop
    commands from tray, hotkeys, or other processes.
-9. The `stop_overlay.rs` GTK4 floating control bar appears with pause, stop, and
-   elapsed-timer controls.
-10. User stops recording via the overlay, hotkey, or tray; ffmpeg is signaled
-    (stdin closed), finalizes, and the file is written.
+9. The tray icon switches to its recording appearance (elapsed time, pause and
+   stop entries) and a persistent notification offers click-to-stop.
+10. User stops recording via a hotkey, the tray, or the notification; ffmpeg is
+    signaled (stdin closed), finalizes, and the file is written.
 11. After-capture actions are applied (copy to clipboard, show preview, open
     editor, upload, etc.) based on user settings.
 
@@ -410,14 +408,12 @@ session is created. Screenshots on Fedora remain supported.
 3. The overlay outputs a JSON recording request; `RecordingConfig` is built from it.
 4. `recording::start_recording()` uses the same native PipeWire + ffmpeg flow
    as the daemon path (no GStreamer for video).
-5. The GNOME Shell extension is contacted via D-Bus to:
-   - Show a recording mask (`org.apexshot.ShellOverlay.ShowMask`) that dims the
-     screen outside the selected area.
-   - Render recording controls (pause/stop/timer) directly on the GNOME Shell
-     stage instead of a floating GTK4 overlay.
-   - Render recording controls on the shell stage while mic/speaker state remains in the runtime snapshot.
-6. Countdown and recording proceed as in the native path, but mask/controls are
-   shell-rendered instead of GTK4 overlays.
+5. On GNOME the shell extension is asked to show a recording mask
+   (`org.apexshot.ShellOverlay.ShowMask`) that dims the screen outside the
+   selected area. It is hidden again on stop.
+6. Countdown and recording proceed as in the native path. Pause, stop, and
+   restart come from global shortcuts, the tray icon, and the recording
+   notification on every desktop.
 7. User stops; ffmpeg finalizes; after-capture actions applied.
 
 ### Web Scroll Capture Flow
@@ -456,7 +452,7 @@ ApexShot uses D-Bus extensively for IPC:
 
 **GNOME Extension services:**
 - `org.apexshot.TrackedWindow` — signals for always-on-top window stacking
-- `org.apexshot.ShellOverlay` — methods for recording mask and controls visibility
+- `org.apexshot.ShellOverlay` — methods for the recording mask
 
 **Recording Control:**
 - Object path: `/org/apexshot/RecordingControl`

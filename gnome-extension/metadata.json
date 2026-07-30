@@ -1,10 +1,9 @@
 {
-  "name": "ApexShot GNOME Integration",
-  "description": "Enhances ApexShot with GNOME Shell integration for window stacking, recording masks, and shell-side recording controls",
+  "name": "ApexShot",
+  "description": "Support for the ApexShot screenshot and screen recording app: dims the area outside a recording, lets ApexShot list and focus windows for its window picker, and keeps ApexShot's own preview windows above other windows.\n\nApexShot must be installed for this extension to do anything.",
   "uuid": "apexshot-gnome-integration@apexshot.github.io",
-  "shell-version": ["45", "46", "47", "48", "49", "50"],
+  "shell-version": ["48", "49", "50"],
   "url": "https://github.com/apex-shot/apexshot",
-  "version": 3,
-  "gettext-domain": "apexshot-gnome-integration",
-  "settings-schema": "org.gnome.shell.extensions.apexshot-gnome-integration"
+  "version-name": "4",
+  "version": 4
 }
