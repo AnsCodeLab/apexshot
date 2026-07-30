@@ -1,15 +1,14 @@
 //! Cloud page for the History window.
 //!
 //! This page renders the signed-in account's ApexShot Cloud uploads. It is a
-//! small state machine driven entirely by config and the cached entitlement:
+//! small state machine driven entirely by config:
 //!
 //! | State            | What the user sees                                    |
 //! |------------------|-------------------------------------------------------|
 //! | Not signed in    | Explanation + a "Sign in" button, then login polling  |
-//! | Signed in, free  | The signed-in email + a prompt to upgrade             |
+//! | Signed in        | A paged grid of the account's uploads                |
 //! | XBackBone chosen | A note that this page covers ApexShot Cloud only      |
 //! | Error            | A readable message with a Retry button                |
-//! | Subscribed       | A paged grid of the account's uploads (Step 9)        |
 //!
 //! Networking (listing, thumbnails) always happens on background threads and
 //! results are delivered to the main loop through `mpsc` channels drained by
@@ -27,7 +26,7 @@ use gtk4::{
 };
 
 use crate::cloud::listing::{
-    cached_is_subscribed, CloudReadError, CloudUpload, UploadsPage, UploadsPager, DEFAULT_PAGE_SIZE,
+    CloudReadError, CloudUpload, UploadsPage, UploadsPager, DEFAULT_PAGE_SIZE,
 };
 use crate::config::{is_cloud_logged_in, load_config, AppConfig};
 use crate::history::thumbnails::{self, ThumbnailReady, ThumbnailRequest, ThumbnailSource};
@@ -96,7 +95,6 @@ pub fn build_cloud_page(toast: HistoryToast) -> super::HistoryPage {
         scroller: scroller.clone(),
         toast,
         polling: Cell::new(false),
-        tier_checked: Cell::new(false),
     });
 
     page.render_current_state();
@@ -104,11 +102,7 @@ pub fn build_cloud_page(toast: HistoryToast) -> super::HistoryPage {
     // The header-bar refresh button re-renders from the current config.
     let refresh = {
         let page = Rc::clone(&page);
-        // An explicit refresh should re-ask the server, not trust the cache.
-        Rc::new(move || {
-            page.tier_checked.set(false);
-            page.render_current_state()
-        }) as Rc<dyn Fn()>
+        Rc::new(move || page.render_current_state()) as Rc<dyn Fn()>
     };
 
     super::HistoryPage {
@@ -127,9 +121,6 @@ struct CloudPage {
     toast: HistoryToast,
     /// True while a login poll timer is running, so we never start a second.
     polling: Cell<bool>,
-    /// True once this page has re-checked the plan tier with the server, so a
-    /// stale cache costs at most one lookup per window.
-    tier_checked: Cell<bool>,
 }
 
 impl CloudPage {
@@ -150,70 +141,7 @@ impl CloudPage {
             return;
         }
 
-        if cached_is_subscribed(&config) {
-            self.show_subscribed_grid(config);
-        } else if self.tier_checked.get() {
-            // The server has confirmed there is no paid plan on this account.
-            self.show_free_plan(&config);
-        } else {
-            // A cached "free" can be stale or never written (a login from before
-            // the tier was persisted, or a plan bought after signing in), so
-            // check before telling a paying user to upgrade.
-            self.show_checking_plan();
-            self.verify_tier_once();
-        }
-    }
-
-    /// Neutral placeholder shown while the plan tier is being confirmed, so a
-    /// paying user never reads an upgrade prompt that is about to disappear.
-    fn show_checking_plan(self: &Rc<Self>) {
-        self.toast
-            .show("Checking your plan\u{2026}", ToastKind::Neutral, None);
-
-        let status = Label::new(Some("Checking your ApexShot Cloud plan\u{2026}"));
-        status.add_css_class("recent-captures-empty-detail");
-        status.set_halign(Align::Center);
-        status.set_valign(Align::Center);
-        status.set_hexpand(true);
-        status.set_vexpand(true);
-        self.body.append(&status);
-    }
-
-    /// Re-check the plan tier with the server once, then render the real state.
-    ///
-    /// `fetch_account` writes the fresh tier to config, so the re-render below
-    /// picks the right branch; `tier_checked` keeps it to one lookup per window.
-    fn verify_tier_once(self: &Rc<Self>) {
-        if self.tier_checked.get() {
-            return;
-        }
-
-        let config = load_config();
-        let (tx, rx) = mpsc::channel::<()>();
-        std::thread::spawn(move || {
-            // The tier is cached to config as a side effect; a failed lookup
-            // leaves the cached answer in place, which the re-render then uses.
-            let _ = crate::cloud::listing::fetch_account(&config);
-            let _ = tx.send(());
-        });
-
-        let page = Rc::clone(self);
-        glib::source::idle_add_local(move || match rx.try_recv() {
-            Ok(()) => {
-                page.tier_checked.set(true);
-                page.toast.hide();
-                page.render_current_state();
-                glib::ControlFlow::Break
-            }
-            Err(mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
-            // The worker vanished: fall back to the cached answer rather than
-            // leaving the page stuck on the placeholder.
-            Err(mpsc::TryRecvError::Disconnected) => {
-                page.tier_checked.set(true);
-                page.render_current_state();
-                glib::ControlFlow::Break
-            }
-        });
+        self.show_uploads_grid(config);
     }
 
     // --- signed-out state ---
@@ -269,41 +197,6 @@ impl CloudPage {
         });
     }
 
-    // --- free-plan state ---
-
-    fn show_free_plan(self: &Rc<Self>, config: &AppConfig) {
-        let email = config.cloud_user_email.trim();
-        let detail = if email.is_empty() {
-            "You are signed in to ApexShot Cloud on the free plan. Upgrade to a paid plan to \
-             browse and manage your uploads here."
-                .to_string()
-        } else {
-            format!(
-                "You are signed in as {email} on the free plan. Upgrade to a paid plan to \
-                 browse and manage your uploads here."
-            )
-        };
-
-        let state = empty_state("Upgrade to browse your cloud uploads", &detail);
-
-        let upgrade = Button::with_label("See plans");
-        upgrade.add_css_class("settings-primary-btn");
-        upgrade.set_halign(Align::Center);
-        upgrade.set_margin_top(20);
-        {
-            let toast = self.toast.clone();
-            upgrade.connect_clicked(move |_| {
-                report(
-                    &toast,
-                    actions::open_in_browser("https://apexshot.org/pricing"),
-                );
-            });
-        }
-        state.append(&upgrade);
-
-        self.body.append(&state);
-    }
-
     // --- XBackBone state ---
 
     fn show_xbackbone_notice(self: &Rc<Self>) {
@@ -338,9 +231,9 @@ impl CloudPage {
         self.body.append(&state);
     }
 
-    // --- subscribed grid (Step 9) ---
+    // --- upload grid ---
 
-    fn show_subscribed_grid(self: &Rc<Self>, config: AppConfig) {
+    fn show_uploads_grid(self: &Rc<Self>, config: AppConfig) {
         let grid = FlowBox::new();
         grid.add_css_class("recent-captures-grid");
         grid.set_selection_mode(SelectionMode::None);
