@@ -818,6 +818,7 @@ fn setup_editor_window_full(
 
     let root = GtkBox::new(Orientation::Vertical, 0);
     root.add_css_class("editor-root");
+    root.set_overflow(gtk4::Overflow::Hidden);
 
     let prefers_dark = prefers_dark_glass_theme();
     let reduced_transparency = prefers_reduced_transparency();
@@ -957,11 +958,15 @@ fn setup_editor_window_full(
         &sep_1,
         &sep_2,
     );
-    // Left-align tools: mount the center_group as the start widget so there's no
-    // empty space on the left of the toolbar.
-    toolbar.set_start_widget(Some(&center_group));
+    toolbar.append(&center_group);
 
-    let toolbar_right_parts = toolbar::build_toolbar_right_controls(
+    let toolbar::ToolbarRightParts {
+        root: sidebar_utility_controls,
+        history_group,
+        undo_btn,
+        redo_btn,
+        delete_selected_btn,
+    } = toolbar::build_toolbar_right_controls(
         &color_status,
         icon_names::custom::EDIT_UNDO_SYMBOLIC,
         icon_names::custom::EDIT_UNDO_RTL_SYMBOLIC,
@@ -970,10 +975,6 @@ fn setup_editor_window_full(
         &traffic_zoom,
         &traffic_close,
     );
-    let undo_btn = toolbar_right_parts.undo_btn;
-    let redo_btn = toolbar_right_parts.redo_btn;
-    let delete_selected_btn = toolbar_right_parts.delete_selected_btn;
-    toolbar.set_end_widget(Some(&toolbar_right_parts.root));
 
     let crop_ratio_list = GtkBox::new(Orientation::Vertical, 0);
     for crop_type in CropAspectRatio::ALL {
@@ -1355,6 +1356,8 @@ fn setup_editor_window_full(
     let copy_btn = footer_parts.copy_btn;
     let upload_btn = footer_parts.upload_btn;
     let save_btn = footer_parts.save_btn;
+    copy_btn.add_css_class("editor-sidebar-action-button");
+    upload_btn.add_css_class("editor-sidebar-action-button");
     if empty_drop_zone {
         copy_btn.set_sensitive(false);
         upload_btn.set_sensitive(false);
@@ -1377,8 +1380,8 @@ fn setup_editor_window_full(
         &GtkBox::new(Orientation::Vertical, 0), // Placeholder, will be replaced
         canvas::EYEDROPPER_LOUPE_SIZE,
     );
-    // Note: zoom_popup is NOT added to canvas_overlay here - it will be added
-    // to a root-level overlay later to stay fixed during zoom/scroll.
+    // The zoom controls are added to the canvas pane later so they remain fixed
+    // while the image scrolls and scales.
 
     // Background style cache
     let cached_background_surface =
@@ -1963,6 +1966,7 @@ fn setup_editor_window_full(
     inspector.set_width_request(BACKGROUND_SIDEBAR_WIDTH);
     inspector.set_hexpand(false);
     inspector.set_vexpand(true);
+    inspector.append(&sidebar_utility_controls);
     inspector.append(&inspector_tabs);
 
     let inspector_stack = Stack::new();
@@ -1998,10 +2002,25 @@ fn setup_editor_window_full(
     inspector_stack.set_visible_child_name("placeholder");
     inspector.append(&inspector_stack);
 
+    let sidebar_actions = GtkBox::new(Orientation::Horizontal, 8);
+    sidebar_actions.add_css_class("editor-sidebar-actions");
+    let sidebar_action_spacer = GtkBox::new(Orientation::Horizontal, 0);
+    sidebar_action_spacer.set_hexpand(true);
+    sidebar_actions.append(&copy_btn);
+    sidebar_actions.append(&upload_btn);
+    sidebar_actions.append(&sidebar_action_spacer);
+    sidebar_actions.append(&save_btn);
+    inspector.append(&sidebar_actions);
+
+    let canvas_with_toolbar = Overlay::new();
+    canvas_with_toolbar.set_hexpand(true);
+    canvas_with_toolbar.set_vexpand(true);
+    canvas_with_toolbar.set_child(Some(&canvas));
+
     let workspace = GtkBox::new(Orientation::Horizontal, 0);
     workspace.set_hexpand(true);
     workspace.set_vexpand(true);
-    workspace.append(&canvas);
+    workspace.append(&canvas_with_toolbar);
     workspace.append(&inspector);
 
     *drawing_area_placeholder.borrow_mut() = Some(drawing_area.downgrade());
@@ -2484,15 +2503,42 @@ fn setup_editor_window_full(
         }
     });
 
-    root.append(&toolbar);
     root.append(&workspace);
-    root.append(&footer_parts.root);
 
-    // Wrap root in an overlay so zoom_popup can be positioned on top
-    // without being affected by canvas zoom/scroll transformations
+    // Keep window-wide transient UI above the editor layout.
     let root_overlay = Overlay::new();
     root_overlay.set_child(Some(&root));
-    root_overlay.add_overlay(&zoom_popup);
+    let toolbar_overlay = GtkBox::new(Orientation::Horizontal, 0);
+    toolbar_overlay.set_halign(Align::Center);
+    toolbar_overlay.set_valign(Align::Start);
+    toolbar_overlay.set_hexpand(false);
+    toolbar_overlay.set_margin_top(16);
+    toolbar.set_halign(Align::Start);
+    toolbar.set_valign(Align::Start);
+    toolbar.set_hexpand(false);
+    toolbar_overlay.append(&toolbar);
+    canvas_with_toolbar.add_overlay(&toolbar_overlay);
+
+    let zoom_control = GtkBox::new(Orientation::Horizontal, 0);
+    zoom_control.add_css_class("editor-floating-zoom");
+    zoom_control.set_halign(Align::Start);
+    zoom_control.set_valign(Align::End);
+    zoom_control.set_margin_start(16);
+    zoom_control.set_margin_bottom(16);
+    zoom_control.append(&zoom_minus_btn);
+    zoom_control.append(&zoom_button);
+    zoom_control.append(&zoom_plus_btn);
+    canvas_with_toolbar.add_overlay(&zoom_control);
+
+    let history_control = GtkBox::new(Orientation::Horizontal, 0);
+    history_control.add_css_class("editor-floating-history");
+    history_control.set_halign(Align::End);
+    history_control.set_valign(Align::End);
+    history_control.set_margin_end(16);
+    history_control.set_margin_bottom(16);
+    history_control.append(&history_group);
+    canvas_with_toolbar.add_overlay(&history_control);
+    canvas_with_toolbar.add_overlay(&zoom_popup);
 
     if empty_drop_zone {
         // Reuse the video editor's button / banner styles so the empty
@@ -2528,8 +2574,8 @@ fn setup_editor_window_full(
         drop_center.append(&drop_hint);
         drop_center.append(&open_btn);
 
-        // Centre the drop zone over the canvas itself.
-        canvas_overlay.add_overlay(&drop_center);
+        // Keep the empty state centered in the canvas pane, excluding the inspector.
+        canvas_with_toolbar.add_overlay(&drop_center);
 
         // Loading banner (same as the video editor's "Loading video…").
         let loading_box = GtkBox::new(Orientation::Horizontal, 8);

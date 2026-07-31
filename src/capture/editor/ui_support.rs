@@ -150,13 +150,14 @@ pub fn install_editor_css() {
             }
 
             .editor-toolbar {
-                padding: 4px 10px 4px 12px;
-                background-color: #141414;
-                border-bottom: 1px solid alpha(white, 0.06);
-                border-radius: 10px 10px 0 0;
+                padding: 6px 12px;
+                background-color: #171717;
+                border: none;
+                border-radius: 9px;
+                box-shadow: none;
             }
 
-            .editor-toolbar button.recording-editor-traffic-btn {
+            button.recording-editor-traffic-btn {
                 min-width: 24px;
                 min-height: 24px;
                 padding: 0;
@@ -170,13 +171,13 @@ pub fn install_editor_css() {
                 outline: none;
             }
 
-            .editor-toolbar button.recording-editor-traffic-btn image {
+            button.recording-editor-traffic-btn image {
                 -gtk-icon-size: 14px;
             }
 
-            .editor-toolbar button.recording-editor-traffic-btn:hover,
-            .editor-toolbar button.recording-editor-traffic-btn:active,
-            .editor-toolbar button.recording-editor-traffic-btn:focus {
+            button.recording-editor-traffic-btn:hover,
+            button.recording-editor-traffic-btn:active,
+            button.recording-editor-traffic-btn:focus {
                 background-color: rgba(255, 255, 255, 0.10);
                 background-image: none;
                 color: #ffffff;
@@ -185,15 +186,25 @@ pub fn install_editor_css() {
                 box-shadow: none;
             }
 
-            .editor-toolbar button.recording-editor-traffic-btn:hover image,
-            .editor-toolbar button.recording-editor-traffic-btn:active image,
-            .editor-toolbar button.recording-editor-traffic-btn:focus image {
+            button.recording-editor-traffic-btn:hover image,
+            button.recording-editor-traffic-btn:active image,
+            button.recording-editor-traffic-btn:focus image {
                 color: #ffffff;
             }
 
             .editor-toolbar-wm-controls {
                 padding-left: 6px;
                 border-left: 1px solid rgba(255, 255, 255, 0.06);
+            }
+
+            .editor-sidebar-utility-controls {
+                padding: 12px 16px 10px;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            }
+
+            .editor-sidebar-utility-controls .editor-toolbar-wm-controls {
+                padding: 8px 0 0;
+                border-left: none;
             }
 
             .editor-toolbar-brand {
@@ -1134,6 +1145,71 @@ pub fn install_editor_css() {
                 border: none;
             }
 
+            .editor-floating-zoom {
+                padding: 6px;
+                background: #171717;
+                border-radius: 9px;
+            }
+
+            .editor-floating-history {
+                padding: 6px;
+                background: #171717;
+                border-radius: 9px;
+            }
+
+            .editor-floating-history button.editor-tool-button {
+                min-width: 34px;
+                min-height: 34px;
+            }
+
+            .editor-canvas-frame scrollbar {
+                opacity: 0;
+                min-width: 0;
+                min-height: 0;
+            }
+
+            .editor-floating-zoom button.editor-footer-zoom-button {
+                min-height: 34px;
+                padding: 0 14px;
+            }
+
+            button.editor-floating-zoom-step {
+                min-width: 34px;
+                min-height: 34px;
+                padding: 0;
+                border: none;
+                border-radius: 5px;
+                background: transparent;
+                color: rgba(255, 255, 255, 0.78);
+                font-size: 15px;
+            }
+
+            button.editor-floating-zoom-step:hover {
+                background: alpha(white, 0.06);
+                color: #ffffff;
+            }
+
+            .editor-sidebar-actions {
+                padding: 10px 16px 16px;
+            }
+
+            button.editor-sidebar-action-button {
+                min-width: 28px;
+                min-height: 28px;
+                border-radius: 5px;
+                background: transparent;
+            }
+
+            button.editor-sidebar-action-button:hover {
+                background: alpha(white, 0.10);
+            }
+
+            .editor-sidebar-actions button.editor-done-button {
+                min-width: 92px;
+                min-height: 32px;
+                padding: 0 16px;
+            }
+
             .editor-footer-zoom-label {
                 color: inherit;
                 font-size: 12px;
@@ -1257,8 +1333,7 @@ pub fn install_editor_css() {
             }
 
             .editor-root.editor-theme-dark .editor-toolbar {
-                background-color: #141414;
-                border-bottom-color: alpha(white, 0.06);
+                background-color: #171717;
             }
 
             .editor-root.editor-theme-dark .editor-footer {
@@ -1287,7 +1362,6 @@ pub fn install_editor_css() {
 
             .editor-root.editor-theme-light .editor-toolbar {
                 background-color: #f6f7fb;
-                border-bottom-color: alpha(#111827, 0.06);
             }
 
             .editor-root.editor-theme-light .editor-footer {
@@ -1302,6 +1376,31 @@ pub fn install_editor_css() {
             .editor-root.editor-theme-light button.editor-footer-zoom-button:hover {
                 background: alpha(#111827, 0.06);
                 color: #1d2129;
+            }
+
+            .editor-root.editor-theme-light .editor-floating-zoom {
+                background: #f6f7fb;
+            }
+
+            .editor-root.editor-theme-light .editor-floating-history {
+                background: #f6f7fb;
+            }
+
+            .editor-root.editor-theme-light button.editor-floating-zoom-step {
+                color: alpha(#1d2129, 0.78);
+            }
+
+            .editor-root.editor-theme-light button.editor-floating-zoom-step:hover {
+                background: alpha(#111827, 0.06);
+                color: #1d2129;
+            }
+
+            .editor-root.editor-theme-light button.editor-sidebar-action-button {
+                background: transparent;
+            }
+
+            .editor-root.editor-theme-light button.editor-sidebar-action-button:hover {
+                background: alpha(#111827, 0.10);
             }
 
             .editor-root.editor-theme-light .editor-footer-zoom-popup {
@@ -1544,7 +1643,10 @@ pub fn install_editor_css() {
             /* Inspector / right side panels */
             .editor-root.editor-theme-light .editor-right-inspector {
                 background: #eef0f5;
-                border-left: 1px solid alpha(#111827, 0.06);
+                border-left: none;
+            }
+            .editor-root.editor-theme-light .editor-sidebar-utility-controls {
+                border-bottom-color: alpha(#111827, 0.06);
             }
             .editor-root.editor-theme-light .editor-inspector-tabs,
             .editor-root.editor-theme-light .editor-inspector-section {
@@ -1873,19 +1975,19 @@ pub fn install_editor_css() {
             }
 
             /* Window controls (traffic buttons) */
-            .editor-root.editor-theme-light .editor-toolbar button.recording-editor-traffic-btn {
+            .editor-root.editor-theme-light button.recording-editor-traffic-btn {
                 color: alpha(#1d2129, 0.65);
             }
-            .editor-root.editor-theme-light .editor-toolbar button.recording-editor-traffic-btn:hover,
-            .editor-root.editor-theme-light .editor-toolbar button.recording-editor-traffic-btn:active,
-            .editor-root.editor-theme-light .editor-toolbar button.recording-editor-traffic-btn:focus {
+            .editor-root.editor-theme-light button.recording-editor-traffic-btn:hover,
+            .editor-root.editor-theme-light button.recording-editor-traffic-btn:active,
+            .editor-root.editor-theme-light button.recording-editor-traffic-btn:focus {
                 background-color: alpha(#111827, 0.10);
                 color: alpha(#1d2129, 0.65);
             }
 
-            .editor-root.editor-theme-light .editor-toolbar button.recording-editor-traffic-btn:hover image,
-            .editor-root.editor-theme-light .editor-toolbar button.recording-editor-traffic-btn:active image,
-            .editor-root.editor-theme-light .editor-toolbar button.recording-editor-traffic-btn:focus image {
+            .editor-root.editor-theme-light button.recording-editor-traffic-btn:hover image,
+            .editor-root.editor-theme-light button.recording-editor-traffic-btn:active image,
+            .editor-root.editor-theme-light button.recording-editor-traffic-btn:focus image {
                 color: alpha(#1d2129, 0.65);
             }
 
@@ -1917,7 +2019,7 @@ pub fn install_editor_css() {
             .editor-right-inspector {
                 min-width: 210px;
                 background: #141414;
-                border-left: 1px solid alpha(white, 0.06);
+                border-left: none;
                 padding: 0;
             }
 
