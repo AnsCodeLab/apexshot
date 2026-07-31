@@ -27,7 +27,6 @@ pub mod preview_launch;
 pub mod qr;
 pub mod recording;
 pub mod settings;
-pub mod tray;
 pub mod usage_telemetry;
 pub mod utils;
 
@@ -52,3 +51,4 @@ pub use overlay::{
 pub use onboarding::{is_onboarding_complete, show_onboarding_window};
 pub use recording::{start_recording, RecordError, RecordResult, RecordingConfig};
 pub use settings::show_settings_window;
+pub mod tray;

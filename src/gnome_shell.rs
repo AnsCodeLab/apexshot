@@ -21,6 +21,20 @@ pub struct MaskHandle {
     shown: bool,
 }
 
+#[derive(Debug)]
+pub struct CountdownHandle {
+    shown: bool,
+}
+
+impl Drop for CountdownHandle {
+    fn drop(&mut self) {
+        if self.shown {
+            let _ = hide_recording_countdown();
+            self.shown = false;
+        }
+    }
+}
+
 impl MaskHandle {
     pub fn inactive() -> Self {
         Self { shown: false }
@@ -445,6 +459,24 @@ pub fn show_recording_mask(geometry: RecordingMaskGeometry) -> anyhow::Result<Ma
 
 pub fn hide_recording_mask_best_effort() {
     let _ = hide_recording_mask();
+    let _ = hide_recording_countdown();
+}
+
+pub fn show_recording_countdown(
+    geometry: RecordingMaskGeometry,
+    seconds: u32,
+) -> anyhow::Result<CountdownHandle> {
+    if geometry.width <= 0
+        || geometry.height <= 0
+        || seconds == 0
+        || !current_session_supports_gnome_shell_mask()
+    {
+        return Ok(CountdownHandle { shown: false });
+    }
+
+    run_shell_overlay_method("ShowCountdown", show_countdown_args(geometry, seconds))
+        .context("failed to launch dbus-send for ShowCountdown")?;
+    Ok(CountdownHandle { shown: true })
 }
 
 fn show_mask_args(geometry: RecordingMaskGeometry) -> Vec<String> {
@@ -454,6 +486,12 @@ fn show_mask_args(geometry: RecordingMaskGeometry) -> Vec<String> {
         format!("int32:{}", geometry.width),
         format!("int32:{}", geometry.height),
     ]
+}
+
+fn show_countdown_args(geometry: RecordingMaskGeometry, seconds: u32) -> Vec<String> {
+    let mut args = show_mask_args(geometry);
+    args.push(format!("uint32:{seconds}"));
+    args
 }
 
 fn run_shell_overlay_method(method: &str, args: Vec<String>) -> anyhow::Result<()> {
@@ -484,6 +522,10 @@ fn run_shell_overlay_method(method: &str, args: Vec<String>) -> anyhow::Result<(
 
 fn hide_recording_mask() -> anyhow::Result<()> {
     run_shell_overlay_method("HideMask", Vec::new())
+}
+
+fn hide_recording_countdown() -> anyhow::Result<()> {
+    run_shell_overlay_method("HideCountdown", Vec::new())
 }
 
 #[cfg(test)]
@@ -523,6 +565,28 @@ mod tests {
                 "int32:20".to_string(),
                 "int32:1920".to_string(),
                 "int32:1080".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn countdown_payload_carries_capture_geometry_and_duration() {
+        assert_eq!(
+            show_countdown_args(
+                RecordingMaskGeometry {
+                    x: 10,
+                    y: 20,
+                    width: 1920,
+                    height: 1080,
+                },
+                3,
+            ),
+            vec![
+                "int32:10".to_string(),
+                "int32:20".to_string(),
+                "int32:1920".to_string(),
+                "int32:1080".to_string(),
+                "uint32:3".to_string(),
             ]
         );
     }

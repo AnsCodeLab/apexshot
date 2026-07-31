@@ -67,9 +67,6 @@ pub struct SaveInputs {
     pub annotate_auto_expand: CheckButton,
     pub annotate_show_color_names: CheckButton,
     pub annotate_always_on_top: CheckButton,
-    pub rec_notifications: CheckButton,
-    pub rec_countdown: CheckButton,
-    pub rec_remember_selection: CheckButton,
     pub shortcut_open_file: Button,
     pub shortcut_open_from_clipboard: Button,
     pub shortcut_restore_recently_closed: Button,
@@ -82,10 +79,7 @@ pub struct SaveInputs {
     pub shortcut_show_last_preview: Button,
     pub shortcut_open_recording_ui: Button,
     pub shortcut_record_screen: Button,
-    pub shortcut_recording_pause_resume: Button,
     pub shortcut_recording_stop_save: Button,
-    pub shortcut_recording_restart: Button,
-    pub shortcut_recording_discard: Button,
     pub adv_retina_suffix: CheckButton,
     pub adv_clipboard_mode: ComboBoxText,
     pub adv_ocr_language: ComboBoxText,
@@ -213,11 +207,6 @@ pub fn save_settings(inputs: &SaveInputs) -> anyhow::Result<()> {
     config.annotate_show_color_names = inputs.annotate_show_color_names.is_active();
     config.annotate_always_on_top = inputs.annotate_always_on_top.is_active();
 
-    config.rec_notifications = inputs.rec_notifications.is_active();
-    config.rec_countdown = inputs.rec_countdown.is_active();
-    config.rec_remember_selection = inputs.rec_remember_selection.is_active();
-    // rec_display_time is no longer exposed; recording UI always shows the timer.
-
     config.shortcut_open_file = button_label_value(&inputs.shortcut_open_file);
     config.shortcut_open_from_clipboard = button_label_value(&inputs.shortcut_open_from_clipboard);
     config.shortcut_restore_recently_closed =
@@ -233,11 +222,7 @@ pub fn save_settings(inputs: &SaveInputs) -> anyhow::Result<()> {
     config.shortcut_show_last_preview = button_label_value(&inputs.shortcut_show_last_preview);
     config.shortcut_open_recording_ui = button_label_value(&inputs.shortcut_open_recording_ui);
     config.shortcut_record_screen = button_label_value(&inputs.shortcut_record_screen);
-    config.shortcut_recording_pause_resume =
-        button_label_value(&inputs.shortcut_recording_pause_resume);
     config.shortcut_recording_stop_save = button_label_value(&inputs.shortcut_recording_stop_save);
-    config.shortcut_recording_restart = button_label_value(&inputs.shortcut_recording_restart);
-    config.shortcut_recording_discard = button_label_value(&inputs.shortcut_recording_discard);
 
     config.adv_retina_suffix = inputs.adv_retina_suffix.is_active();
     config.adv_clipboard_mode = combo_value(&inputs.adv_clipboard_mode, "File & Image (default)");
@@ -284,11 +269,7 @@ pub fn save_settings(inputs: &SaveInputs) -> anyhow::Result<()> {
         || previous_config.shortcut_show_last_preview != config.shortcut_show_last_preview
         || previous_config.shortcut_open_recording_ui != config.shortcut_open_recording_ui
         || previous_config.shortcut_record_screen != config.shortcut_record_screen
-        || previous_config.shortcut_recording_pause_resume
-            != config.shortcut_recording_pause_resume
-        || previous_config.shortcut_recording_stop_save != config.shortcut_recording_stop_save
-        || previous_config.shortcut_recording_restart != config.shortcut_recording_restart
-        || previous_config.shortcut_recording_discard != config.shortcut_recording_discard;
+        || previous_config.shortcut_recording_stop_save != config.shortcut_recording_stop_save;
 
     save_config(&config)?;
     crate::hotkeys::sync_hotkeys_from_app_config(&config)?;
@@ -406,10 +387,7 @@ mod tests {
             shortcut_show_last_preview: String::new(),
             shortcut_open_recording_ui: String::new(),
             shortcut_record_screen: String::new(),
-            shortcut_recording_pause_resume: String::new(),
             shortcut_recording_stop_save: String::new(),
-            shortcut_recording_restart: String::new(),
-            shortcut_recording_discard: String::new(),
             ..Default::default()
         };
         assert!(!screenshot_or_general_shortcuts_configured(&config));

@@ -19,13 +19,13 @@ export default class ApexShotExtension extends Extension {
     }
 
     disable() {
-        this._windowList.disable();
+        this._windowList?.disable();
         this._windowList = null;
 
-        this._shellOverlay.disable();
+        this._shellOverlay?.disable();
         this._shellOverlay = null;
 
-        this._previewStacker.disable();
+        this._previewStacker?.disable();
         this._previewStacker = null;
     }
 }

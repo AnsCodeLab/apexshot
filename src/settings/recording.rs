@@ -1,5 +1,5 @@
 use crate::config::AppConfig;
-use gtk4::{prelude::*, Align, Box as GtkBox, Button, CheckButton, Entry, Label, Orientation};
+use gtk4::{prelude::*, Align, Box as GtkBox, Button, Entry, Label, Orientation};
 
 #[allow(dead_code)]
 pub struct RecordingSettingsWidgets {
@@ -7,9 +7,6 @@ pub struct RecordingSettingsWidgets {
     pub video_export_location_entry: Entry,
     pub video_export_location_browse: Button,
     pub rec_filename_pattern_entry: Entry,
-    pub rec_notifications_check: CheckButton,
-    pub rec_countdown_check: CheckButton,
-    pub rec_remember_selection_check: CheckButton,
 }
 
 pub fn build_recording_section(config: &AppConfig) -> RecordingSettingsWidgets {
@@ -95,55 +92,10 @@ pub fn build_recording_section(config: &AppConfig) -> RecordingSettingsWidgets {
 
     section.append(&location_frame);
 
-    // --- Recording Behavior Group ---
-    let behavior_title = Label::new(Some("Recording Behavior"));
-    behavior_title.add_css_class("settings-group-title");
-    behavior_title.set_xalign(0.0);
-    behavior_title.set_halign(Align::Start);
-    behavior_title.set_margin_bottom(8);
-    section.append(&behavior_title);
-
-    let behavior_frame = build_frame();
-
-    let create_row = |frame: &GtkBox, label_text: &str, is_muted: bool| -> CheckButton {
-        let hbox = GtkBox::new(Orientation::Horizontal, 12);
-        hbox.set_hexpand(true);
-        let label = Label::new(Some(label_text));
-        label.set_xalign(0.0);
-        label.set_hexpand(true);
-        let check = CheckButton::new();
-        hbox.append(&label);
-        hbox.append(&check);
-        frame.append(&build_row!(&hbox, is_muted));
-        check
-    };
-
-    let rec_notifications_check = create_row(
-        &behavior_frame,
-        "Enable \"Do Not Disturb\" while recording",
-        false,
-    );
-    rec_notifications_check.set_active(config.rec_notifications);
-
-    let rec_countdown_check = create_row(&behavior_frame, "Show countdown before start", true);
-    rec_countdown_check.set_active(config.rec_countdown);
-
-    let rec_remember_selection_check =
-        create_row(&behavior_frame, "Remember last selection area", true);
-    rec_remember_selection_check.set_active(config.rec_remember_selection);
-
-    // "Display recording time in the top bar" was removed: the recording controls
-    // always show the timer, so the setting was a no-op.
-
-    section.append(&behavior_frame);
-
     RecordingSettingsWidgets {
         section,
         video_export_location_entry,
         video_export_location_browse,
         rec_filename_pattern_entry,
-        rec_notifications_check,
-        rec_countdown_check,
-        rec_remember_selection_check,
     }
 }

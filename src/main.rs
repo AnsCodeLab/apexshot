@@ -26,7 +26,7 @@ fn capture_daemon_action(capture_type: &str) -> Option<&'static str> {
 }
 
 /// Map `apexshot record <type>` to a daemon D-Bus Trigger action name.
-/// Control actions (stop/pause/…) require a running daemon; start actions can
+/// Control actions require a running daemon; start actions can
 /// fall back to an in-process path when the daemon is unavailable.
 fn record_daemon_action(record_type: &str) -> Option<&'static str> {
     match record_type {
@@ -35,18 +35,12 @@ fn record_daemon_action(record_type: &str) -> Option<&'static str> {
         "area" => Some("record_area"),
         // Must match `DaemonIpc::trigger` action names in daemon/mod.rs.
         "stop" => Some("recording_stop_save"),
-        "pause" | "resume" | "toggle-pause" | "toggle_pause" => Some("recording_pause_resume"),
-        "restart" => Some("recording_restart"),
-        "discard" => Some("recording_discard"),
         _ => None,
     }
 }
 
 fn is_record_control_action(record_type: &str) -> bool {
-    matches!(
-        record_type,
-        "stop" | "pause" | "resume" | "toggle-pause" | "toggle_pause" | "restart" | "discard"
-    )
+    matches!(record_type, "stop")
 }
 
 use apexshot::{
@@ -71,9 +65,8 @@ use apexshot::{
     preview_launch::{launch_preview, show_preview_direct},
     recording::{
         editor::{open_empty_recording_editor, open_recording_editor},
-        run_overlay_recording_request, run_recording_countdown_bar, run_recording_ui,
-        run_recording_with_controls, start_recording, RecordingConfig, RecordingControlsParams,
-        StopAction,
+        run_overlay_recording_request, run_recording_countdown_bar, run_recording_with_controls,
+        start_recording, RecordingConfig, RecordingControlsParams, StopAction,
     },
     settings::show_settings_window,
 };
@@ -279,17 +272,8 @@ async fn async_main(args: Vec<String>) {
             }
 
             match args[2].as_str() {
-                "pause-resume" => {
-                    trigger_daemon_action("recording_pause_resume").await;
-                }
                 "stop-save" => {
                     trigger_daemon_action("recording_stop_save").await;
-                }
-                "restart" => {
-                    trigger_daemon_action("recording_restart").await;
-                }
-                "discard" => {
-                    trigger_daemon_action("recording_discard").await;
                 }
                 _ => {
                     eprintln!("Error: unknown recording control action '{}'", args[2]);
@@ -403,57 +387,6 @@ async fn async_main(args: Vec<String>) {
             if let Err(e) = run_overlay_recording_request(request) {
                 eprintln!("Recording failed: {e}");
                 std::process::exit(1);
-            }
-        }
-        "recording-ui-internal" => {
-            if args.len() < 4 {
-                std::process::exit(1);
-            }
-            let params: RecordingControlsParams = serde_json::from_str(&args[2]).unwrap();
-            let seconds: u32 = args[3].parse().unwrap_or(3);
-
-            let (tx, rx) = tokio::sync::oneshot::channel();
-            let _ = run_recording_ui(params, seconds, tx);
-
-            let action = tokio::task::block_in_place(|| {
-                let handle = tokio::runtime::Handle::current();
-                handle.block_on(rx)
-            })
-            .unwrap_or(StopAction::Save);
-            match action {
-                StopAction::Save => {
-                    println!("save");
-                    std::process::exit(0);
-                }
-                StopAction::Discard => {
-                    println!("discard");
-                    std::process::exit(2);
-                }
-            }
-        }
-        "recording-controls-internal" => {
-            if args.len() < 3 {
-                std::process::exit(1);
-            }
-            let params: apexshot::recording::RecordingControlsParams =
-                serde_json::from_str(&args[2]).unwrap();
-
-            // Optional session ID and bus name for D-Bus communication
-            let _session_id = args.get(3).cloned();
-            let _bus_name = args.get(4).cloned();
-
-            let (tx, rx) = tokio::sync::oneshot::channel();
-            apexshot::recording::run_recording_controls(params, _session_id, _bus_name, tx)
-                .expect("Failed to run recording controls");
-
-            let action = tokio::task::block_in_place(|| {
-                let handle = tokio::runtime::Handle::current();
-                handle.block_on(rx)
-            })
-            .unwrap_or(apexshot::recording::StopAction::Save);
-            match action {
-                apexshot::recording::StopAction::Save => std::process::exit(0),
-                apexshot::recording::StopAction::Discard => std::process::exit(2),
             }
         }
         "recording-countdown-internal" => {
@@ -1571,14 +1504,6 @@ fn run_daemon_with_gtk_on_main_thread() {
                         .to_string(),
                 ));
             }
-            GtkWork::RunRecordingControls { params, stop_tx } => {
-                eprintln!("[gtk] RunRecordingControls received — launching recording controls");
-                if let Err(err) =
-                    apexshot::recording::run_recording_controls(params, None, None, stop_tx)
-                {
-                    eprintln!("[gtk] Recording controls failed: {err}");
-                }
-            }
             GtkWork::RunCountdown {
                 seconds,
                 params,
@@ -1689,9 +1614,6 @@ fn print_usage() {
     println!("  area              Record a selected area");
     println!("  ui                Open the recording configuration UI");
     println!("  stop              Stop and save the active recording (requires daemon)");
-    println!("  pause|resume|toggle-pause  Pause/resume (requires daemon)");
-    println!("  restart           Restart the active recording (requires daemon)");
-    println!("  discard           Discard the active recording (requires daemon)");
     println!();
     println!("Recording options:");
     println!("  --output <path>   Save to specific path (default: ~/Videos/output.mp4)");
@@ -1699,7 +1621,7 @@ fn print_usage() {
     println!("  --overlay-stop    Show a small window to stop recording (Esc/Stop button)");
     println!();
     println!("Recording control (requires daemon):");
-    println!("  recording-control pause-resume|stop-save|restart|discard");
+    println!("  recording-control stop-save");
     println!();
     println!("Install options:");
     println!("  --no-autostart            Skip autostart desktop file");
@@ -2163,30 +2085,12 @@ mod tests {
         assert_eq!(record_daemon_action("area"), Some("record_area"));
         // Control actions must use the daemon Trigger names (not legacy aliases).
         assert_eq!(record_daemon_action("stop"), Some("recording_stop_save"));
-        assert_eq!(
-            record_daemon_action("pause"),
-            Some("recording_pause_resume")
-        );
-        assert_eq!(
-            record_daemon_action("resume"),
-            Some("recording_pause_resume")
-        );
-        assert_eq!(
-            record_daemon_action("toggle-pause"),
-            Some("recording_pause_resume")
-        );
-        assert_eq!(record_daemon_action("restart"), Some("recording_restart"));
-        assert_eq!(record_daemon_action("discard"), Some("recording_discard"));
         assert_eq!(record_daemon_action("unknown"), None);
     }
 
     #[test]
     fn record_control_actions_require_daemon() {
         assert!(is_record_control_action("stop"));
-        assert!(is_record_control_action("pause"));
-        assert!(is_record_control_action("toggle-pause"));
-        assert!(is_record_control_action("restart"));
-        assert!(is_record_control_action("discard"));
         assert!(!is_record_control_action("screen"));
         assert!(!is_record_control_action("area"));
         assert!(!is_record_control_action("ui"));

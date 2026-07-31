@@ -16,6 +16,8 @@ use crate::{
 mod control_session;
 pub mod editor;
 mod indicator_notify;
+// ponytail: controls are removed; this module still owns the countdown overlay.
+#[allow(dead_code)]
 mod stop_overlay;
 #[cfg(test)]
 mod stop_overlay_tests;
@@ -25,8 +27,7 @@ pub use control_session::{
     RecordingControlCommand,
 };
 pub use stop_overlay::{
-    run_recording_controls, run_recording_countdown_bar, run_recording_stop_overlay,
-    run_recording_ui, RecordingControlsParams, StopAction, StopOverlayError,
+    run_recording_countdown_bar, RecordingControlsParams, StopAction, StopOverlayError,
 };
 
 pub mod countdown_overlay;
@@ -202,6 +203,18 @@ struct BuiltPipeline {
     encoder_props: String,
     final_path: PathBuf,
     config: RecordingConfig,
+}
+
+struct PreparedGifWaylandRecording {
+    final_path: PathBuf,
+    temp_path: PathBuf,
+    config: RecordingConfig,
+    backend: BuiltPipeline,
+}
+
+enum PreparedShellRecording {
+    Video(BuiltPipeline),
+    Gif(PreparedGifWaylandRecording),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2342,8 +2355,13 @@ async fn record_gif_wayland_native(
     config: RecordingConfig,
     command_rx: Option<mpsc::UnboundedReceiver<RecordingControlCommand>>,
 ) -> RecordResult<(PathBuf, RecordingTerminalAction)> {
-    use std::process::Command;
+    let prepared = prepare_gif_wayland_recording(config).await?;
+    record_prepared_gif_wayland_native(prepared, command_rx).await
+}
 
+async fn prepare_gif_wayland_recording(
+    config: RecordingConfig,
+) -> RecordResult<PreparedGifWaylandRecording> {
     let final_path = config.output_path.clone();
     let temp_path = std::env::temp_dir().join(format!(
         "apexshot-gif-source-{}-{}.mp4",
@@ -2360,22 +2378,30 @@ async fn record_gif_wayland_native(
     video_config.mic_source = None;
     video_config.speaker_source = None;
 
-    let prepared_video_backend = if is_wlroots_session() {
-        None
-    } else {
-        Some(prepare_recording_backend(video_config.clone()).await?)
-    };
+    let backend = prepare_recording_backend(video_config).await?;
+    Ok(PreparedGifWaylandRecording {
+        final_path,
+        temp_path,
+        config,
+        backend,
+    })
+}
 
-    let (_recorded_path, stop_action) = if let Some(prepared_video_backend) = prepared_video_backend
-    {
-        Box::pin(start_recording_with_prepared_backend(
-            prepared_video_backend,
-            command_rx,
-        ))
-        .await?
-    } else {
-        Box::pin(start_recording_with_commands(video_config, command_rx)).await?
-    };
+async fn record_prepared_gif_wayland_native(
+    prepared: PreparedGifWaylandRecording,
+    command_rx: Option<mpsc::UnboundedReceiver<RecordingControlCommand>>,
+) -> RecordResult<(PathBuf, RecordingTerminalAction)> {
+    use std::process::Command;
+
+    let PreparedGifWaylandRecording {
+        final_path,
+        temp_path,
+        config,
+        backend,
+    } = prepared;
+
+    let (_recorded_path, stop_action) =
+        start_recording_with_prepared_backend(backend, command_rx).await?;
 
     if stop_action == RecordingTerminalAction::Discard {
         let _ = std::fs::remove_file(&temp_path);
@@ -2896,6 +2922,70 @@ async fn run_recording_countdown_subprocess(
     }
 }
 
+async fn run_shell_recording_countdown(params: RecordingControlsParams) -> anyhow::Result<bool> {
+    let geometry = crate::gnome_shell::RecordingMaskGeometry {
+        x: params.capture_x,
+        y: params.capture_y,
+        width: params.capture_w,
+        height: params.capture_h,
+    };
+
+    match crate::gnome_shell::show_recording_countdown(geometry, params.countdown_seconds) {
+        Ok(countdown) => {
+            tokio::time::sleep(std::time::Duration::from_secs(
+                params.countdown_seconds.into(),
+            ))
+            .await;
+            drop(countdown);
+            Ok(true)
+        }
+        Err(err) => {
+            eprintln!("[recording] Failed to show GNOME Shell countdown ({err}); using fallback countdown.");
+            run_recording_countdown_subprocess(params).await
+        }
+    }
+}
+
+async fn prepare_shell_recording(
+    config: RecordingConfig,
+) -> RecordResult<Option<PreparedShellRecording>> {
+    if is_wlroots_session() {
+        return Ok(None);
+    }
+
+    if config
+        .output_path
+        .extension()
+        .is_some_and(|extension| extension == "gif")
+    {
+        return prepare_gif_wayland_recording(config)
+            .await
+            .map(PreparedShellRecording::Gif)
+            .map(Some);
+    }
+
+    prepare_recording_backend(config)
+        .await
+        .map(PreparedShellRecording::Video)
+        .map(Some)
+}
+
+async fn start_shell_recording(
+    config: RecordingConfig,
+    prepared: Option<PreparedShellRecording>,
+    command_rx: mpsc::UnboundedReceiver<RecordingControlCommand>,
+) -> RecordResult<(PathBuf, RecordingTerminalAction)> {
+    match prepared {
+        Some(PreparedShellRecording::Video(backend)) => {
+            start_recording_with_prepared_backend(backend, Some(command_rx)).await
+        }
+        Some(PreparedShellRecording::Gif(backend)) => {
+            record_prepared_gif_wayland_native(backend, Some(command_rx)).await
+        }
+        None => start_recording_with_commands(config, Some(command_rx)).await,
+    }
+}
+
 /// Non-GNOME recording path (Fedora KDE, wlroots, etc.).
 ///
 /// No floating control bar — users control the session with configured
@@ -3011,12 +3101,7 @@ async fn run_recording_with_shell_mask(
     params: RecordingControlsParams,
 ) -> anyhow::Result<(PathBuf, StopAction)> {
     // Same ordering as the native path: portal / backend first, then countdown.
-    let mut prepared_backend =
-        if is_wlroots_session() || config.output_path.extension().is_some_and(|e| e == "gif") {
-            None
-        } else {
-            Some(prepare_recording_backend(config.clone()).await?)
-        };
+    let mut prepared_backend = prepare_shell_recording(config.clone()).await?;
 
     let _shell_mask = if params.use_shell_mask {
         match crate::gnome_shell::show_recording_mask(crate::gnome_shell::RecordingMaskGeometry {
@@ -3035,7 +3120,7 @@ async fn run_recording_with_shell_mask(
         None
     };
 
-    if params.countdown_enabled && !run_recording_countdown_subprocess(params.clone()).await? {
+    if params.countdown_enabled && !run_shell_recording_countdown(params.clone()).await? {
         notify_recording_session_ended_best_effort();
         return Ok((config.output_path.clone(), StopAction::Discard));
     }
@@ -3051,11 +3136,8 @@ async fn run_recording_with_shell_mask(
     let final_outcome = loop {
         let (command_tx, command_rx) = mpsc::unbounded_channel();
         control_server.set_command_sender(command_tx);
-        let outcome = if let Some(prepared) = prepared_backend.take() {
-            start_recording_with_prepared_backend(prepared, Some(command_rx)).await
-        } else {
-            start_recording_with_commands(config.clone(), Some(command_rx)).await
-        };
+        let outcome =
+            start_shell_recording(config.clone(), prepared_backend.take(), command_rx).await;
         control_server.clear_command_sender();
         let outcome = match outcome {
             Ok(outcome) => outcome,
@@ -3072,13 +3154,7 @@ async fn run_recording_with_shell_mask(
                     notify_daemon_event(event);
                 }
                 let _ = std::fs::remove_file(&path);
-                prepared_backend = if is_wlroots_session()
-                    || config.output_path.extension().is_some_and(|e| e == "gif")
-                {
-                    None
-                } else {
-                    Some(prepare_recording_backend(config.clone()).await?)
-                };
+                prepared_backend = prepare_shell_recording(config.clone()).await?;
                 continue;
             }
             (path, action @ RecordingTerminalAction::Save) => {
@@ -3142,22 +3218,24 @@ pub fn run_overlay_recording_request_with_gtk(
 
     eprintln!("Starting recording to {:?}...", prepared.output_path);
 
-    let outcome = tokio::task::block_in_place(|| {
-        let handle = tokio::runtime::Handle::current();
-        if let Some(params) = prepared.controls_params {
-            handle
-                .block_on(run_recording_with_controls(
-                    prepared.recording_config.clone(),
-                    params,
-                ))
+    let open_editor = prepared.open_editor;
+    let recording_config = prepared.recording_config.clone();
+    let controls_params = prepared.controls_params.clone();
+    let outcome = std::thread::spawn(move || -> anyhow::Result<(PathBuf, StopAction)> {
+        let runtime = tokio::runtime::Runtime::new()?;
+        if let Some(params) = controls_params {
+            runtime
+                .block_on(run_recording_with_controls(recording_config, params))
                 .map_err(|err| anyhow::anyhow!("failed to run recording controls: {err}"))
         } else {
-            handle
-                .block_on(start_recording(prepared.recording_config.clone()))
+            runtime
+                .block_on(start_recording(recording_config))
                 .map(|path| (path, StopAction::Save))
                 .map_err(|err| anyhow::anyhow!("Recording failed: {err}"))
         }
-    });
+    })
+    .join()
+    .map_err(|_| anyhow::anyhow!("recording worker panicked"))?;
 
     match outcome {
         Ok((path, StopAction::Discard)) => {
@@ -3193,7 +3271,7 @@ pub fn run_overlay_recording_request_with_gtk(
                 .unwrap_or("recording");
             crate::utils::notify::desktop_notification("Recording saved", file_name);
 
-            if prepared.open_editor {
+            if open_editor {
                 spawn_recording_editor_subprocess(path.clone());
             }
             Ok(path)
