@@ -79,7 +79,6 @@ The daemon is a single long-running background process that:
 - Handles capture and recording operations in-process (no subprocess spawn, no GTK cold-start delay)
 - Provides D-Bus IPC at `org.apexshot.Daemon` for single-instance coordination
 - Manages recording timer state and preview overlay lifecycle
-- Auto-starts `ydotoold` for scroll capture on Wayland
 - Emits `TrackedWindowOpened`/`TrackedWindowClosed` signals for GNOME extension window stacking
 
 **Key D-Bus interfaces:**
