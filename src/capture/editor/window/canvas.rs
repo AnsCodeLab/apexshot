@@ -76,7 +76,7 @@ pub(super) fn build_canvas_shell(
     canvas_scroller.set_vexpand(true);
     canvas_scroller.set_has_frame(false);
     canvas_scroller.set_policy(gtk4::PolicyType::Automatic, gtk4::PolicyType::Automatic);
-    canvas_scroller.set_overlay_scrolling(false);
+    canvas_scroller.set_overlay_scrolling(true);
     canvas_scroller.set_child(Some(&canvas_overlay));
 
     let canvas_eyedropper_ring = DrawingArea::new();

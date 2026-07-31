@@ -3,7 +3,6 @@ use gtk4::{gdk, prelude::*, Box as GtkBox, Button, Label, Orientation};
 use super::super::ui_support::footer_icon_button;
 
 pub(super) struct FooterParts {
-    pub root: GtkBox,
     pub zoom_button: Button,
     pub zoom_label: Label,
     pub zoom_header_label: Label,
@@ -183,6 +182,14 @@ pub(super) fn build_footer(copy_icon_name: &str, upload_icon_name: &str) -> Foot
     zoom_label.add_css_class("editor-footer-zoom-label");
     zoom_button.set_child(Some(&zoom_label));
 
+    let zoom_minus_btn = Button::with_label("-");
+    zoom_minus_btn.add_css_class("editor-floating-zoom-step");
+    zoom_minus_btn.add_css_class("flat");
+
+    let zoom_plus_btn = Button::with_label("+");
+    zoom_plus_btn.add_css_class("editor-floating-zoom-step");
+    zoom_plus_btn.add_css_class("flat");
+
     let zoom_popup = GtkBox::new(Orientation::Vertical, 0);
     zoom_popup.add_css_class("editor-footer-zoom-popup");
     zoom_popup.set_halign(gtk4::Align::Start);
@@ -192,25 +199,15 @@ pub(super) fn build_footer(copy_icon_name: &str, upload_icon_name: &str) -> Foot
     zoom_popup.set_visible(false);
 
     // Header
-    let zoom_header = GtkBox::new(Orientation::Horizontal, 8);
+    let zoom_header = GtkBox::new(Orientation::Horizontal, 0);
     zoom_header.add_css_class("editor-footer-zoom-header");
-
-    let zoom_minus_btn = Button::with_label("-");
-    zoom_minus_btn.add_css_class("editor-footer-zoom-header-btn");
-    zoom_minus_btn.add_css_class("flat");
 
     let zoom_header_label = Label::new(Some("100%"));
     zoom_header_label.set_hexpand(true);
+    zoom_header_label.set_xalign(0.5);
     zoom_header_label.add_css_class("editor-footer-zoom-header-label");
 
-    let zoom_plus_btn = Button::with_label("+");
-    zoom_plus_btn.add_css_class("editor-footer-zoom-header-btn");
-    zoom_plus_btn.add_css_class("orange-btn");
-    zoom_plus_btn.add_css_class("flat");
-
-    zoom_header.append(&zoom_minus_btn);
     zoom_header.append(&zoom_header_label);
-    zoom_header.append(&zoom_plus_btn);
 
     // List of actions
     let zoom_list = GtkBox::new(Orientation::Vertical, 0);
@@ -243,32 +240,13 @@ pub(super) fn build_footer(copy_icon_name: &str, upload_icon_name: &str) -> Foot
     let (copy_btn, _) = footer_icon_button(copy_icon_name, "Copy file URI");
     let (upload_btn, _) = footer_icon_button(upload_icon_name, "Upload to cloud");
 
-    let root = GtkBox::new(Orientation::Horizontal, 0);
-    root.add_css_class("editor-footer");
-
-    let footer_left = GtkBox::new(Orientation::Horizontal, 0);
-    footer_left.set_hexpand(true);
-    footer_left.set_halign(gtk4::Align::Start);
-    footer_left.append(&zoom_button);
-
     let save_btn = Button::with_label("Done");
     save_btn.set_has_frame(false);
     save_btn.add_css_class("editor-done-button");
     save_btn.add_css_class("body");
     save_btn.set_valign(gtk4::Align::Center);
 
-    let footer_right = GtkBox::new(Orientation::Horizontal, 8);
-    footer_right.set_hexpand(true);
-    footer_right.set_halign(gtk4::Align::End);
-    footer_right.append(&copy_btn);
-    footer_right.append(&upload_btn);
-    footer_right.append(&save_btn);
-
-    root.append(&footer_left);
-    root.append(&footer_right);
-
     FooterParts {
-        root,
         zoom_button,
         zoom_label,
         zoom_header_label,
