@@ -278,19 +278,6 @@ void CaptureOverlay::simulateScrollDown()
         std::fprintf(stderr, "[CaptureOverlay] Auto-scroll: portal step accepted, continuing with local fallback\n");
     }
 
-    QString ydotoolPath;
-    QStringList ydotoolPaths = {"/usr/local/bin/ydotool", "/usr/bin/ydotool", "ydotool"};
-    for (const QString& path : ydotoolPaths) {
-        QProcess testProc;
-        testProc.setProgram(path);
-        testProc.setArguments({"help"});
-        testProc.start();
-        if (testProc.waitForFinished(500) && testProc.exitCode() == 0) {
-            ydotoolPath = path;
-            break;
-        }
-    }
-
     QString wtypePath;
     QStringList wtypePaths = {"/usr/local/bin/wtype", "/usr/bin/wtype", "wtype"};
     for (const QString& candidate : wtypePaths) {
@@ -307,15 +294,6 @@ void CaptureOverlay::simulateScrollDown()
             wtypePath = resolved;
             break;
         }
-    }
-
-    QProcessEnvironment env;
-    env.insert("YDOTOOL_SOCKET", "/tmp/.ydotool_socket");
-
-    const bool canUseYdotool = !ydotoolPath.isEmpty() && QFileInfo("/dev/uinput").isWritable();
-    if (!ydotoolPath.isEmpty() && !canUseYdotool) {
-        std::fprintf(stderr,
-                     "[CaptureOverlay] Auto-scroll: ydotool detected but /dev/uinput is not writable; skipping ydotool path\n");
     }
 
     clearFocus();
@@ -336,23 +314,6 @@ void CaptureOverlay::simulateScrollDown()
     };
 
     if (!wtypePath.isEmpty()) {
-        if (canUseYdotool) {
-            QProcess moveProc;
-            moveProc.setProgram(ydotoolPath);
-            moveProc.setProcessEnvironment(env);
-            moveProc.setArguments({"mousemove", QString::number(targetX), QString::number(targetY)});
-            moveProc.start();
-            moveProc.waitForFinished(200);
-
-            QProcess clickProc;
-            clickProc.setProgram(ydotoolPath);
-            clickProc.setProcessEnvironment(env);
-            clickProc.setArguments({"click", "1"});
-            clickProc.start();
-            clickProc.waitForFinished(150);
-            QThread::msleep(60);
-        }
-
         bool sent = false;
         const int burst = std::max(1, kScrollLinesPerTick * 2);
         for (int i = 0; i < burst; ++i) {
@@ -383,7 +344,6 @@ void CaptureOverlay::simulateScrollDown()
             for (const QString& keyName : keyVariants) {
                 QProcess keyProc;
                 keyProc.setProgram(wtypePath);
-                keyProc.setProcessEnvironment(env);
                 keyProc.setArguments({"-k", keyName});
                 keyProc.start();
                 if (keyProc.waitForFinished(180) && keyProc.exitCode() == 0) {
@@ -401,38 +361,6 @@ void CaptureOverlay::simulateScrollDown()
         std::fprintf(stderr,
                      "[CaptureOverlay] Auto-scroll: wtype PageDown sent=%s\n",
                      sent ? "true" : "false");
-        return;
-    }
-
-    if (canUseYdotool) {
-        QProcess moveProc;
-        moveProc.setProgram(ydotoolPath);
-        moveProc.setProcessEnvironment(env);
-        moveProc.setArguments({"mousemove", QString::number(targetX), QString::number(targetY)});
-        moveProc.start();
-        moveProc.waitForFinished(200);
-
-        QProcess clickProc;
-        clickProc.setProgram(ydotoolPath);
-        clickProc.setProcessEnvironment(env);
-        clickProc.setArguments({"click", "1"});
-        clickProc.start();
-        clickProc.waitForFinished(150);
-
-        QThread::msleep(60);
-
-        const int wheelSteps = std::max(1, kScrollLinesPerTick);
-        for (int i = 0; i < wheelSteps; ++i) {
-            QProcess wheelProc;
-            wheelProc.setProgram(ydotoolPath);
-            wheelProc.setProcessEnvironment(env);
-            wheelProc.setArguments({"click", "5"});
-            wheelProc.start();
-            wheelProc.waitForFinished(90);
-        }
-
-        restoreMouseCapture();
-        std::fprintf(stderr, "[CaptureOverlay] Auto-scroll: ydotool wheel-down sent\n");
         return;
     }
 
