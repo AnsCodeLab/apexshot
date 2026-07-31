@@ -2,7 +2,7 @@ use crate::config::load_config;
 use gtk4::{
     prelude::*, Align, Application, ApplicationWindow, Box as GtkBox, Button, FileChooserAction,
     FileChooserNative, Image, Label, Orientation, Overlay as GtkOverlay, ResponseType,
-    ScrolledWindow, Separator,
+    ScrolledWindow,
 };
 use std::cell::Cell;
 use std::rc::Rc;
@@ -398,11 +398,6 @@ fn build_settings_window(app: &Application) {
     shortcuts::install_shortcut_editors(&shortcuts, &window);
     let quick_access = build_quick_access_section(&config);
 
-    let after_capture_separator = Separator::new(Orientation::Horizontal);
-    after_capture_separator.set_margin_top(8);
-    after_capture_separator.set_margin_bottom(8);
-    after_capture_separator.set_hexpand(true);
-
     let screenshot_export_location_entry_pick = screenshots.export_location_entry.clone();
     let window_weak_picker = window.downgrade();
     screenshots
@@ -457,7 +452,6 @@ fn build_settings_window(app: &Application) {
 
     let general_tab_section = GtkBox::new(Orientation::Vertical, 0);
     general_tab_section.append(&general.section);
-    general_tab_section.append(&after_capture_separator);
     general_tab_section.append(&after_capture.wrapper);
 
     // Add them to stack

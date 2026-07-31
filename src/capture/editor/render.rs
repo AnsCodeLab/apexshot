@@ -3048,9 +3048,9 @@ pub fn draw_canvas_checkerboard_background(
     let height = height.max(1) as f64;
 
     let (base_dark, tile_dark) = if light {
-        ((0.965, 0.965, 0.972), (0.910, 0.910, 0.922))
+        ((0.965, 0.969, 0.984), (0.941, 0.945, 0.961))
     } else {
-        ((0.075, 0.075, 0.081), (0.095, 0.095, 0.102))
+        ((0.078, 0.078, 0.078), (0.114, 0.114, 0.114))
     };
     let (base_r, base_g, base_b, tile_r, tile_g, tile_b) = if let Some(color) = tint {
         let alpha = color.a.clamp(0.0, 1.0);

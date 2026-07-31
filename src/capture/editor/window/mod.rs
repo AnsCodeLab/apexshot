@@ -204,9 +204,10 @@ fn selected_action_geometry(action: &AnnotationAction) -> String {
 }
 
 use super::ui_support::{
-    arrow_style_toolbar_icon, install_edge_resize, install_editor_css, install_window_drag,
+    arrow_style_toolbar_icon, install_edge_resize, install_editor_css, install_top_bar_window_drag,
     prefers_dark_glass_theme, prefers_reduced_transparency,
     recommended_window_size_with_extra_width, tool_icon_widget, toolbar_icon_size,
+    EDITOR_MIN_WINDOW_WIDTH,
 };
 
 const TEXT_SIZE_OPTIONS: [i32; 12] = [12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 64, 72];
@@ -815,6 +816,7 @@ fn setup_editor_window_full(
             .build()
     };
     window.add_css_class("editor-window");
+    window.set_size_request(EDITOR_MIN_WINDOW_WIDTH, -1);
 
     let root = GtkBox::new(Orientation::Vertical, 0);
     root.add_css_class("editor-root");
@@ -2656,8 +2658,8 @@ fn setup_editor_window_full(
 
     window.set_child(Some(&root_overlay));
 
-    // Enable window drag from toolbar (empty areas only) and edge resize
-    install_window_drag(&toolbar, &window);
+    // The full top bar moves the window; interactive controls remain excluded.
+    install_top_bar_window_drag(&root_overlay, &window);
     install_edge_resize(&root_overlay, &window);
 
     let update_canvas_content_size: Rc<dyn Fn()> = Rc::new({
@@ -3876,6 +3878,27 @@ mod tests {
         let source = include_str!("mod.rs");
         let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
         assert!(production_source.contains("editor-right-inspector"));
+    }
+
+    #[test]
+    fn editor_uses_full_top_bar_for_window_dragging() {
+        let source = include_str!("mod.rs");
+        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        assert!(
+            production_source.contains("install_top_bar_window_drag(&root_overlay, &window);")
+                && !production_source.contains("install_window_drag(&toolbar, &window);"),
+            "the editor should drag from the full top bar, not only its narrow toolbar"
+        );
+    }
+
+    #[test]
+    fn editor_enforces_the_toolbar_safe_minimum_width() {
+        let source = include_str!("mod.rs");
+        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        assert!(
+            production_source.contains("window.set_size_request(EDITOR_MIN_WINDOW_WIDTH, -1);"),
+            "the editor window must not resize narrower than its toolbar-safe width"
+        );
     }
 
     #[test]
