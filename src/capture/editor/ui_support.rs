@@ -5,6 +5,8 @@ use gtk4::{
 };
 use std::process::Command;
 
+pub const EDITOR_MIN_WINDOW_WIDTH: i32 = 980;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditorToolIcon {
     Named(String),
@@ -151,7 +153,7 @@ pub fn install_editor_css() {
 
             .editor-toolbar {
                 padding: 6px 12px;
-                background-color: #171717;
+                background-color: #0f0f0f;
                 border: none;
                 border-radius: 9px;
                 box-shadow: none;
@@ -203,7 +205,7 @@ pub fn install_editor_css() {
             }
 
             .editor-sidebar-utility-controls .editor-toolbar-wm-controls {
-                padding: 8px 0 0;
+                padding: 0;
                 border-left: none;
             }
 
@@ -1147,13 +1149,13 @@ pub fn install_editor_css() {
 
             .editor-floating-zoom {
                 padding: 6px;
-                background: #171717;
+                background: #0f0f0f;
                 border-radius: 9px;
             }
 
             .editor-floating-history {
                 padding: 6px;
-                background: #171717;
+                background: #0f0f0f;
                 border-radius: 9px;
             }
 
@@ -1219,7 +1221,7 @@ pub fn install_editor_css() {
             /* --- Zoom popup (flat surface, no glass) --- */
             .editor-footer-zoom-popup {
                 padding: 0;
-                background: #1a1a1a;
+                background: #0f0f0f;
                 border: 1px solid alpha(white, 0.06);
                 border-radius: 10px;
                 min-width: 240px;
@@ -1333,7 +1335,7 @@ pub fn install_editor_css() {
             }
 
             .editor-root.editor-theme-dark .editor-toolbar {
-                background-color: #171717;
+                background-color: #0f0f0f;
             }
 
             .editor-root.editor-theme-dark .editor-footer {
@@ -1361,7 +1363,7 @@ pub fn install_editor_css() {
             }
 
             .editor-root.editor-theme-light .editor-toolbar {
-                background-color: #f6f7fb;
+                background-color: #eef0f5;
             }
 
             .editor-root.editor-theme-light .editor-footer {
@@ -1379,11 +1381,11 @@ pub fn install_editor_css() {
             }
 
             .editor-root.editor-theme-light .editor-floating-zoom {
-                background: #f6f7fb;
+                background: #eef0f5;
             }
 
             .editor-root.editor-theme-light .editor-floating-history {
-                background: #f6f7fb;
+                background: #eef0f5;
             }
 
             .editor-root.editor-theme-light button.editor-floating-zoom-step {
@@ -1404,7 +1406,7 @@ pub fn install_editor_css() {
             }
 
             .editor-root.editor-theme-light .editor-footer-zoom-popup {
-                background: #ffffff;
+                background: #eef0f5;
                 border-color: alpha(#111827, 0.10);
             }
 
@@ -1642,7 +1644,7 @@ pub fn install_editor_css() {
 
             /* Inspector / right side panels */
             .editor-root.editor-theme-light .editor-right-inspector {
-                background: #eef0f5;
+                background: alpha(#111827, 0.04);
                 border-left: none;
             }
             .editor-root.editor-theme-light .editor-sidebar-utility-controls {
@@ -1850,7 +1852,7 @@ pub fn install_editor_css() {
             }
             .editor-root.editor-theme-light .editor-inspector-section-body {
                 background: #ffffff;
-                border: 1px solid alpha(#111827, 0.06);
+                border: none;
             }
             .editor-root.editor-theme-light .editor-inspector-placeholder {
                 color: alpha(#1d2129, 0.62);
@@ -2018,7 +2020,7 @@ pub fn install_editor_css() {
 
             .editor-right-inspector {
                 min-width: 210px;
-                background: #141414;
+                background: alpha(black, 0.25);
                 border-left: none;
                 padding: 0;
             }
@@ -2094,8 +2096,8 @@ pub fn install_editor_css() {
             }
 
             .editor-inspector-section-body {
-                background: alpha(white, 0.04);
-                border: 1px solid alpha(white, 0.06);
+                background: alpha(white, 0.06);
+                border: none;
                 border-radius: 6px;
             }
 
@@ -3221,7 +3223,7 @@ pub fn recommended_window_size_with_extra_width(
     let default_height = 820;
 
     (
-        default_width.clamp(980.min(max_width), max_width.max(1)),
+        default_width.clamp(EDITOR_MIN_WINDOW_WIDTH.min(max_width), max_width.max(1)),
         default_height.clamp(560.min(max_height), max_height.max(1)),
     )
 }
@@ -3377,44 +3379,50 @@ pub fn install_edge_resize(root: &impl IsA<gtk4::Widget>, window: &gtk4::Applica
     root.add_controller(resize_click);
 }
 
-pub fn install_window_drag(toolbar: &impl IsA<gtk4::Widget>, window: &gtk4::ApplicationWindow) {
+fn is_interactive_widget(widget: &gtk4::Widget) -> bool {
+    let mut current = Some(widget.clone());
+    while let Some(widget) = current {
+        if matches!(
+            widget.type_().name(),
+            "GtkButton"
+                | "GtkToggleButton"
+                | "GtkMenuButton"
+                | "GtkEntry"
+                | "GtkScale"
+                | "GtkDropDown"
+                | "GtkCheckButton"
+                | "GtkPopover"
+        ) {
+            return true;
+        }
+        current = widget.parent();
+    }
+    false
+}
+
+fn install_window_drag_in_region(
+    widget: &impl IsA<gtk4::Widget>,
+    window: &gtk4::ApplicationWindow,
+    max_y: Option<f64>,
+) {
     use gtk4::GestureClick;
 
     let drag_window_gesture = GestureClick::new();
-    drag_window_gesture.set_button(0); // Accept any button
+    drag_window_gesture.set_button(1);
     let window_drag = window.downgrade();
     drag_window_gesture.connect_pressed(move |gesture, _, x, y| {
-        // Check if the click was on an interactive widget (button, entry, etc.)
+        if max_y.is_some_and(|max_y| y > max_y) {
+            gesture.set_state(gtk4::EventSequenceState::Denied);
+            return;
+        }
+
         let Some(widget) = gesture.widget() else {
             return;
         };
-
-        // Get the widget at the click position
         let picked = widget.pick(x, y, gtk4::PickFlags::DEFAULT);
-
-        // Only drag if clicked on empty space (not on buttons or other interactive widgets)
-        if let Some(picked) = picked {
-            let type_name = picked.type_().name();
-            if type_name == "GtkButton"
-                || type_name == "GtkToggleButton"
-                || type_name == "GtkMenuButton"
-                || type_name == "GtkEntry"
-                || type_name == "GtkScale"
-                || type_name == "GtkPopover"
-            {
-                return; // Don't drag if clicked on interactive widget
-            }
-
-            // Also check for buttons inside boxes
-            if let Some(parent) = picked.parent() {
-                let parent_type = parent.type_().name();
-                if parent_type == "GtkButton"
-                    || parent_type == "GtkToggleButton"
-                    || parent_type == "GtkMenuButton"
-                {
-                    return;
-                }
-            }
+        if picked.as_ref().is_some_and(is_interactive_widget) {
+            gesture.set_state(gtk4::EventSequenceState::Denied);
+            return;
         }
 
         let Some(window) = window_drag.upgrade() else {
@@ -3434,7 +3442,18 @@ pub fn install_window_drag(toolbar: &impl IsA<gtk4::Widget>, window: &gtk4::Appl
         };
         toplevel.begin_move(&device, gesture.current_button() as i32, x, y, event.time());
     });
-    toolbar.add_controller(drag_window_gesture);
+    widget.add_controller(drag_window_gesture);
+}
+
+pub fn install_window_drag(toolbar: &impl IsA<gtk4::Widget>, window: &gtk4::ApplicationWindow) {
+    install_window_drag_in_region(toolbar, window, None);
+}
+
+pub fn install_top_bar_window_drag(
+    root: &impl IsA<gtk4::Widget>,
+    window: &gtk4::ApplicationWindow,
+) {
+    install_window_drag_in_region(root, window, Some(64.0));
 }
 
 #[cfg(test)]

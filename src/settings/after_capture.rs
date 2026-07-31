@@ -1,5 +1,5 @@
 use crate::config::AppConfig;
-use gtk4::{prelude::*, Align, Box as GtkBox, CheckButton, Grid, Label, Orientation, Separator};
+use gtk4::{prelude::*, Align, Box as GtkBox, CheckButton, Grid, Label, Orientation};
 
 #[allow(dead_code)]
 pub struct AfterCaptureWidgets {
@@ -69,10 +69,6 @@ pub fn build_after_capture_section(config: &AppConfig) -> AfterCaptureWidgets {
     after_capture_header_row.attach(&recording_header_cell, 1, 0, 1, 1);
     after_capture_header_row.attach(&action_header, 2, 0, 1, 1);
     after_capture_table.append(&after_capture_header_row);
-
-    let table_header_separator = Separator::new(Orientation::Horizontal);
-    table_header_separator.set_hexpand(true);
-    after_capture_table.append(&table_header_separator);
 
     let screenshot_after_capture_rows = [
         (

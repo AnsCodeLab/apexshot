@@ -682,15 +682,25 @@ pub fn constrained_drag_endpoint(
 
     match tool {
         Tool::Line | Tool::Arrow => {
-            if (end.x - start.x).abs() >= (end.y - start.y).abs() {
+            let dx = end.x - start.x;
+            let dy = end.y - start.y;
+            let max = dx.abs().max(dy.abs());
+
+            let axis_threshold = 1.0 + std::f64::consts::SQRT_2;
+            if dx.abs() >= dy.abs() * axis_threshold {
                 Point {
                     x: end.x,
                     y: start.y,
                 }
-            } else {
+            } else if dy.abs() >= dx.abs() * axis_threshold {
                 Point {
                     x: start.x,
                     y: end.y,
+                }
+            } else {
+                Point {
+                    x: start.x + max * dx.signum(),
+                    y: start.y + max * dy.signum(),
                 }
             }
         }

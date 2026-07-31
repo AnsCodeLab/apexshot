@@ -331,6 +331,9 @@ pub(super) fn wire_editor_events(ctx: EventContext) {
     } = ctx;
 
     let drag_start_transform = Rc::new(RefCell::new(None::<ViewTransform>));
+    let space_pan_active = Rc::new(Cell::new(false));
+    let space_pan_dragging = Rc::new(Cell::new(false));
+    let space_pan_origin = Rc::new(Cell::new((0.0, 0.0)));
 
     let state_select = state.clone();
     let drawing_area_select = drawing_area.downgrade();
@@ -697,11 +700,20 @@ pub(super) fn wire_editor_events(ctx: EventContext) {
     });
 
     let scroll_controller = EventControllerScroll::new(
-        EventControllerScrollFlags::VERTICAL | EventControllerScrollFlags::DISCRETE,
+        EventControllerScrollFlags::VERTICAL
+            | EventControllerScrollFlags::HORIZONTAL
+            | EventControllerScrollFlags::DISCRETE,
     );
     let apply_zoom_change_scroll = apply_zoom_change.clone();
     let zoom_level_scroll = zoom_level.clone();
-    scroll_controller.connect_scroll(move |_, _dx, dy| {
+    scroll_controller.connect_scroll(move |controller, _dx, dy| {
+        if !controller
+            .current_event_state()
+            .contains(gdk::ModifierType::CONTROL_MASK)
+        {
+            return glib::Propagation::Proceed;
+        }
+
         if dy < 0.0 {
             apply_zoom_change_scroll(zoom_level_scroll.get() * ZOOM_STEP);
         } else if dy > 0.0 {
@@ -1726,10 +1738,26 @@ pub(super) fn wire_editor_events(ctx: EventContext) {
     let transform_drag_begin = transform.clone();
     let drawing_area_begin = drawing_area.downgrade();
     let drag_last_redraw_begin = drag_last_redraw.clone();
+    let space_pan_active_drag_begin = space_pan_active.clone();
+    let space_pan_dragging_begin = space_pan_dragging.clone();
+    let space_pan_origin_begin = space_pan_origin.clone();
+    let canvas_scroller_space_pan_begin = canvas_scroller.clone();
+    let window_space_pan_begin = window.downgrade();
     let apply_crop_btn_drag_begin = apply_crop_btn.clone();
     let update_crop_size_fields_drag_begin = update_crop_size_fields.clone();
     let drag_start_transform_begin = drag_start_transform.clone();
     drag.connect_drag_begin(move |gesture, x, y| {
+        if space_pan_active_drag_begin.get() {
+            let hadj = canvas_scroller_space_pan_begin.hadjustment();
+            let vadj = canvas_scroller_space_pan_begin.vadjustment();
+            space_pan_origin_begin.set((hadj.value(), vadj.value()));
+            space_pan_dragging_begin.set(true);
+            if let Some(window) = window_space_pan_begin.upgrade() {
+                set_window_cursor_name(&window, Some("grabbing"));
+            }
+            return;
+        }
+
         if eyedropper_mode_drag_begin.get() {
             return;
         }
@@ -2214,10 +2242,26 @@ pub(super) fn wire_editor_events(ctx: EventContext) {
     let transform_drag_update = transform.clone();
     let drawing_area_update = drawing_area.downgrade();
     let drag_last_redraw_update = drag_last_redraw.clone();
+    let space_pan_dragging_update = space_pan_dragging.clone();
+    let space_pan_origin_update = space_pan_origin.clone();
+    let canvas_scroller_space_pan_update = canvas_scroller.clone();
     let update_crop_size_fields_drag_update = update_crop_size_fields.clone();
     let rebuild_effects_async_drag_update = rebuild_effects_async.clone();
     let drag_start_transform_update = drag_start_transform.clone();
     drag.connect_drag_update(move |gesture, offset_x, offset_y| {
+        if space_pan_dragging_update.get() {
+            let hadj = canvas_scroller_space_pan_update.hadjustment();
+            let vadj = canvas_scroller_space_pan_update.vadjustment();
+            let (start_x, start_y) = space_pan_origin_update.get();
+            hadj.set_value(
+                (start_x - offset_x).clamp(hadj.lower(), hadj.upper() - hadj.page_size()),
+            );
+            vadj.set_value(
+                (start_y - offset_y).clamp(vadj.lower(), vadj.upper() - vadj.page_size()),
+            );
+            return;
+        }
+
         if eyedropper_mode_drag_update.get() {
             return;
         }
@@ -2360,12 +2404,29 @@ pub(super) fn wire_editor_events(ctx: EventContext) {
     let transform_drag_end = transform.clone();
     let drawing_area_end = drawing_area.downgrade();
     let drag_last_redraw_end = drag_last_redraw.clone();
+    let space_pan_active_end = space_pan_active.clone();
+    let space_pan_dragging_end = space_pan_dragging.clone();
+    let window_space_pan_end = window.downgrade();
     let apply_crop_btn_drag_end = apply_crop_btn.clone();
     let update_crop_size_fields_drag_end = update_crop_size_fields.clone();
     let sync_size_control_drag_end = sync_size_control.clone();
     let sync_select_inspector_drag_end = sync_select_inspector.clone();
     let rebuild_effects_async_drag_end = rebuild_effects_async.clone();
     drag.connect_drag_end(move |gesture, offset_x, offset_y| {
+        if space_pan_dragging_end.replace(false) {
+            if let Some(window) = window_space_pan_end.upgrade() {
+                set_window_cursor_name(
+                    &window,
+                    if space_pan_active_end.get() {
+                        Some("grab")
+                    } else {
+                        None
+                    },
+                );
+            }
+            return;
+        }
+
         if eyedropper_mode_drag_end.get() {
             return;
         }
@@ -2517,6 +2578,7 @@ pub(super) fn wire_editor_events(ctx: EventContext) {
     let eyedropper_point_click = eyedropper_point.clone();
     let eyedropper_rendered_click = eyedropper_rendered.clone();
     let color_popover_canvas_click = color_popover.clone();
+    let space_pan_active_click = space_pan_active.clone();
     let set_picker_panel_visibility_canvas_click = set_picker_panel_visibility.clone();
     let canvas_eyedropper_ring_click = canvas_eyedropper_ring.clone();
     let apply_picker_color_to_editor_canvas_click = apply_picker_color_to_editor.clone();
@@ -2528,7 +2590,12 @@ pub(super) fn wire_editor_events(ctx: EventContext) {
     let text_size_list_click = text_size_list.clone();
     let font_family_list_click = font_family_list.clone();
     let sync_select_inspector_canvas_click = sync_select_inspector.clone();
-    click.connect_pressed(move |_gesture, n_press, x, y| {
+    click.connect_pressed(move |gesture, n_press, x, y| {
+        if space_pan_active_click.get() {
+            gesture.set_state(gtk4::EventSequenceState::Denied);
+            return;
+        }
+
         let t = *transform_click.lock().unwrap();
         let view_point = Point { x, y };
 
@@ -3005,9 +3072,25 @@ pub(super) fn wire_editor_events(ctx: EventContext) {
     let transform_motion = transform.clone();
     let window_motion = window.downgrade();
     let drawing_area_motion = drawing_area.downgrade();
+    let space_pan_active_motion = space_pan_active.clone();
+    let space_pan_dragging_motion = space_pan_dragging.clone();
     motion.connect_motion(move |_, x, y| {
         let t = *transform_motion.lock().unwrap();
         let view_point = Point { x, y };
+
+        if space_pan_active_motion.get() {
+            if let Some(window) = window_motion.upgrade() {
+                set_window_cursor_name(
+                    &window,
+                    Some(if space_pan_dragging_motion.get() {
+                        "grabbing"
+                    } else {
+                        "grab"
+                    }),
+                );
+            }
+            return;
+        }
 
         if eyedropper_mode_motion.get() {
             if !t.contains_view(view_point) {
@@ -3298,6 +3381,8 @@ pub(super) fn wire_editor_events(ctx: EventContext) {
     let zoom_level_keys = zoom_level.clone();
     let update_canvas_content_size_keys = update_canvas_content_size.clone();
     let zoom_popup_keys = zoom_popup.clone();
+    let space_pan_active_keys = space_pan_active.clone();
+    let space_pan_dragging_keys = space_pan_dragging.clone();
 
     key_controller.connect_key_pressed(move |_, key, _, modifiers| {
         if key == gdk::Key::Escape && eyedropper_mode_keys.get() {
@@ -3362,6 +3447,21 @@ pub(super) fn wire_editor_events(ctx: EventContext) {
                     return glib::Propagation::Stop;
                 }
             }
+        }
+
+        if key == gdk::Key::space && !eyedropper_mode_keys.get() {
+            space_pan_active_keys.set(true);
+            if let Some(window) = window_keys.upgrade() {
+                set_window_cursor_name(
+                    &window,
+                    Some(if space_pan_dragging_keys.get() {
+                        "grabbing"
+                    } else {
+                        "grab"
+                    }),
+                );
+            }
+            return glib::Propagation::Stop;
         }
 
         if ctrl && (pressed == Some('z') || pressed == Some('Z')) {
@@ -3460,6 +3560,29 @@ pub(super) fn wire_editor_events(ctx: EventContext) {
 
         glib::Propagation::Proceed
     });
+    let space_pan_active_released = space_pan_active.clone();
+    let space_pan_dragging_released = space_pan_dragging.clone();
+    let eyedropper_mode_released = eyedropper_mode.clone();
+    let window_released = window.downgrade();
+    key_controller.connect_key_released(move |_, key, _, _| {
+        if key != gdk::Key::space {
+            return;
+        }
+
+        space_pan_active_released.set(false);
+        if !space_pan_dragging_released.get() {
+            if let Some(window) = window_released.upgrade() {
+                set_window_cursor_name(
+                    &window,
+                    if eyedropper_mode_released.get() {
+                        Some("crosshair")
+                    } else {
+                        None
+                    },
+                );
+            }
+        }
+    });
     window.add_controller(key_controller);
 
     let app_weak = app.downgrade();
@@ -3509,8 +3632,23 @@ mod tests {
                 && production_source.contains("zoom_popup_in.set_visible(false);")
                 && production_source.contains("update_canvas_content_size();")
                 && production_source.contains("drawing_area.queue_draw();")
-                && production_source.contains("scroll_controller.connect_scroll(move |_, _dx, dy| {"),
-            "Footer zoom actions should open the popover, update the zoom state, refresh canvas layout, and support wheel zoom",
+                && production_source.contains("scroll_controller.connect_scroll(move |controller, _dx, dy| {")
+                && production_source.contains("gdk::ModifierType::CONTROL_MASK"),
+            "Footer zoom actions should open the popover, update the zoom state, refresh canvas layout, and support Ctrl-wheel zoom",
+        );
+    }
+
+    #[test]
+    fn canvas_scrolls_normally_and_space_enables_primary_button_panning() {
+        let source = include_str!("events.rs");
+        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        assert!(
+            production_source.contains("return glib::Propagation::Proceed;")
+                && production_source.contains("if space_pan_active_drag_begin.get() {")
+                && production_source.contains("space_pan_dragging_begin.set(true);")
+                && production_source.contains("if key == gdk::Key::space && !eyedropper_mode_keys.get()")
+                && production_source.contains("Some(\"grab\")"),
+            "normal scrolling should reach the canvas scroller while space temporarily enables hand panning"
         );
     }
 
