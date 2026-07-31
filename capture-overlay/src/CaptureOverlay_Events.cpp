@@ -508,24 +508,14 @@ void CaptureOverlay::mousePressEvent(QMouseEvent* event)
             update();
             return;
         case RecordPanelTile::RecordVideo:
-            if (m_recordType == RecordType::Video) {
-                m_captureIntent = CaptureIntent::Record;
-                confirmRecordingSelection();
-            } else {
-                m_recordType = RecordType::Video;
-                m_recordConfigRequested = true;
-                update();
-            }
+            m_recordType = RecordType::Video;
+            m_captureIntent = CaptureIntent::Record;
+            confirmRecordingSelection();
             return;
         case RecordPanelTile::RecordGif:
-            if (m_recordType == RecordType::Gif) {
-                m_captureIntent = CaptureIntent::Record;
-                confirmRecordingSelection();
-            } else {
-                m_recordType = RecordType::Gif;
-                m_recordConfigRequested = true;
-                update();
-            }
+            m_recordType = RecordType::Gif;
+            m_captureIntent = CaptureIntent::Record;
+            confirmRecordingSelection();
             return;
         }
         // If click is on resize/move handle, allow it to pass through to the

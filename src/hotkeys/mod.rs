@@ -503,24 +503,9 @@ fn default_hotkey_bindings() -> Vec<HotkeyBinding> {
             args: vec!["record".into(), "screen".into(), "--overlay-stop".into()],
         },
         HotkeyBinding {
-            name: Some("recording_pause_resume".into()),
-            accelerator: "CTRL+ALT+SHIFT+P".into(),
-            args: vec!["record".into(), "toggle-pause".into()],
-        },
-        HotkeyBinding {
             name: Some("recording_stop_save".into()),
             accelerator: "CTRL+ALT+SHIFT+S".into(),
             args: vec!["record".into(), "stop".into()],
-        },
-        HotkeyBinding {
-            name: Some("recording_restart".into()),
-            accelerator: "CTRL+ALT+SHIFT+N".into(),
-            args: vec!["record".into(), "restart".into()],
-        },
-        HotkeyBinding {
-            name: Some("recording_discard".into()),
-            accelerator: "CTRL+ALT+SHIFT+BackSpace".into(),
-            args: vec!["record".into(), "discard".into()],
         },
     ]
 }
@@ -824,31 +809,12 @@ pub fn hotkey_config_from_app_config(app_config: &crate::config::AppConfig) -> H
         &app_config.shortcut_record_screen,
         &["record", "screen", "--overlay-stop"],
     );
-    // Recording controls — one binding each (names must match DaemonIpc::trigger).
-    // CLI aliases `apexshot record stop|toggle-pause|restart|discard` also work.
-    push_binding(
-        &mut bindings,
-        "recording_pause_resume",
-        &app_config.shortcut_recording_pause_resume,
-        &["record", "toggle-pause"],
-    );
+    // The stop shortcut remains available when the system tray is unavailable.
     push_binding(
         &mut bindings,
         "recording_stop_save",
         &app_config.shortcut_recording_stop_save,
         &["record", "stop"],
-    );
-    push_binding(
-        &mut bindings,
-        "recording_restart",
-        &app_config.shortcut_recording_restart,
-        &["record", "restart"],
-    );
-    push_binding(
-        &mut bindings,
-        "recording_discard",
-        &app_config.shortcut_recording_discard,
-        &["record", "discard"],
     );
 
     HotkeyConfig { bindings }
@@ -2472,7 +2438,7 @@ mod tests {
     }
 
     #[test]
-    fn default_hotkeys_include_recording_control_bindings() {
+    fn default_hotkeys_include_recording_stop_binding() {
         let cfg = HotkeyConfig::default();
         let names = cfg
             .bindings
@@ -2480,10 +2446,10 @@ mod tests {
             .map(|binding| binding.name.clone().unwrap_or_default())
             .collect::<Vec<_>>();
 
-        assert!(names.contains(&"recording_pause_resume".to_string()));
         assert!(names.contains(&"recording_stop_save".to_string()));
-        assert!(names.contains(&"recording_restart".to_string()));
-        assert!(names.contains(&"recording_discard".to_string()));
+        assert!(!names.contains(&"recording_pause_resume".to_string()));
+        assert!(!names.contains(&"recording_restart".to_string()));
+        assert!(!names.contains(&"recording_discard".to_string()));
     }
 
     #[test]
@@ -2559,10 +2525,7 @@ mod tests {
             shortcut_capture_fullscreen: "Shift+Super+3".into(),
             shortcut_capture_window: "Shift+Super+5".into(),
             shortcut_open_recording_ui: "Ctrl+Alt+R".into(),
-            shortcut_recording_pause_resume: "Ctrl+Alt+Shift+P".into(),
             shortcut_recording_stop_save: "Ctrl+Alt+Shift+S".into(),
-            shortcut_recording_restart: "Ctrl+Alt+Shift+N".into(),
-            shortcut_recording_discard: "Ctrl+Alt+Shift+BackSpace".into(),
             ..crate::config::AppConfig::default()
         };
 
@@ -2599,7 +2562,6 @@ mod tests {
     fn blank_shortcuts_are_omitted_from_runtime_hotkeys() {
         let cfg = crate::config::AppConfig {
             shortcut_open_recording_ui: String::new(),
-            shortcut_recording_restart: String::new(),
             ..crate::config::AppConfig::default()
         };
 
@@ -2609,10 +2571,6 @@ mod tests {
             .bindings
             .iter()
             .any(|binding| binding.name.as_deref() == Some("open_recording_ui")));
-        assert!(!hotkeys
-            .bindings
-            .iter()
-            .any(|binding| binding.name.as_deref() == Some("recording_restart")));
     }
 
     #[test]

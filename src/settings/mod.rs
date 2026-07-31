@@ -562,9 +562,6 @@ fn build_settings_window(app: &Application) {
         annotate_auto_expand: annotate.auto_expand_check.clone(),
         annotate_show_color_names: annotate.show_color_names_check.clone(),
         annotate_always_on_top: annotate.always_on_top_check.clone(),
-        rec_notifications: recordings.rec_notifications_check.clone(),
-        rec_countdown: recordings.rec_countdown_check.clone(),
-        rec_remember_selection: recordings.rec_remember_selection_check.clone(),
         shortcut_open_file: shortcuts.open_file_btn.clone(),
         shortcut_open_from_clipboard: shortcuts.open_clipboard_btn.clone(),
         shortcut_restore_recently_closed: shortcuts.restore_file_btn.clone(),
@@ -577,10 +574,7 @@ fn build_settings_window(app: &Application) {
         shortcut_show_last_preview: shortcuts.show_last_preview_btn.clone(),
         shortcut_open_recording_ui: shortcuts.open_recording_ui_btn.clone(),
         shortcut_record_screen: shortcuts.record_screen_btn.clone(),
-        shortcut_recording_pause_resume: shortcuts.recording_pause_resume_btn.clone(),
         shortcut_recording_stop_save: shortcuts.recording_stop_save_btn.clone(),
-        shortcut_recording_restart: shortcuts.recording_restart_btn.clone(),
-        shortcut_recording_discard: shortcuts.recording_discard_btn.clone(),
         adv_retina_suffix: advanced.retina_suffix_check.clone(),
         adv_clipboard_mode: screenshots.clipboard_mode_input.clone(),
         adv_ocr_language: advanced.ocr_lang_input.clone(),
@@ -770,9 +764,6 @@ fn install_save_dirty_tracking(inputs: &Rc<SaveInputs>, mark_dirty: Rc<dyn Fn()>
     wire_check(&inputs.annotate_auto_expand);
     wire_check(&inputs.annotate_show_color_names);
     wire_check(&inputs.annotate_always_on_top);
-    wire_check(&inputs.rec_notifications);
-    wire_check(&inputs.rec_countdown);
-    wire_check(&inputs.rec_remember_selection);
     wire_shortcut_btn(&inputs.shortcut_open_file);
     wire_shortcut_btn(&inputs.shortcut_open_from_clipboard);
     wire_shortcut_btn(&inputs.shortcut_restore_recently_closed);
@@ -785,10 +776,7 @@ fn install_save_dirty_tracking(inputs: &Rc<SaveInputs>, mark_dirty: Rc<dyn Fn()>
     wire_shortcut_btn(&inputs.shortcut_show_last_preview);
     wire_shortcut_btn(&inputs.shortcut_open_recording_ui);
     wire_shortcut_btn(&inputs.shortcut_record_screen);
-    wire_shortcut_btn(&inputs.shortcut_recording_pause_resume);
     wire_shortcut_btn(&inputs.shortcut_recording_stop_save);
-    wire_shortcut_btn(&inputs.shortcut_recording_restart);
-    wire_shortcut_btn(&inputs.shortcut_recording_discard);
     wire_check(&inputs.adv_retina_suffix);
     wire_combo(&inputs.adv_clipboard_mode);
     wire_combo(&inputs.adv_ocr_language);

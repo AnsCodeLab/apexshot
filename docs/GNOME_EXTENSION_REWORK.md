@@ -80,7 +80,8 @@ from `resource:///org/gnome/shell/extensions/extension.js`.
 
 `preview-stacking.js` replaces both 50 ms timers with `window-created` plus a
 one-shot `notify::title` watcher per window, tracked in a Map so `disable()`
-disconnects every handler. The extension now has **no timers at all**.
+disconnects every handler. The only remaining timer is the short recording
+countdown, which is removed when the countdown or extension ends.
 
 ### Dead code (roughly a third of the extension)
 

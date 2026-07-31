@@ -481,7 +481,6 @@ int main(int argc, char* argv[])
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--worker") == 0) {
             workerMode = true;
-            break;
         }
     }
 

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
+import Clutter from 'gi://Clutter';
 import St from 'gi://St';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
@@ -17,10 +19,21 @@ const DBUS_INTERFACE = `
       <arg type="i" name="height" direction="in"/>
     </method>
     <method name="HideMask"/>
+    <method name="ShowCountdown">
+      <arg type="i" name="x" direction="in"/>
+      <arg type="i" name="y" direction="in"/>
+      <arg type="i" name="width" direction="in"/>
+      <arg type="i" name="height" direction="in"/>
+      <arg type="u" name="seconds" direction="in"/>
+    </method>
+    <method name="HideCountdown"/>
   </interface>
 </node>`;
 
 const MASK_STYLE = 'background-color: rgba(0, 0, 0, 0.55);';
+const COUNTDOWN_SIZE = 184;
+const COUNTDOWN_STYLE = 'background-color: rgba(0, 0, 0, 0.94); border-radius: 92px;';
+const COUNTDOWN_LABEL_STYLE = 'color: white; font-size: 72px; font-weight: bold;';
 
 /// Dims everything outside the area ApexShot is recording.
 ///
@@ -34,6 +47,8 @@ export class ShellOverlayService {
         this._monitorsChangedId = 0;
         this._maskGroup = null;
         this._rect = null;
+        this._countdown = null;
+        this._countdownTimerId = 0;
     }
 
     enable() {
@@ -57,6 +72,7 @@ export class ShellOverlayService {
         }
 
         this._destroyMask();
+        this._destroyCountdown();
 
         if (this._nameId) {
             Gio.DBus.session.unown_name(this._nameId);
@@ -82,6 +98,45 @@ export class ShellOverlayService {
     HideMask() {
         this._rect = null;
         this._destroyMask();
+    }
+
+    ShowCountdown(x, y, width, height, seconds) {
+        this._destroyCountdown();
+        if (width <= 0 || height <= 0 || seconds <= 0)
+            return;
+
+        let remaining = seconds;
+        const label = new St.Label({
+            text: `${remaining}`,
+            x_align: Clutter.ActorAlign.CENTER,
+            y_align: Clutter.ActorAlign.CENTER,
+            style: COUNTDOWN_LABEL_STYLE,
+        });
+        this._countdown = new St.Bin({
+            reactive: false,
+            x: Math.round(x + width / 2 - COUNTDOWN_SIZE / 2),
+            y: Math.round(y + height / 2 - COUNTDOWN_SIZE / 2),
+            width: COUNTDOWN_SIZE,
+            height: COUNTDOWN_SIZE,
+            style: COUNTDOWN_STYLE,
+        });
+        this._countdown.set_child(label);
+        global.window_group.add_child(this._countdown);
+
+        this._countdownTimerId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 1, () => {
+            remaining--;
+            if (remaining <= 0) {
+                this._countdownTimerId = 0;
+                this._destroyCountdown();
+                return GLib.SOURCE_REMOVE;
+            }
+            label.text = `${remaining}`;
+            return GLib.SOURCE_CONTINUE;
+        });
+    }
+
+    HideCountdown() {
+        this._destroyCountdown();
     }
 
     _redraw() {
@@ -134,5 +189,16 @@ export class ShellOverlayService {
 
         this._maskGroup.destroy();
         this._maskGroup = null;
+    }
+
+    _destroyCountdown() {
+        if (this._countdownTimerId) {
+            GLib.source_remove(this._countdownTimerId);
+            this._countdownTimerId = 0;
+        }
+        if (this._countdown) {
+            this._countdown.destroy();
+            this._countdown = null;
+        }
     }
 }

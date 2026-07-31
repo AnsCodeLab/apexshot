@@ -12,7 +12,7 @@
 use std::{
     path::PathBuf,
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use anyhow::Context;
@@ -34,7 +34,7 @@ use crate::{
     config::load_config,
     hotkeys::{
         accel_to_gnome, ensure_desktop_entry_pub, load_hotkey_config,
-        sync_gnome_hotkeys_for_current_desktop, HotkeyBinding,
+        sync_gnome_hotkeys_for_current_desktop, sync_hotkeys_from_app_config, HotkeyBinding,
     },
     ocr::{extract_text, OcrConfig},
     recording::run_overlay_recording_request_with_gtk,
@@ -60,10 +60,7 @@ pub enum DaemonAction {
     OpenRecordingUi,
     OpenVideoEditor,
     OpenImageEditor,
-    ToggleRecordingPause,
     StopRecordingSave,
-    RestartRecording,
-    DiscardRecording,
     ShowLastPreview,
     ShowPreviewForPath(std::path::PathBuf),
     OpenLastCapture,
@@ -75,31 +72,27 @@ pub enum DaemonAction {
     RecordingSessionResumed,
     RecordingSessionRestarted,
     RecordingSessionEnded,
-    RecordingTimerTick,
     SetHotkeySuppressed(bool),
     Quit,
 }
 
 impl From<TrayAction> for DaemonAction {
-    fn from(a: TrayAction) -> Self {
-        match a {
-            TrayAction::CaptureArea => DaemonAction::CaptureArea,
-            TrayAction::CaptureCrosshair => DaemonAction::CaptureCrosshair,
-            TrayAction::CaptureScreen => DaemonAction::CaptureScreen,
-            TrayAction::CaptureWindow => DaemonAction::CaptureWindow,
-            TrayAction::OpenRecordingUi => DaemonAction::OpenRecordingUi,
-            TrayAction::OpenVideoEditor => DaemonAction::OpenVideoEditor,
-            TrayAction::OpenImageEditor => DaemonAction::OpenImageEditor,
-            TrayAction::RecordScreen => DaemonAction::RecordScreen,
-            TrayAction::ToggleRecordingPause => DaemonAction::ToggleRecordingPause,
-            TrayAction::StopRecordingSave => DaemonAction::StopRecordingSave,
-            TrayAction::RestartRecording => DaemonAction::RestartRecording,
-            TrayAction::DiscardRecording => DaemonAction::DiscardRecording,
-            TrayAction::ShowLastPreview => DaemonAction::ShowLastPreview,
-            TrayAction::OpenLastCapture => DaemonAction::OpenLastCapture,
-            TrayAction::OpenHistory => DaemonAction::OpenHistory,
-            TrayAction::OpenSettings => DaemonAction::OpenSettings,
-            TrayAction::Quit => DaemonAction::Quit,
+    fn from(action: TrayAction) -> Self {
+        match action {
+            TrayAction::CaptureArea => Self::CaptureArea,
+            TrayAction::CaptureCrosshair => Self::CaptureCrosshair,
+            TrayAction::CaptureScreen => Self::CaptureScreen,
+            TrayAction::CaptureWindow => Self::CaptureWindow,
+            TrayAction::OpenRecordingUi => Self::OpenRecordingUi,
+            TrayAction::OpenVideoEditor => Self::OpenVideoEditor,
+            TrayAction::OpenImageEditor => Self::OpenImageEditor,
+            TrayAction::RecordScreen => Self::RecordScreen,
+            TrayAction::StopRecordingSave => Self::StopRecordingSave,
+            TrayAction::ShowLastPreview => Self::ShowLastPreview,
+            TrayAction::OpenLastCapture => Self::OpenLastCapture,
+            TrayAction::OpenHistory => Self::OpenHistory,
+            TrayAction::OpenSettings => Self::OpenSettings,
+            TrayAction::Quit => Self::Quit,
         }
     }
 }
@@ -117,47 +110,18 @@ struct DaemonState {
 }
 
 #[derive(Debug, Clone)]
-struct RecordingTrayState {
-    started_at: Instant,
-    paused_total: Duration,
-    paused_at: Option<Instant>,
-}
+struct RecordingTrayState;
 
 impl RecordingTrayState {
     fn started() -> Self {
-        Self {
-            started_at: Instant::now(),
-            paused_total: Duration::ZERO,
-            paused_at: None,
-        }
+        Self
     }
 
-    fn pause(&mut self) {
-        if self.paused_at.is_none() {
-            self.paused_at = Some(Instant::now());
-        }
-    }
+    fn pause(&mut self) {}
 
-    fn resume(&mut self) {
-        if let Some(paused_at) = self.paused_at.take() {
-            self.paused_total += paused_at.elapsed();
-        }
-    }
+    fn resume(&mut self) {}
 
-    fn restart(&mut self) {
-        *self = Self::started();
-    }
-
-    fn elapsed(&self) -> Duration {
-        let end = self.paused_at.unwrap_or_else(Instant::now);
-        end.saturating_duration_since(self.started_at)
-            .saturating_sub(self.paused_total)
-    }
-
-    fn elapsed_text(&self) -> String {
-        let total_seconds = self.elapsed().as_secs();
-        format!("{}:{:02}", total_seconds / 60, total_seconds % 60)
-    }
+    fn restart(&mut self) {}
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -427,45 +391,30 @@ pub fn trigger_daemon_action_sync(action: &str) -> bool {
 fn spawn_daemon_tray(
     action_tx: &std::sync::mpsc::Sender<DaemonAction>,
 ) -> anyhow::Result<ksni::Handle<ApexShotTray>> {
-    let (tray_tx, tray_rx) = std::sync::mpsc::channel::<TrayAction>();
-    let tray_action_tx = action_tx.clone();
+    let (tray_tx, tray_rx) = std::sync::mpsc::channel();
+    let action_tx = action_tx.clone();
     std::thread::spawn(move || {
         while let Ok(action) = tray_rx.recv() {
-            let _ = tray_action_tx.send(DaemonAction::from(action));
+            let _ = action_tx.send(DaemonAction::from(action));
         }
     });
     spawn_tray(tray_tx).context("Failed to spawn tray icon")
 }
 
 fn update_tray_recording_state(
-    tray_handle: &Option<ksni::Handle<ApexShotTray>>,
+    tray: &Option<ksni::Handle<ApexShotTray>>,
     recording_state: Option<&RecordingTrayState>,
 ) {
-    let Some(handle) = tray_handle else {
-        return;
-    };
-
-    handle.update(|tray| {
-        if let Some(state) = recording_state {
-            if state.paused_at.is_some() {
-                tray.show_recording_paused(state.elapsed_text());
-            } else {
-                tray.show_recording_timer(state.elapsed_text());
-            }
-        } else {
-            tray.show_idle();
-        }
-    });
+    if let Some(handle) = tray {
+        handle.update(|tray| tray.set_recording(recording_state.is_some()));
+    }
 }
 
-/// A recording is the one situation where the tray icon appears even if the
-/// user keeps it hidden otherwise: it is the surface that shows the elapsed
-/// time and offers pause / stop.
 fn update_recording_tray(
-    tray_handle: &Option<ksni::Handle<ApexShotTray>>,
+    tray: &Option<ksni::Handle<ApexShotTray>>,
     recording_state: Option<&RecordingTrayState>,
 ) {
-    update_tray_recording_state(tray_handle, recording_state);
+    update_tray_recording_state(tray, recording_state);
 }
 
 /// A request for GTK work that must run on the main OS thread.
@@ -485,10 +434,6 @@ pub enum GtkWork {
     },
     CaptureWindow {
         reply: std::sync::mpsc::SyncSender<Result<std::path::PathBuf, String>>,
-    },
-    RunRecordingControls {
-        params: crate::recording::RecordingControlsParams,
-        stop_tx: tokio::sync::oneshot::Sender<crate::recording::StopAction>,
     },
     RunCountdown {
         seconds: u32,
@@ -573,10 +518,6 @@ async fn run_daemon_inner(gtk_tx: Option<std::sync::mpsc::Sender<GtkWork>>) -> a
         ensure_ydotoold_running();
     }
 
-    if maybe_relaunch_via_desktop() {
-        return Ok(());
-    }
-
     // ── SINGLE-INSTANCE CHECK ─────────────────────────────────────────────────
     // Try to register D-Bus name BEFORE any other initialization.
     // This prevents multiple daemons from running simultaneously.
@@ -615,6 +556,9 @@ async fn run_daemon_inner(gtk_tx: Option<std::sync::mpsc::Sender<GtkWork>>) -> a
     // The daemon is primarily needed for the tray icon and hotkey listening.
     // If the user has disabled the tray icon, exit early to avoid wasting resources.
     let initial_config = load_config().sanitized();
+    if let Err(err) = sync_hotkeys_from_app_config(&initial_config) {
+        eprintln!("[daemon] Failed to refresh configured hotkeys: {err}");
+    }
     if !initial_config.show_menu_bar_icon {
         eprintln!("[daemon] Tray icon disabled by settings — exiting.");
         return Ok(());
@@ -627,9 +571,8 @@ async fn run_daemon_inner(gtk_tx: Option<std::sync::mpsc::Sender<GtkWork>>) -> a
     let (action_tx, action_rx) = std::sync::mpsc::channel::<DaemonAction>();
 
     // ── Tray icon ────────────────────────────────────────────────────────────
-    let mut tray_requested_visible = load_config().sanitized().show_menu_bar_icon;
     let mut recording_tray_state: Option<RecordingTrayState> = None;
-    let mut tray_handle = if tray_requested_visible {
+    let mut tray_handle = if initial_config.show_menu_bar_icon {
         let handle = spawn_daemon_tray(&action_tx)?;
         eprintln!("[daemon] Tray icon active.");
         Some(handle)
@@ -637,16 +580,6 @@ async fn run_daemon_inner(gtk_tx: Option<std::sync::mpsc::Sender<GtkWork>>) -> a
         eprintln!("[daemon] Tray icon disabled by settings.");
         None
     };
-
-    {
-        let tick_tx = action_tx.clone();
-        std::thread::spawn(move || loop {
-            std::thread::sleep(Duration::from_secs(1));
-            if tick_tx.send(DaemonAction::RecordingTimerTick).is_err() {
-                break;
-            }
-        });
-    }
 
     {
         let signal_tx = action_tx.clone();
@@ -796,30 +729,12 @@ async fn run_daemon_inner(gtk_tx: Option<std::sync::mpsc::Sender<GtkWork>>) -> a
             DaemonAction::OpenImageEditor => {
                 tokio::task::spawn_blocking(spawn_empty_image_editor_subprocess);
             }
-            DaemonAction::ToggleRecordingPause => {
-                if !crate::recording::toggle_active_recording_pause() {
-                    eprintln!("[daemon] No active recording available for pause/resume.");
-                }
-            }
             DaemonAction::StopRecordingSave => {
+                crate::gnome_shell::hide_recording_mask_best_effort();
                 if !crate::recording::send_active_recording_command(
                     crate::recording::RecordingControlCommand::StopSave,
                 ) {
                     eprintln!("[daemon] No active recording available for stop/save.");
-                }
-            }
-            DaemonAction::RestartRecording => {
-                if !crate::recording::send_active_recording_command(
-                    crate::recording::RecordingControlCommand::Restart,
-                ) {
-                    eprintln!("[daemon] No active recording available for restart.");
-                }
-            }
-            DaemonAction::DiscardRecording => {
-                if !crate::recording::send_active_recording_command(
-                    crate::recording::RecordingControlCommand::StopDiscard,
-                ) {
-                    eprintln!("[daemon] No active recording available for discard.");
                 }
             }
 
@@ -857,7 +772,6 @@ async fn run_daemon_inner(gtk_tx: Option<std::sync::mpsc::Sender<GtkWork>>) -> a
                 tokio::task::spawn_blocking(show_settings_subprocess);
             }
             DaemonAction::SetTrayVisible(visible) => {
-                tray_requested_visible = visible;
                 if visible {
                     if tray_handle.is_none() {
                         match spawn_daemon_tray(&action_tx) {
@@ -910,17 +824,7 @@ async fn run_daemon_inner(gtk_tx: Option<std::sync::mpsc::Sender<GtkWork>>) -> a
             }
             DaemonAction::RecordingSessionEnded => {
                 recording_tray_state = None;
-                if tray_requested_visible {
-                    update_tray_recording_state(&tray_handle, None);
-                } else if let Some(handle) = tray_handle.take() {
-                    handle.shutdown();
-                    eprintln!("[daemon] Recording tray removed.");
-                }
-            }
-            DaemonAction::RecordingTimerTick => {
-                if recording_tray_state.is_some() {
-                    update_recording_tray(&tray_handle, recording_tray_state.as_ref());
-                }
+                update_tray_recording_state(&tray_handle, None);
             }
             DaemonAction::SetHotkeySuppressed(suppressed) => {
                 HOTKEY_SUPPRESSED.store(suppressed, std::sync::atomic::Ordering::Relaxed);
@@ -1173,15 +1077,11 @@ impl DaemonIpc {
             "record_area" => DaemonAction::RecordArea,
             "open_recording_ui" => DaemonAction::OpenRecordingUi,
             "open_video_editor" => DaemonAction::OpenVideoEditor,
+            "open_image_editor" => DaemonAction::OpenImageEditor,
             // Canonical control action names (used by CLI + settings shortcuts).
-            "recording_pause_resume" | "toggle_recording_pause" => {
-                DaemonAction::ToggleRecordingPause
-            }
             "recording_stop_save" | "stop_recording" | "stop_recording_save" => {
                 DaemonAction::StopRecordingSave
             }
-            "recording_restart" | "restart_recording" => DaemonAction::RestartRecording,
-            "recording_discard" | "discard_recording" => DaemonAction::DiscardRecording,
             "recording_session_started" => DaemonAction::RecordingSessionStarted,
             "recording_session_paused" => DaemonAction::RecordingSessionPaused,
             "recording_session_resumed" => DaemonAction::RecordingSessionResumed,
@@ -1763,59 +1663,8 @@ fn ensure_gio_desktop_env() {
     eprintln!("[daemon] GIO desktop env set ({})", desktop_path.display());
 }
 
-fn is_gnome_desktop() -> bool {
-    std::env::var("XDG_CURRENT_DESKTOP")
-        .unwrap_or_default()
-        .to_ascii_lowercase()
-        .contains("gnome")
-}
-
 fn hotkey_debug_enabled() -> bool {
     std::env::var_os("APEXSHOT_HOTKEY_DEBUG").is_some()
-}
-
-fn maybe_relaunch_via_desktop() -> bool {
-    if !is_gnome_desktop() {
-        return false;
-    }
-
-    if std::env::var_os("APEXSHOT_DAEMON_DESKTOP_RELAUNCHED").is_some() {
-        return false;
-    }
-
-    // Already desktop-launched (trusted GNOME context).
-    if std::env::var_os("GIO_LAUNCHED_DESKTOP_FILE").is_some() {
-        return false;
-    }
-
-    let app_id = std::env::var("APEXSHOT_APP_ID")
-        .unwrap_or_else(|_| crate::app_identity::app_id().to_string());
-
-    let desktop_path = match ensure_desktop_entry_pub(&app_id) {
-        Ok(path) => path,
-        Err(err) => {
-            eprintln!("[daemon] Desktop relaunch skipped: could not ensure desktop entry: {err}");
-            return false;
-        }
-    };
-
-    let mut cmd = std::process::Command::new("gtk-launch");
-    cmd.arg(&app_id)
-        .env("APEXSHOT_DAEMON_DESKTOP_RELAUNCHED", "1");
-
-    match cmd.spawn() {
-        Ok(_) => {
-            eprintln!(
-                "[daemon] GNOME terminal launch detected; relaunched via desktop entry {} (app_id={app_id}).",
-                desktop_path.display()
-            );
-            true
-        }
-        Err(err) => {
-            eprintln!("[daemon] Desktop relaunch failed (continuing in terminal mode): {err}");
-            false
-        }
-    }
 }
 
 /// Tier 1: GNOME Shell `GrabAccelerators` / `AcceleratorActivated`.
@@ -2189,26 +2038,12 @@ fn binding_to_daemon_action(binding: &HotkeyBinding) -> Option<DaemonAction> {
             "open_video_editor" | "open-video-editor" => {
                 return Some(DaemonAction::OpenVideoEditor);
             }
-            "recording_pause_resume"
-            | "recording-pause-resume"
-            | "toggle_recording_pause"
-            | "toggle-recording-pause" => {
-                return Some(DaemonAction::ToggleRecordingPause);
-            }
             "recording_stop_save"
             | "recording-stop-save"
             | "stop_recording"
             | "stop-recording"
             | "stop_recording_save" => {
                 return Some(DaemonAction::StopRecordingSave);
-            }
-            "recording_restart" | "recording-restart" | "restart_recording"
-            | "restart-recording" => {
-                return Some(DaemonAction::RestartRecording);
-            }
-            "recording_discard" | "recording-discard" | "discard_recording"
-            | "discard-recording" => {
-                return Some(DaemonAction::DiscardRecording);
             }
             _ => {}
         }
@@ -2233,18 +2068,10 @@ fn binding_to_daemon_action(binding: &HotkeyBinding) -> Option<DaemonAction> {
             Some("screen") => Some(DaemonAction::RecordScreen),
             Some("area") => Some(DaemonAction::RecordArea),
             Some("stop") => Some(DaemonAction::StopRecordingSave),
-            Some("pause") | Some("resume") | Some("toggle-pause") | Some("toggle_pause") => {
-                Some(DaemonAction::ToggleRecordingPause)
-            }
-            Some("restart") => Some(DaemonAction::RestartRecording),
-            Some("discard") => Some(DaemonAction::DiscardRecording),
             _ => None,
         },
         Some("recording-control") => match binding.args.get(1).map(|s| s.as_str()) {
-            Some("pause-resume") => Some(DaemonAction::ToggleRecordingPause),
             Some("stop-save") => Some(DaemonAction::StopRecordingSave),
-            Some("restart") => Some(DaemonAction::RestartRecording),
-            Some("discard") => Some(DaemonAction::DiscardRecording),
             _ => None,
         },
         _ => None,
@@ -3181,12 +3008,8 @@ mod tests {
     use super::{
         clipboard_missing_image_notification, last_capture_target, restore_recently_closed_target,
         should_autostart_ydotoold, should_quit_on_sigint, should_show_preview_after_toggle,
-        RecordingTrayState,
     };
-    use std::{
-        path::Path,
-        time::{Duration, Instant},
-    };
+    use std::{path::Path, time::Duration};
 
     #[test]
     fn daemon_does_not_autostart_ydotoold_by_default() {
@@ -3284,42 +3107,14 @@ mod tests {
 
     #[test]
     fn binding_to_daemon_action_maps_recording_control_hotkeys() {
-        let pause_resume = crate::hotkeys::HotkeyBinding {
-            accelerator: "CTRL+ALT+SHIFT+P".into(),
-            args: vec!["record".into(), "toggle-pause".into()],
-            name: Some("recording_pause_resume".into()),
-        };
         let stop_save = crate::hotkeys::HotkeyBinding {
             accelerator: "CTRL+ALT+SHIFT+S".into(),
             args: vec!["record".into(), "stop".into()],
             name: Some("recording_stop_save".into()),
         };
-        let restart = crate::hotkeys::HotkeyBinding {
-            accelerator: "CTRL+ALT+SHIFT+N".into(),
-            args: vec!["record".into(), "restart".into()],
-            name: Some("recording_restart".into()),
-        };
-        let discard = crate::hotkeys::HotkeyBinding {
-            accelerator: "CTRL+ALT+SHIFT+BackSpace".into(),
-            args: vec!["record".into(), "discard".into()],
-            name: Some("recording_discard".into()),
-        };
-
-        assert!(matches!(
-            super::binding_to_daemon_action(&pause_resume),
-            Some(super::DaemonAction::ToggleRecordingPause)
-        ));
         assert!(matches!(
             super::binding_to_daemon_action(&stop_save),
             Some(super::DaemonAction::StopRecordingSave)
-        ));
-        assert!(matches!(
-            super::binding_to_daemon_action(&restart),
-            Some(super::DaemonAction::RestartRecording)
-        ));
-        assert!(matches!(
-            super::binding_to_daemon_action(&discard),
-            Some(super::DaemonAction::DiscardRecording)
         ));
 
         // Legacy recording-control args and legacy binding names still map.
@@ -3431,30 +3226,5 @@ mod tests {
             super::binding_to_daemon_action(&crosshair),
             Some(super::DaemonAction::CaptureCrosshair)
         ));
-    }
-
-    #[test]
-    fn tray_action_maps_crosshair_capture_to_daemon_action() {
-        assert!(matches!(
-            super::DaemonAction::from(crate::tray::TrayAction::CaptureCrosshair),
-            super::DaemonAction::CaptureCrosshair
-        ));
-    }
-
-    #[test]
-    fn recording_tray_state_formats_elapsed_and_freezes_while_paused() {
-        let mut state = RecordingTrayState::started();
-        state.started_at -= Duration::from_secs(83);
-        assert_eq!(state.elapsed_text(), "1:23");
-
-        state.pause();
-        state.paused_at = Some(Instant::now() - Duration::from_secs(5));
-        assert_eq!(state.elapsed_text(), "1:18");
-
-        state.resume();
-        assert_eq!(state.elapsed_text(), "1:18");
-
-        state.restart();
-        assert_eq!(state.elapsed_text(), "0:00");
     }
 }

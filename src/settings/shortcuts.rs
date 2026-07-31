@@ -327,10 +327,7 @@ pub fn install_shortcut_editors(widgets: &ShortcutSettingsWidgets, parent: &Appl
         &widgets.show_last_preview_btn,
         &widgets.open_recording_ui_btn,
         &widgets.record_screen_btn,
-        &widgets.recording_pause_resume_btn,
         &widgets.recording_stop_save_btn,
-        &widgets.recording_restart_btn,
-        &widgets.recording_discard_btn,
     ] {
         install_shortcut_editor(button, parent);
     }
@@ -350,10 +347,7 @@ pub struct ShortcutSettingsWidgets {
     pub show_last_preview_btn: Button,
     pub open_recording_ui_btn: Button,
     pub record_screen_btn: Button,
-    pub recording_pause_resume_btn: Button,
     pub recording_stop_save_btn: Button,
-    pub recording_restart_btn: Button,
-    pub recording_discard_btn: Button,
 }
 
 pub fn build_shortcuts_section(config: &AppConfig) -> ShortcutSettingsWidgets {
@@ -542,32 +536,11 @@ pub fn build_shortcuts_section(config: &AppConfig) -> ShortcutSettingsWidgets {
         &config.shortcut_record_screen,
         true,
     );
-    let recording_pause_resume_btn = create_row(
-        &recording_frame,
-        "Pause/Resume Recording:",
-        Some("Only during recording"),
-        &config.shortcut_recording_pause_resume,
-        false,
-    );
     let recording_stop_save_btn = create_row(
         &recording_frame,
         "Stop and Save Recording:",
         Some("Only during recording"),
         &config.shortcut_recording_stop_save,
-        true,
-    );
-    let recording_restart_btn = create_row(
-        &recording_frame,
-        "Restart Recording:",
-        Some("Only during recording"),
-        &config.shortcut_recording_restart,
-        false,
-    );
-    let recording_discard_btn = create_row(
-        &recording_frame,
-        "Discard Recording:",
-        Some("Only during recording"),
-        &config.shortcut_recording_discard,
         true,
     );
     section.append(&recording_frame);
@@ -586,10 +559,7 @@ pub fn build_shortcuts_section(config: &AppConfig) -> ShortcutSettingsWidgets {
         show_last_preview_btn,
         open_recording_ui_btn,
         record_screen_btn,
-        recording_pause_resume_btn,
         recording_stop_save_btn,
-        recording_restart_btn,
-        recording_discard_btn,
     }
 }
 
