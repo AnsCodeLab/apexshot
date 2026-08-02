@@ -80,7 +80,7 @@ mod tests {
             constrained_drag_endpoint(
                 Tool::Line,
                 Point { x: 4.0, y: 4.0 },
-                Point { x: 18.0, y: 9.0 },
+                Point { x: 18.0, y: 7.0 },
                 true,
             ),
             Point { x: 18.0, y: 4.0 }
@@ -94,6 +94,19 @@ mod tests {
                 true,
             ),
             Point { x: 22.0, y: 22.0 }
+        );
+    }
+
+    #[test]
+    fn constrained_drag_endpoint_snaps_line_to_diagonal_when_shift_is_pressed() {
+        assert_eq!(
+            constrained_drag_endpoint(
+                Tool::Line,
+                Point { x: 4.0, y: 4.0 },
+                Point { x: 18.0, y: 13.0 },
+                true,
+            ),
+            Point { x: 18.0, y: 18.0 }
         );
     }
 
@@ -1357,7 +1370,7 @@ mod tests {
     }
 
     #[test]
-    fn draft_line_with_shift_snaps_to_axis() {
+    fn draft_line_with_shift_snaps_to_aligned_angle() {
         let mut state = EditorState::new(RgbaImage::new(20, 20));
         state.set_tool(Tool::Line);
         state.drag_shift_active = true;
@@ -1367,7 +1380,7 @@ mod tests {
         match state.draft_action().unwrap() {
             AnnotationAction::Line { start, end, .. } => {
                 assert_eq!(start, Point { x: 2.0, y: 3.0 });
-                assert_eq!(end, Point { x: 2.0, y: 13.0 });
+                assert_eq!(end, Point { x: 12.0, y: 13.0 });
             }
             other => panic!("unexpected draft action: {:?}", other),
         }

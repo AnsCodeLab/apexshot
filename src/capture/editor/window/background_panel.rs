@@ -722,7 +722,6 @@ pub(super) fn build_background_panel(
             .map(|(b, d, s)| (b.clone(), d.clone(), s.clone()))
             .collect::<Vec<_>>();
         let gradients_toggle_btn = gradients_toggle_btn.clone();
-        let window_weak = window.downgrade();
         move |_| {
             let is_collapsed = gradients_collapsed.get();
             gradients_collapsed.set(!is_collapsed);
@@ -737,16 +736,7 @@ pub(super) fn build_background_panel(
                 gradients_collapsed.get(),
                 density,
             );
-
-            if let Some(win) = window_weak.upgrade() {
-                if !is_collapsed {
-                    // Collapsing: force the toplevel to shrink to its new natural size.
-                    // queue_resize() alone won't shrink a realized window, so we reset the
-                    // default size to (1, 1) which makes GTK reflow to the natural minimum.
-                    win.set_default_size(1, 1);
-                }
-                win.queue_resize();
-            }
+            gradients_grid.queue_resize();
         }
     });
 
@@ -1467,6 +1457,17 @@ mod tests {
         assert!(
             !production_source.contains("shadow_section.append(&alignment_section);"),
             "alignment section should no longer be nested under the shadow section",
+        );
+    }
+
+    #[test]
+    fn collapsing_gradients_never_resizes_the_editor_window() {
+        let source = include_str!("background_panel.rs");
+        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+
+        assert!(
+            !production_source.contains("set_default_size(1, 1)"),
+            "collapsing gradients must not resize the editor to its minimum size"
         );
     }
 

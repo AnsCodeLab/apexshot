@@ -128,6 +128,7 @@ fn install_shortcut_editor(button: &Button, parent: &ApplicationWindow) {
             .transient_for(&parent)
             .modal(true)
             .title("Set Shortcut")
+            .deletable(false)
             .default_width(400)
             .default_height(290)
             .build();
@@ -155,10 +156,10 @@ fn install_shortcut_editor(button: &Button, parent: &ApplicationWindow) {
         header.append(&cancel_btn);
         header.append(&title);
         header.append(&set_btn);
+        dialog.set_titlebar(Some(&header));
 
         let content = dialog.content_area();
         content.set_spacing(0);
-        content.append(&header);
 
         let body = GtkBox::new(Orientation::Vertical, 16);
         body.set_margin_top(12);

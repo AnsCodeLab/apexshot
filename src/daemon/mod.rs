@@ -460,46 +460,6 @@ pub async fn run_daemon() -> anyhow::Result<()> {
     run_daemon_inner(None).await
 }
 
-/// Ensure ydotoold daemon is running for scroll capture on Wayland.
-/// This is called at startup to ensure scroll functionality works.
-fn ensure_ydotoold_running() {
-    use std::process::Command;
-
-    // Check if ydotoold is already running
-    let output = Command::new("pgrep").arg("-x").arg("ydotoold").output();
-
-    if let Ok(output) = output {
-        if output.status.success() {
-            eprintln!("[daemon] ydotoold is already running");
-            return;
-        }
-    }
-
-    // Try to start ydotoold daemon
-    eprintln!("[daemon] Starting ydotoold daemon for scroll capture...");
-
-    let result = Command::new("ydotoold")
-        .arg("--socket-path=/tmp/.ydotool_socket")
-        .arg("--socket-own=1000:1000")
-        .spawn();
-
-    match result {
-        Ok(_) => {
-            // Give it a moment to start
-            std::thread::sleep(std::time::Duration::from_millis(500));
-            eprintln!("[daemon] ydotoold started successfully");
-        }
-        Err(e) => {
-            eprintln!("[daemon] Warning: Could not start ydotoold: {}", e);
-            eprintln!("[daemon] Scroll capture may not work on Wayland without ydotoold");
-        }
-    }
-}
-
-fn should_autostart_ydotoold() -> bool {
-    false
-}
-
 fn should_quit_on_sigint(recording_active: bool) -> bool {
     !recording_active
 }
@@ -513,10 +473,6 @@ async fn run_daemon_inner(gtk_tx: Option<std::sync::mpsc::Sender<GtkWork>>) -> a
 
     // Pre-warm apexshot-capture so the first hotkey doesn't pay Qt cold start.
     ensure_warm_capture_helper();
-
-    if should_autostart_ydotoold() {
-        ensure_ydotoold_running();
-    }
 
     // ── SINGLE-INSTANCE CHECK ─────────────────────────────────────────────────
     // Try to register D-Bus name BEFORE any other initialization.
@@ -3007,14 +2963,9 @@ async fn handle_record_area(_tx: std::sync::mpsc::Sender<DaemonAction>) {
 mod tests {
     use super::{
         clipboard_missing_image_notification, last_capture_target, restore_recently_closed_target,
-        should_autostart_ydotoold, should_quit_on_sigint, should_show_preview_after_toggle,
+        should_quit_on_sigint, should_show_preview_after_toggle,
     };
     use std::{path::Path, time::Duration};
-
-    #[test]
-    fn daemon_does_not_autostart_ydotoold_by_default() {
-        assert!(!should_autostart_ydotoold());
-    }
 
     #[test]
     fn audio_monitor_idle_detection() {
