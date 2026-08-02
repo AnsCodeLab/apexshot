@@ -445,11 +445,6 @@ const SETTINGS_CSS: &str = r#"
 
             .settings-table-row {
                 padding: 8px 14px;
-                border-bottom: 1px solid alpha(white, 0.04);
-            }
-
-            .settings-table-row:last-child {
-                border-bottom: none;
             }
 
             .settings-table-row-muted {

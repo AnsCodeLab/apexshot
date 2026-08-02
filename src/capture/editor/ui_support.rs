@@ -5,6 +5,12 @@ use gtk4::{
 };
 use std::process::Command;
 
+pub const EDITOR_MIN_WINDOW_WIDTH: i32 = 980;
+
+/// Reserved strip above the canvas for the floating toolbar + window drag.
+/// The image viewport starts below this so zoomed content cannot cover the tools.
+pub const EDITOR_TOP_CHROME_HEIGHT: i32 = 56;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditorToolIcon {
     Named(String),
@@ -149,14 +155,24 @@ pub fn install_editor_css() {
                 box-shadow: none;
             }
 
-            .editor-toolbar {
-                padding: 4px 10px 4px 12px;
-                background-color: #141414;
-                border-bottom: 1px solid alpha(white, 0.06);
-                border-radius: 10px 10px 0 0;
+            .editor-top-chrome {
+                min-height: 56px;
+                background: none;
+                background-color: transparent;
+                background-image: none;
+                border: none;
+                box-shadow: none;
             }
 
-            .editor-toolbar button.recording-editor-traffic-btn {
+            .editor-toolbar {
+                padding: 6px 12px;
+                background-color: #0f0f0f;
+                border: none;
+                border-radius: 9px;
+                box-shadow: none;
+            }
+
+            .editor-root button.recording-editor-traffic-btn {
                 min-width: 24px;
                 min-height: 24px;
                 padding: 0;
@@ -170,13 +186,13 @@ pub fn install_editor_css() {
                 outline: none;
             }
 
-            .editor-toolbar button.recording-editor-traffic-btn image {
+            .editor-root button.recording-editor-traffic-btn image {
                 -gtk-icon-size: 14px;
             }
 
-            .editor-toolbar button.recording-editor-traffic-btn:hover,
-            .editor-toolbar button.recording-editor-traffic-btn:active,
-            .editor-toolbar button.recording-editor-traffic-btn:focus {
+            .editor-root button.recording-editor-traffic-btn:hover,
+            .editor-root button.recording-editor-traffic-btn:active,
+            .editor-root button.recording-editor-traffic-btn:focus {
                 background-color: rgba(255, 255, 255, 0.10);
                 background-image: none;
                 color: #ffffff;
@@ -185,15 +201,25 @@ pub fn install_editor_css() {
                 box-shadow: none;
             }
 
-            .editor-toolbar button.recording-editor-traffic-btn:hover image,
-            .editor-toolbar button.recording-editor-traffic-btn:active image,
-            .editor-toolbar button.recording-editor-traffic-btn:focus image {
+            .editor-root button.recording-editor-traffic-btn:hover image,
+            .editor-root button.recording-editor-traffic-btn:active image,
+            .editor-root button.recording-editor-traffic-btn:focus image {
                 color: #ffffff;
             }
 
             .editor-toolbar-wm-controls {
                 padding-left: 6px;
                 border-left: 1px solid rgba(255, 255, 255, 0.06);
+            }
+
+            .editor-sidebar-utility-controls {
+                padding: 12px 16px 10px;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            }
+
+            .editor-sidebar-utility-controls .editor-toolbar-wm-controls {
+                padding: 0;
+                border-left: none;
             }
 
             .editor-toolbar-brand {
@@ -1134,6 +1160,71 @@ pub fn install_editor_css() {
                 border: none;
             }
 
+            .editor-floating-zoom {
+                padding: 6px;
+                background: #0f0f0f;
+                border-radius: 9px;
+            }
+
+            .editor-floating-history {
+                padding: 6px;
+                background: #0f0f0f;
+                border-radius: 9px;
+            }
+
+            .editor-floating-history button.editor-tool-button {
+                min-width: 34px;
+                min-height: 34px;
+            }
+
+            .editor-canvas-frame scrollbar {
+                opacity: 0;
+                min-width: 0;
+                min-height: 0;
+            }
+
+            .editor-floating-zoom button.editor-footer-zoom-button {
+                min-height: 34px;
+                padding: 0 14px;
+            }
+
+            button.editor-floating-zoom-step {
+                min-width: 34px;
+                min-height: 34px;
+                padding: 0;
+                border: none;
+                border-radius: 5px;
+                background: transparent;
+                color: rgba(255, 255, 255, 0.78);
+                font-size: 15px;
+            }
+
+            button.editor-floating-zoom-step:hover {
+                background: alpha(white, 0.06);
+                color: #ffffff;
+            }
+
+            .editor-sidebar-actions {
+                padding: 10px 16px 16px;
+            }
+
+            button.editor-sidebar-action-button {
+                min-width: 28px;
+                min-height: 28px;
+                border-radius: 5px;
+                background: transparent;
+            }
+
+            button.editor-sidebar-action-button:hover {
+                background: alpha(white, 0.10);
+            }
+
+            .editor-sidebar-actions button.editor-done-button {
+                min-width: 92px;
+                min-height: 32px;
+                padding: 0 16px;
+            }
+
             .editor-footer-zoom-label {
                 color: inherit;
                 font-size: 12px;
@@ -1143,7 +1234,7 @@ pub fn install_editor_css() {
             /* --- Zoom popup (flat surface, no glass) --- */
             .editor-footer-zoom-popup {
                 padding: 0;
-                background: #1a1a1a;
+                background: #0f0f0f;
                 border: 1px solid alpha(white, 0.06);
                 border-radius: 10px;
                 min-width: 240px;
@@ -1233,22 +1324,6 @@ pub fn install_editor_css() {
                 margin: 4px 10px;
             }
 
-            .editor-footer-zoom-mouse-hints {
-                padding: 12px 10px 14px 10px;
-            }
-
-            .editor-footer-zoom-mouse-hint-text {
-                font-size: 10px;
-                color: rgba(255, 255, 255, 0.50);
-                line-height: 1.35;
-            }
-
-            .editor-footer-zoom-mouse-drawing {
-                min-width: 60px;
-                min-height: 60px;
-                margin: 0 8px;
-            }
-
             .editor-root.editor-theme-dark {
                 background-color: #141414;
                 color: #f1f1f3;
@@ -1257,8 +1332,7 @@ pub fn install_editor_css() {
             }
 
             .editor-root.editor-theme-dark .editor-toolbar {
-                background-color: #141414;
-                border-bottom-color: alpha(white, 0.06);
+                background-color: #0f0f0f;
             }
 
             .editor-root.editor-theme-dark .editor-footer {
@@ -1286,8 +1360,7 @@ pub fn install_editor_css() {
             }
 
             .editor-root.editor-theme-light .editor-toolbar {
-                background-color: #f6f7fb;
-                border-bottom-color: alpha(#111827, 0.06);
+                background-color: #eef0f5;
             }
 
             .editor-root.editor-theme-light .editor-footer {
@@ -1304,8 +1377,33 @@ pub fn install_editor_css() {
                 color: #1d2129;
             }
 
+            .editor-root.editor-theme-light .editor-floating-zoom {
+                background: #eef0f5;
+            }
+
+            .editor-root.editor-theme-light .editor-floating-history {
+                background: #eef0f5;
+            }
+
+            .editor-root.editor-theme-light button.editor-floating-zoom-step {
+                color: alpha(#1d2129, 0.78);
+            }
+
+            .editor-root.editor-theme-light button.editor-floating-zoom-step:hover {
+                background: alpha(#111827, 0.06);
+                color: #1d2129;
+            }
+
+            .editor-root.editor-theme-light button.editor-sidebar-action-button {
+                background: transparent;
+            }
+
+            .editor-root.editor-theme-light button.editor-sidebar-action-button:hover {
+                background: alpha(#111827, 0.10);
+            }
+
             .editor-root.editor-theme-light .editor-footer-zoom-popup {
-                background: #ffffff;
+                background: #eef0f5;
                 border-color: alpha(#111827, 0.10);
             }
 
@@ -1353,14 +1451,6 @@ pub fn install_editor_css() {
 
             .editor-root.editor-theme-light .editor-footer-zoom-separator {
                 background: alpha(#111827, 0.08);
-            }
-
-            .editor-root.editor-theme-light .editor-footer-zoom-mouse-hint-text {
-                color: alpha(#111827, 0.54);
-            }
-
-            .editor-root.editor-theme-light .editor-footer-zoom-mouse-drawing {
-                color: #1d2129;
             }
 
             .editor-footer-zoom-popup.editor-theme-light {
@@ -1414,14 +1504,6 @@ pub fn install_editor_css() {
 
             .editor-footer-zoom-popup.editor-theme-light .editor-footer-zoom-separator {
                 background: alpha(#111827, 0.08);
-            }
-
-            .editor-footer-zoom-popup.editor-theme-light .editor-footer-zoom-mouse-hint-text {
-                color: alpha(#111827, 0.54);
-            }
-
-            .editor-footer-zoom-popup.editor-theme-light .editor-footer-zoom-mouse-drawing {
-                color: #1d2129;
             }
 
             .editor-root.editor-theme-light button.editor-tool-button image,
@@ -1523,9 +1605,6 @@ pub fn install_editor_css() {
             .editor-root.editor-theme-light .editor-footer-zoom-separator {
                 background: alpha(#111827, 0.06);
             }
-            .editor-root.editor-theme-light .editor-footer-zoom-mouse-hint-text {
-                color: alpha(#1d2129, 0.55);
-            }
             .editor-root.editor-theme-light button.editor-footer-zoom-action-btn {
                 color: alpha(#1d2129, 0.85);
             }
@@ -1533,18 +1612,14 @@ pub fn install_editor_css() {
                 background: alpha(#111827, 0.04);
                 border: 1px solid alpha(#111827, 0.10);
             }
-            .editor-root.editor-theme-light .editor-footer-zoom-mouse-hints {
-                background: transparent;
-            }
-            .editor-root.editor-theme-light .editor-footer-zoom-mouse-drawing {
-                background: alpha(#111827, 0.04);
-                border: 1px solid alpha(#111827, 0.10);
-            }
 
             /* Inspector / right side panels */
             .editor-root.editor-theme-light .editor-right-inspector {
-                background: #eef0f5;
-                border-left: 1px solid alpha(#111827, 0.06);
+                background: alpha(#111827, 0.04);
+                border-left: none;
+            }
+            .editor-root.editor-theme-light .editor-sidebar-utility-controls {
+                border-bottom-color: alpha(#111827, 0.06);
             }
             .editor-root.editor-theme-light .editor-inspector-tabs,
             .editor-root.editor-theme-light .editor-inspector-section {
@@ -1748,7 +1823,7 @@ pub fn install_editor_css() {
             }
             .editor-root.editor-theme-light .editor-inspector-section-body {
                 background: #ffffff;
-                border: 1px solid alpha(#111827, 0.06);
+                border: none;
             }
             .editor-root.editor-theme-light .editor-inspector-placeholder {
                 color: alpha(#1d2129, 0.62);
@@ -1873,19 +1948,19 @@ pub fn install_editor_css() {
             }
 
             /* Window controls (traffic buttons) */
-            .editor-root.editor-theme-light .editor-toolbar button.recording-editor-traffic-btn {
+            .editor-root.editor-theme-light button.recording-editor-traffic-btn {
                 color: alpha(#1d2129, 0.65);
             }
-            .editor-root.editor-theme-light .editor-toolbar button.recording-editor-traffic-btn:hover,
-            .editor-root.editor-theme-light .editor-toolbar button.recording-editor-traffic-btn:active,
-            .editor-root.editor-theme-light .editor-toolbar button.recording-editor-traffic-btn:focus {
+            .editor-root.editor-theme-light button.recording-editor-traffic-btn:hover,
+            .editor-root.editor-theme-light button.recording-editor-traffic-btn:active,
+            .editor-root.editor-theme-light button.recording-editor-traffic-btn:focus {
                 background-color: alpha(#111827, 0.10);
                 color: alpha(#1d2129, 0.65);
             }
 
-            .editor-root.editor-theme-light .editor-toolbar button.recording-editor-traffic-btn:hover image,
-            .editor-root.editor-theme-light .editor-toolbar button.recording-editor-traffic-btn:active image,
-            .editor-root.editor-theme-light .editor-toolbar button.recording-editor-traffic-btn:focus image {
+            .editor-root.editor-theme-light button.recording-editor-traffic-btn:hover image,
+            .editor-root.editor-theme-light button.recording-editor-traffic-btn:active image,
+            .editor-root.editor-theme-light button.recording-editor-traffic-btn:focus image {
                 color: alpha(#1d2129, 0.65);
             }
 
@@ -1916,8 +1991,8 @@ pub fn install_editor_css() {
 
             .editor-right-inspector {
                 min-width: 210px;
-                background: #141414;
-                border-left: 1px solid alpha(white, 0.06);
+                background: alpha(black, 0.25);
+                border-left: none;
                 padding: 0;
             }
 
@@ -1992,8 +2067,8 @@ pub fn install_editor_css() {
             }
 
             .editor-inspector-section-body {
-                background: alpha(white, 0.04);
-                border: 1px solid alpha(white, 0.06);
+                background: alpha(white, 0.06);
+                border: none;
                 border-radius: 6px;
             }
 
@@ -3026,6 +3101,8 @@ pub fn icon_tool_button(icon_name: &str, tooltip: &str) -> Button {
     let button = Button::new();
     button.set_child(Some(&image));
     button.set_has_frame(false);
+    // Keep focus on the canvas so Space continues to pan after tool clicks.
+    button.set_focusable(false);
     button.set_tooltip_text(Some(tooltip));
     button.add_css_class("editor-tool-button");
     button
@@ -3055,6 +3132,7 @@ pub fn footer_icon_button(icon_name: &str, tooltip: &str) -> (Button, Image) {
     let button = Button::new();
     button.set_child(Some(&image));
     button.set_has_frame(false);
+    button.set_focusable(false);
     button.set_tooltip_text(Some(tooltip));
     button.add_css_class("editor-footer-icon-button");
 
@@ -3119,7 +3197,7 @@ pub fn recommended_window_size_with_extra_width(
     let default_height = 820;
 
     (
-        default_width.clamp(980.min(max_width), max_width.max(1)),
+        default_width.clamp(EDITOR_MIN_WINDOW_WIDTH.min(max_width), max_width.max(1)),
         default_height.clamp(560.min(max_height), max_height.max(1)),
     )
 }
@@ -3275,64 +3353,104 @@ pub fn install_edge_resize(root: &impl IsA<gtk4::Widget>, window: &gtk4::Applica
     root.add_controller(resize_click);
 }
 
-pub fn install_window_drag(toolbar: &impl IsA<gtk4::Widget>, window: &gtk4::ApplicationWindow) {
+fn is_interactive_widget(widget: &gtk4::Widget) -> bool {
+    let mut current = Some(widget.clone());
+    while let Some(widget) = current {
+        // Canvas lives under the floating top bar after the redesign. Treat the
+        // whole canvas subtree as interactive so the top-64px window-drag
+        // handler does not call begin_move() over DrawingArea hits.
+        if widget.has_css_class("editor-canvas")
+            || widget.has_css_class("editor-canvas-frame")
+            || widget.has_css_class("editor-canvas-workspace")
+            || widget.has_css_class("editor-floating-zoom")
+            || widget.has_css_class("editor-floating-history")
+        {
+            return true;
+        }
+
+        if matches!(
+            widget.type_().name(),
+            "GtkButton"
+                | "GtkToggleButton"
+                | "GtkMenuButton"
+                | "GtkEntry"
+                | "GtkScale"
+                | "GtkDropDown"
+                | "GtkCheckButton"
+                | "GtkPopover"
+                | "GtkDrawingArea"
+                | "GtkScrolledWindow"
+                | "GtkViewport"
+                | "GtkText"
+                | "GtkTextView"
+        ) {
+            return true;
+        }
+        current = widget.parent();
+    }
+    false
+}
+
+fn install_window_drag_in_region(
+    widget: &impl IsA<gtk4::Widget>,
+    window: &gtk4::ApplicationWindow,
+    max_y: Option<f64>,
+) {
     use gtk4::GestureClick;
 
     let drag_window_gesture = GestureClick::new();
-    drag_window_gesture.set_button(0); // Accept any button
+    drag_window_gesture.set_button(1);
     let window_drag = window.downgrade();
     drag_window_gesture.connect_pressed(move |gesture, _, x, y| {
-        // Check if the click was on an interactive widget (button, entry, etc.)
+        if max_y.is_some_and(|max_y| y > max_y) {
+            gesture.set_state(gtk4::EventSequenceState::Denied);
+            return;
+        }
+
         let Some(widget) = gesture.widget() else {
             return;
         };
-
-        // Get the widget at the click position
         let picked = widget.pick(x, y, gtk4::PickFlags::DEFAULT);
-
-        // Only drag if clicked on empty space (not on buttons or other interactive widgets)
-        if let Some(picked) = picked {
-            let type_name = picked.type_().name();
-            if type_name == "GtkButton"
-                || type_name == "GtkToggleButton"
-                || type_name == "GtkMenuButton"
-                || type_name == "GtkEntry"
-                || type_name == "GtkScale"
-                || type_name == "GtkPopover"
-            {
-                return; // Don't drag if clicked on interactive widget
-            }
-
-            // Also check for buttons inside boxes
-            if let Some(parent) = picked.parent() {
-                let parent_type = parent.type_().name();
-                if parent_type == "GtkButton"
-                    || parent_type == "GtkToggleButton"
-                    || parent_type == "GtkMenuButton"
-                {
-                    return;
-                }
-            }
+        if picked.as_ref().is_some_and(is_interactive_widget) {
+            gesture.set_state(gtk4::EventSequenceState::Denied);
+            return;
         }
 
         let Some(window) = window_drag.upgrade() else {
+            gesture.set_state(gtk4::EventSequenceState::Denied);
             return;
         };
         let Some(event) = gesture.current_event() else {
+            gesture.set_state(gtk4::EventSequenceState::Denied);
             return;
         };
         let Some(device) = event.device() else {
+            gesture.set_state(gtk4::EventSequenceState::Denied);
             return;
         };
         let Some(surface) = window.surface() else {
+            gesture.set_state(gtk4::EventSequenceState::Denied);
             return;
         };
         let Ok(toplevel) = surface.downcast::<gdk::Toplevel>() else {
+            gesture.set_state(gtk4::EventSequenceState::Denied);
             return;
         };
+        gesture.set_state(gtk4::EventSequenceState::Claimed);
         toplevel.begin_move(&device, gesture.current_button() as i32, x, y, event.time());
     });
-    toolbar.add_controller(drag_window_gesture);
+    widget.add_controller(drag_window_gesture);
+}
+
+pub fn install_window_drag(toolbar: &impl IsA<gtk4::Widget>, window: &gtk4::ApplicationWindow) {
+    install_window_drag_in_region(toolbar, window, None);
+}
+
+pub fn install_top_bar_window_drag(
+    root: &impl IsA<gtk4::Widget>,
+    window: &gtk4::ApplicationWindow,
+) {
+    install_window_drag_in_region(root, window, Some(f64::from(EDITOR_TOP_CHROME_HEIGHT)));
 }
 
 #[cfg(test)]
@@ -3341,6 +3459,21 @@ mod tests {
         arrow_style_toolbar_icon, custom_toolbar_icon_inset, toolbar_icon_size, EditorToolIcon,
     };
     use crate::capture::editor::types::ArrowStyle;
+
+    #[test]
+    fn window_drag_hit_test_treats_canvas_as_interactive() {
+        let source = include_str!("ui_support.rs");
+        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        assert!(
+            production_source.contains("\"GtkDrawingArea\"")
+                && production_source.contains("\"GtkScrolledWindow\"")
+                && production_source.contains("editor-canvas-frame")
+                && production_source.contains("editor-canvas-workspace")
+                && production_source.contains("EDITOR_TOP_CHROME_HEIGHT")
+                && production_source.contains(".editor-top-chrome"),
+            "top-bar window drag must not begin_move over the canvas subtree"
+        );
+    }
 
     #[test]
     fn arrow_style_toolbar_icon_maps_each_style_to_a_custom_preview() {
@@ -3546,7 +3679,6 @@ mod tests {
                 && production_source.contains(".editor-footer-zoom-popup.editor-theme-light {")
                 && production_source.contains("background: #ffffff;")
                 && production_source.contains(".editor-footer-zoom-popup.editor-theme-light .editor-footer-zoom-row {")
-                && production_source.contains(".editor-footer-zoom-popup.editor-theme-light .editor-footer-zoom-mouse-drawing {")
                 && !production_source.contains(".editor-footer-zoom-popup {\n                min-height: 100%;")
                 && !production_source.contains(".editor-footer-zoom-popup {\n                width: 210px;"),
             "Footer zoom popover should use flat dark/light surfaces matching the settings UI language without becoming a full-height or fixed-width sidebar",

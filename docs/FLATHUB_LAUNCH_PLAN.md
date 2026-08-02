@@ -172,7 +172,6 @@ with a portal/library call, or feature-gated off.
 | `gtk-launch` | `daemon/mod.rs:1812`, `hotkeys/mod.rs:318` | Self-relaunch differs in Flatpak; rework or gate off. |
 | `pacman`/`dpkg-query`/`rpm` | `main.rs:631-651` | Package detection is meaningless in Flatpak. Gate off. |
 | `hyprctl`, `swaymsg` | `hotkeys/mod.rs:1065,1103` | Config reload for compositor keybinds; not reachable. Gate off. |
-| `ydotoold`, `pgrep` | `daemon/mod.rs:532-545` | Gate off. |
 | `wget`/`curl`/`unzip` | in-app extension installer | Gate off with the extension installer. |
 
 ### 2.2 The Qt5 overlay

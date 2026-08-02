@@ -27,8 +27,8 @@ use super::render::{
 use super::selection::{action_bounds_with_padding, action_resize_handles};
 use super::state::{apply_effect_actions, render_shadow_layer, EditorState};
 use super::types::{
-    AnnotationAction, ArrowStyle, BackgroundAlignment, BackgroundStyle, CropAspectRatio, DrawColor,
-    EditorError, Point, Rect, Tool, ViewTransform,
+    tool_button_index, AnnotationAction, ArrowStyle, BackgroundAlignment, BackgroundStyle,
+    CropAspectRatio, DrawColor, EditorError, Point, Rect, Tool, ViewTransform,
 };
 
 const MAX_PREVIEW_SHADOW_DIM: u32 = 1200;
@@ -204,9 +204,10 @@ fn selected_action_geometry(action: &AnnotationAction) -> String {
 }
 
 use super::ui_support::{
-    arrow_style_toolbar_icon, install_edge_resize, install_editor_css, install_window_drag,
-    prefers_dark_glass_theme, prefers_reduced_transparency,
-    recommended_window_size_with_extra_width, tool_icon_widget, toolbar_icon_size,
+    arrow_style_toolbar_icon, install_edge_resize, install_editor_css, install_top_bar_window_drag,
+    install_window_drag, prefers_dark_glass_theme, prefers_reduced_transparency,
+    recommended_window_size_with_extra_width, set_active_tool_button, tool_icon_widget,
+    toolbar_icon_size, EDITOR_MIN_WINDOW_WIDTH, EDITOR_TOP_CHROME_HEIGHT,
 };
 
 const TEXT_SIZE_OPTIONS: [i32; 12] = [12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 64, 72];
@@ -815,9 +816,11 @@ fn setup_editor_window_full(
             .build()
     };
     window.add_css_class("editor-window");
+    window.set_size_request(EDITOR_MIN_WINDOW_WIDTH, -1);
 
     let root = GtkBox::new(Orientation::Vertical, 0);
     root.add_css_class("editor-root");
+    root.set_overflow(gtk4::Overflow::Hidden);
 
     let prefers_dark = prefers_dark_glass_theme();
     let reduced_transparency = prefers_reduced_transparency();
@@ -957,11 +960,15 @@ fn setup_editor_window_full(
         &sep_1,
         &sep_2,
     );
-    // Left-align tools: mount the center_group as the start widget so there's no
-    // empty space on the left of the toolbar.
-    toolbar.set_start_widget(Some(&center_group));
+    toolbar.append(&center_group);
 
-    let toolbar_right_parts = toolbar::build_toolbar_right_controls(
+    let toolbar::ToolbarRightParts {
+        root: sidebar_utility_controls,
+        history_group,
+        undo_btn,
+        redo_btn,
+        delete_selected_btn,
+    } = toolbar::build_toolbar_right_controls(
         &color_status,
         icon_names::custom::EDIT_UNDO_SYMBOLIC,
         icon_names::custom::EDIT_UNDO_RTL_SYMBOLIC,
@@ -970,10 +977,6 @@ fn setup_editor_window_full(
         &traffic_zoom,
         &traffic_close,
     );
-    let undo_btn = toolbar_right_parts.undo_btn;
-    let redo_btn = toolbar_right_parts.redo_btn;
-    let delete_selected_btn = toolbar_right_parts.delete_selected_btn;
-    toolbar.set_end_widget(Some(&toolbar_right_parts.root));
 
     let crop_ratio_list = GtkBox::new(Orientation::Vertical, 0);
     for crop_type in CropAspectRatio::ALL {
@@ -1355,6 +1358,8 @@ fn setup_editor_window_full(
     let copy_btn = footer_parts.copy_btn;
     let upload_btn = footer_parts.upload_btn;
     let save_btn = footer_parts.save_btn;
+    copy_btn.add_css_class("editor-sidebar-action-button");
+    upload_btn.add_css_class("editor-sidebar-action-button");
     if empty_drop_zone {
         copy_btn.set_sensitive(false);
         upload_btn.set_sensitive(false);
@@ -1377,8 +1382,8 @@ fn setup_editor_window_full(
         &GtkBox::new(Orientation::Vertical, 0), // Placeholder, will be replaced
         canvas::EYEDROPPER_LOUPE_SIZE,
     );
-    // Note: zoom_popup is NOT added to canvas_overlay here - it will be added
-    // to a root-level overlay later to stay fixed during zoom/scroll.
+    // The zoom controls are added to the canvas pane later so they remain fixed
+    // while the image scrolls and scales.
 
     // Background style cache
     let cached_background_surface =
@@ -1963,6 +1968,7 @@ fn setup_editor_window_full(
     inspector.set_width_request(BACKGROUND_SIDEBAR_WIDTH);
     inspector.set_hexpand(false);
     inspector.set_vexpand(true);
+    inspector.append(&sidebar_utility_controls);
     inspector.append(&inspector_tabs);
 
     let inspector_stack = Stack::new();
@@ -1998,10 +2004,29 @@ fn setup_editor_window_full(
     inspector_stack.set_visible_child_name("placeholder");
     inspector.append(&inspector_stack);
 
+    let sidebar_actions = GtkBox::new(Orientation::Horizontal, 8);
+    sidebar_actions.add_css_class("editor-sidebar-actions");
+    let sidebar_action_spacer = GtkBox::new(Orientation::Horizontal, 0);
+    sidebar_action_spacer.set_hexpand(true);
+    sidebar_actions.append(&copy_btn);
+    sidebar_actions.append(&upload_btn);
+    sidebar_actions.append(&sidebar_action_spacer);
+    sidebar_actions.append(&save_btn);
+    inspector.append(&sidebar_actions);
+
+    // Canvas fills the pane (checkerboard). Toolbar + drag strip float on top;
+    // image content is inset below the strip so it never covers the tools.
+    let canvas_with_toolbar = Overlay::new();
+    canvas_with_toolbar.set_hexpand(true);
+    canvas_with_toolbar.set_vexpand(true);
+    canvas.set_hexpand(true);
+    canvas.set_vexpand(true);
+    canvas_with_toolbar.set_child(Some(&canvas));
+
     let workspace = GtkBox::new(Orientation::Horizontal, 0);
     workspace.set_hexpand(true);
     workspace.set_vexpand(true);
-    workspace.append(&canvas);
+    workspace.append(&canvas_with_toolbar);
     workspace.append(&inspector);
 
     *drawing_area_placeholder.borrow_mut() = Some(drawing_area.downgrade());
@@ -2484,15 +2509,55 @@ fn setup_editor_window_full(
         }
     });
 
-    root.append(&toolbar);
     root.append(&workspace);
-    root.append(&footer_parts.root);
 
-    // Wrap root in an overlay so zoom_popup can be positioned on top
-    // without being affected by canvas zoom/scroll transformations
+    // Keep window-wide transient UI above the editor layout.
     let root_overlay = Overlay::new();
     root_overlay.set_child(Some(&root));
-    root_overlay.add_overlay(&zoom_popup);
+
+    // Transparent full-width strip over the checkerboard: drag the window + host toolbar.
+    let top_chrome = GtkBox::new(Orientation::Horizontal, 0);
+    top_chrome.add_css_class("editor-top-chrome");
+    top_chrome.set_halign(Align::Fill);
+    top_chrome.set_valign(Align::Start);
+    top_chrome.set_hexpand(true);
+    top_chrome.set_vexpand(false);
+    top_chrome.set_size_request(-1, EDITOR_TOP_CHROME_HEIGHT);
+    top_chrome.set_can_target(true);
+
+    let top_chrome_left = GtkBox::new(Orientation::Horizontal, 0);
+    top_chrome_left.set_hexpand(true);
+    let top_chrome_right = GtkBox::new(Orientation::Horizontal, 0);
+    top_chrome_right.set_hexpand(true);
+
+    toolbar.set_halign(Align::Center);
+    toolbar.set_valign(Align::Center);
+    toolbar.set_hexpand(false);
+    top_chrome.append(&top_chrome_left);
+    top_chrome.append(&toolbar);
+    top_chrome.append(&top_chrome_right);
+    canvas_with_toolbar.add_overlay(&top_chrome);
+
+    let zoom_control = GtkBox::new(Orientation::Horizontal, 0);
+    zoom_control.add_css_class("editor-floating-zoom");
+    zoom_control.set_halign(Align::Start);
+    zoom_control.set_valign(Align::End);
+    zoom_control.set_margin_start(16);
+    zoom_control.set_margin_bottom(16);
+    zoom_control.append(&zoom_minus_btn);
+    zoom_control.append(&zoom_button);
+    zoom_control.append(&zoom_plus_btn);
+    canvas_with_toolbar.add_overlay(&zoom_control);
+
+    let history_control = GtkBox::new(Orientation::Horizontal, 0);
+    history_control.add_css_class("editor-floating-history");
+    history_control.set_halign(Align::End);
+    history_control.set_valign(Align::End);
+    history_control.set_margin_end(16);
+    history_control.set_margin_bottom(16);
+    history_control.append(&history_group);
+    canvas_with_toolbar.add_overlay(&history_control);
+    canvas_with_toolbar.add_overlay(&zoom_popup);
 
     if empty_drop_zone {
         // Reuse the video editor's button / banner styles so the empty
@@ -2528,8 +2593,8 @@ fn setup_editor_window_full(
         drop_center.append(&drop_hint);
         drop_center.append(&open_btn);
 
-        // Centre the drop zone over the canvas itself.
-        canvas_overlay.add_overlay(&drop_center);
+        // Keep the empty state centered in the canvas pane, excluding the inspector.
+        canvas_with_toolbar.add_overlay(&drop_center);
 
         // Loading banner (same as the video editor's "Loading video…").
         let loading_box = GtkBox::new(Orientation::Horizontal, 8);
@@ -2610,8 +2675,9 @@ fn setup_editor_window_full(
 
     window.set_child(Some(&root_overlay));
 
-    // Enable window drag from toolbar (empty areas only) and edge resize
-    install_window_drag(&toolbar, &window);
+    // Full-width canvas chrome + top inspector band move the window; tools/canvas stay interactive.
+    install_window_drag(&top_chrome, &window);
+    install_top_bar_window_drag(&root_overlay, &window);
     install_edge_resize(&root_overlay, &window);
 
     let update_canvas_content_size: Rc<dyn Fn()> = Rc::new({
@@ -2667,8 +2733,11 @@ fn setup_editor_window_full(
 
             let scroller_width = canvas_scroller.allocated_width().max(1) as f64;
             let scroller_height = canvas_scroller.allocated_height().max(1) as f64;
+            // Keep fit-to-view math below the floating toolbar strip.
+            let top_inset = canvas_padding + EDITOR_TOP_CHROME_HEIGHT;
             let available_width = (scroller_width - (canvas_padding * 2 + 2) as f64).max(1.0);
-            let available_height = (scroller_height - (canvas_padding * 2 + 2) as f64).max(1.0);
+            let available_height =
+                (scroller_height - (top_inset + canvas_padding + 2) as f64).max(1.0);
 
             // Use the minimum of width and height to maintain aspect ratio and prevent asymmetric growth
             let available_size = available_width.min(available_height);
@@ -2697,8 +2766,10 @@ fn setup_editor_window_full(
                 + canvas_padding * 2
                 + overflow_left.round() as i32
                 + overflow_right.round() as i32;
+            // Extra top inset so zoomed content cannot sit under the toolbar.
             let canvas_h = fitted_h
-                + canvas_padding * 2
+                + top_inset
+                + canvas_padding
                 + overflow_top.round() as i32
                 + overflow_bottom.round() as i32;
 
@@ -2756,8 +2827,10 @@ fn setup_editor_window_full(
                 // same overflow values without duplicating the full layout calculation.
                 let virtual_w = img_w as f64;
                 let virtual_h = img_h as f64;
+                let top_inset = canvas_padding + EDITOR_TOP_CHROME_HEIGHT;
                 let available_w = (width as f64 - (canvas_padding * 2 + 2) as f64).max(1.0);
-                let available_h = (height as f64 - (canvas_padding * 2 + 2) as f64).max(1.0);
+                let available_h =
+                    (height as f64 - (top_inset + canvas_padding + 2) as f64).max(1.0);
 
                 let available_size = available_w.min(available_h);
                 let layout_scale = (available_size / virtual_w.min(virtual_h)).min(1.0_f64);
@@ -3061,7 +3134,10 @@ fn setup_editor_window_full(
             background_layout = Some(layout);
         }
 
-        let base_view_width = (width as f64 - canvas_padding_draw * 2.0).max(1.0);
+        let toolbar_clearance = f64::from(EDITOR_TOP_CHROME_HEIGHT);
+        let top_pad = canvas_padding_draw + toolbar_clearance;
+        let side_pad = canvas_padding_draw;
+        let base_view_width = (width as f64 - side_pad * 2.0).max(1.0);
         let base_scale = (base_view_width / virtual_w).min(1.0);
         let (overflow_left, overflow_top, overflow_right, overflow_bottom) = if has_background {
             (0.0, 0.0, 0.0, 0.0)
@@ -3075,10 +3151,9 @@ fn setup_editor_window_full(
             )
         };
 
-        let view_width =
-            (width as f64 - canvas_padding_draw * 2.0 - overflow_left - overflow_right).max(1.0);
+        let view_width = (width as f64 - side_pad * 2.0 - overflow_left - overflow_right).max(1.0);
         let view_height =
-            (height as f64 - canvas_padding_draw * 2.0 - overflow_top - overflow_bottom).max(1.0);
+            (height as f64 - top_pad - side_pad - overflow_top - overflow_bottom).max(1.0);
 
         let scale = (view_width / virtual_w)
             .min(view_height / virtual_h)
@@ -3086,17 +3161,13 @@ fn setup_editor_window_full(
             * zoom_level_draw.get().max(0.1_f64);
         let draw_width = virtual_w * scale;
         let draw_height = virtual_h * scale;
-        let placement = canvas::initial_viewport_offset(
-            draw_width,
-            draw_height,
-            view_width,
-            view_height,
-            canvas_padding_draw,
-        );
+        // Center within the area below the toolbar strip; top_pad keeps image clear of tools.
+        let placement =
+            canvas::initial_viewport_offset(draw_width, draw_height, view_width, view_height, 0.0);
         let mut t = ViewTransform {
             scale,
-            offset_x: placement.offset_x + overflow_left,
-            offset_y: placement.offset_y + overflow_top,
+            offset_x: side_pad + placement.offset_x + overflow_left,
+            offset_y: top_pad + placement.offset_y + overflow_top,
             image_width: virtual_w,
             image_height: virtual_h,
         };
@@ -3621,8 +3692,8 @@ fn setup_editor_window_full(
         focus_btn.clone(),       // 12 Focus
     ];
 
-    // Set initial active tool button (Background is default)
-    background_btn.add_css_class("active-tool");
+    // Highlight whatever tool preferences restored (Background is only the default).
+    set_active_tool_button(&tool_buttons, tool_button_index(initial_tool));
 
     events::wire_editor_events(events::EventContext {
         app: app.clone(),
@@ -3833,6 +3904,32 @@ mod tests {
     }
 
     #[test]
+    fn editor_uses_full_top_bar_for_window_dragging() {
+        let source = include_str!("mod.rs");
+        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        assert!(
+            production_source.contains("install_window_drag(&top_chrome, &window);")
+                && production_source
+                    .contains("install_top_bar_window_drag(&root_overlay, &window);")
+                && production_source.contains("editor-top-chrome")
+                && production_source.contains("canvas_with_toolbar.add_overlay(&top_chrome);")
+                && production_source.contains("EDITOR_TOP_CHROME_HEIGHT")
+                && !production_source.contains("install_window_drag(&toolbar, &window);"),
+            "toolbar drag strip should float over the checkerboard canvas, not replace it"
+        );
+    }
+
+    #[test]
+    fn editor_enforces_the_toolbar_safe_minimum_width() {
+        let source = include_str!("mod.rs");
+        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        assert!(
+            production_source.contains("window.set_size_request(EDITOR_MIN_WINDOW_WIDTH, -1);"),
+            "the editor window must not resize narrower than its toolbar-safe width"
+        );
+    }
+
+    #[test]
     fn annotate_runtime_config_no_longer_contains_dock_icon_setting() {
         let source = include_str!("mod.rs");
         let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
@@ -3888,8 +3985,12 @@ mod tests {
         assert!(
             production_source.contains("let initial_tool = state.lock().unwrap().selected_tool;")
                 && production_source.contains("update_toolbar_for_tool(initial_tool);")
-                && !production_source.contains("update_toolbar_for_tool(Tool::Arrow);"),
-            "Editor startup should route the inspector from the selected startup tool instead of forcing Arrow",
+                && production_source.contains(
+                    "set_active_tool_button(&tool_buttons, tool_button_index(initial_tool));",
+                )
+                && !production_source.contains("update_toolbar_for_tool(Tool::Arrow);")
+                && !production_source.contains("background_btn.add_css_class(\"active-tool\");"),
+            "Editor startup should highlight and route the inspector from the restored tool, not hardcode Background/Arrow",
         );
     }
 

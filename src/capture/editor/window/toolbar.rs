@@ -1,6 +1,6 @@
 use gtk4::{
-    prelude::*, Align, Box as GtkBox, Button, CenterBox, Entry, Image, Label, Orientation, Popover,
-    Scale, Stack,
+    prelude::*, Align, Box as GtkBox, Button, Entry, Image, Label, Orientation, Popover, Scale,
+    Stack,
 };
 use std::rc::Rc;
 
@@ -15,7 +15,7 @@ use super::super::{
 use super::icon_names;
 
 pub(super) struct ToolbarBaseParts {
-    pub root: CenterBox,
+    pub root: GtkBox,
     pub traffic_close: Button,
     pub traffic_minimize: Button,
     pub traffic_zoom: Button,
@@ -61,6 +61,7 @@ pub(super) struct ToolbarBaseIconNames<'a> {
 
 pub(super) struct ToolbarRightParts {
     pub root: GtkBox,
+    pub history_group: GtkBox,
     pub undo_btn: Button,
     pub redo_btn: Button,
     pub delete_selected_btn: Button,
@@ -125,7 +126,7 @@ pub(super) struct ToolbarModeParts {
 }
 
 pub(super) fn build_toolbar_base(icon_names: ToolbarBaseIconNames<'_>) -> ToolbarBaseParts {
-    let root = CenterBox::new();
+    let root = GtkBox::new(Orientation::Horizontal, 0);
     root.add_css_class("editor-toolbar");
 
     // Window controls on the right (created here, placed in right controls)
@@ -149,10 +150,6 @@ pub(super) fn build_toolbar_base(icon_names: ToolbarBaseIconNames<'_>) -> Toolba
     let crop_btn = icon_tool_button(icon_names.crop, "Crop");
     let background_btn = icon_tool_button(icon_names::custom::IMAGE_ALT_SYMBOLIC, "Background");
     let draw_btn = icon_tool_button(icon_names.draw, "Pen");
-
-    let left_group = GtkBox::new(Orientation::Horizontal, 0);
-    left_group.add_css_class("editor-toolbar-left");
-    root.set_start_widget(Some(&left_group));
 
     let arrow_btn = icon_tool_button(icon_names.arrow, "Arrow");
     let line_btn = icon_tool_button(icon_names.line, "Line");
@@ -992,27 +989,27 @@ pub(super) fn build_toolbar_right_controls(
     history_group.append(&redo_btn);
     history_group.append(&delete_selected_btn);
 
-    let right_tools = GtkBox::new(Orientation::Horizontal, 12);
-    right_tools.add_css_class("editor-toolbar-right-tools");
-    right_tools.append(&history_group);
-    right_tools.append(color_status);
-
     let wm_controls = GtkBox::new(Orientation::Horizontal, 6);
     wm_controls.add_css_class("editor-toolbar-wm-controls");
     wm_controls.set_valign(Align::Center);
-    wm_controls.set_margin_start(8);
-    wm_controls.set_margin_end(2);
+    wm_controls.set_halign(Align::End);
     wm_controls.append(traffic_minimize);
     wm_controls.append(traffic_zoom);
     wm_controls.append(traffic_close);
 
-    let root = GtkBox::new(Orientation::Horizontal, 0);
+    let root = GtkBox::new(Orientation::Horizontal, 8);
     root.add_css_class("editor-toolbar-right");
-    root.append(&right_tools);
+    root.add_css_class("editor-sidebar-utility-controls");
+    color_status.set_size_request(-1, 24);
+    root.append(color_status);
+    let spacer = GtkBox::new(Orientation::Horizontal, 0);
+    spacer.set_hexpand(true);
+    root.append(&spacer);
     root.append(&wm_controls);
 
     ToolbarRightParts {
         root,
+        history_group,
         undo_btn,
         redo_btn,
         delete_selected_btn,
@@ -1185,15 +1182,15 @@ mod tests {
     }
 
     #[test]
-    fn toolbar_right_controls_contain_history_and_color_status() {
+    fn toolbar_right_controls_split_history_from_sidebar_utilities() {
         let source = include_str!("toolbar.rs");
         let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
         assert!(
             production_source.contains(
                 "pub(super) fn build_toolbar_right_controls(\n    color_status: &GtkBox,"
-            ) && production_source.contains("right_tools.append(color_status);")
-                && production_source.contains("right_tools.append(&history_group);"),
-            "Toolbar right controls should contain history group and color status",
+            ) && production_source.contains("root.append(color_status);")
+                && production_source.contains("history_group,"),
+            "Sidebar utilities should retain color status while history is returned for canvas placement",
         );
     }
 
