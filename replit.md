@@ -5,7 +5,7 @@ Open-source Linux screenshot and screen recording tool with annotation, OCR, QR 
 - **Repo:** https://github.com/apex-shot/apexshot
 - **License:** GPL-3.0
 - **Language:** Rust (2021 edition)
-- **Version:** 0.2.33
+- **Version:** 0.2.34
 
 ## What it is
 
