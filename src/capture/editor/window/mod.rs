@@ -3151,14 +3151,9 @@ fn setup_editor_window_full(
             )
         };
 
-        let view_width =
-            (width as f64 - side_pad * 2.0 - overflow_left - overflow_right).max(1.0);
-        let view_height = (height as f64
-            - top_pad
-            - side_pad
-            - overflow_top
-            - overflow_bottom)
-            .max(1.0);
+        let view_width = (width as f64 - side_pad * 2.0 - overflow_left - overflow_right).max(1.0);
+        let view_height =
+            (height as f64 - top_pad - side_pad - overflow_top - overflow_bottom).max(1.0);
 
         let scale = (view_width / virtual_w)
             .min(view_height / virtual_h)
@@ -3167,13 +3162,8 @@ fn setup_editor_window_full(
         let draw_width = virtual_w * scale;
         let draw_height = virtual_h * scale;
         // Center within the area below the toolbar strip; top_pad keeps image clear of tools.
-        let placement = canvas::initial_viewport_offset(
-            draw_width,
-            draw_height,
-            view_width,
-            view_height,
-            0.0,
-        );
+        let placement =
+            canvas::initial_viewport_offset(draw_width, draw_height, view_width, view_height, 0.0);
         let mut t = ViewTransform {
             scale,
             offset_x: side_pad + placement.offset_x + overflow_left,
@@ -3919,7 +3909,8 @@ mod tests {
         let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
         assert!(
             production_source.contains("install_window_drag(&top_chrome, &window);")
-                && production_source.contains("install_top_bar_window_drag(&root_overlay, &window);")
+                && production_source
+                    .contains("install_top_bar_window_drag(&root_overlay, &window);")
                 && production_source.contains("editor-top-chrome")
                 && production_source.contains("canvas_with_toolbar.add_overlay(&top_chrome);")
                 && production_source.contains("EDITOR_TOP_CHROME_HEIGHT")
