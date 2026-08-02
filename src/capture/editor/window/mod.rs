@@ -27,8 +27,8 @@ use super::render::{
 use super::selection::{action_bounds_with_padding, action_resize_handles};
 use super::state::{apply_effect_actions, render_shadow_layer, EditorState};
 use super::types::{
-    AnnotationAction, ArrowStyle, BackgroundAlignment, BackgroundStyle, CropAspectRatio, DrawColor,
-    EditorError, Point, Rect, Tool, ViewTransform,
+    tool_button_index, AnnotationAction, ArrowStyle, BackgroundAlignment, BackgroundStyle,
+    CropAspectRatio, DrawColor, EditorError, Point, Rect, Tool, ViewTransform,
 };
 
 const MAX_PREVIEW_SHADOW_DIM: u32 = 1200;
@@ -206,8 +206,8 @@ fn selected_action_geometry(action: &AnnotationAction) -> String {
 use super::ui_support::{
     arrow_style_toolbar_icon, install_edge_resize, install_editor_css, install_top_bar_window_drag,
     install_window_drag, prefers_dark_glass_theme, prefers_reduced_transparency,
-    recommended_window_size_with_extra_width, tool_icon_widget, toolbar_icon_size,
-    EDITOR_MIN_WINDOW_WIDTH, EDITOR_TOP_CHROME_HEIGHT,
+    recommended_window_size_with_extra_width, set_active_tool_button, tool_icon_widget,
+    toolbar_icon_size, EDITOR_MIN_WINDOW_WIDTH, EDITOR_TOP_CHROME_HEIGHT,
 };
 
 const TEXT_SIZE_OPTIONS: [i32; 12] = [12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 64, 72];
@@ -3692,8 +3692,8 @@ fn setup_editor_window_full(
         focus_btn.clone(),       // 12 Focus
     ];
 
-    // Set initial active tool button (Background is default)
-    background_btn.add_css_class("active-tool");
+    // Highlight whatever tool preferences restored (Background is only the default).
+    set_active_tool_button(&tool_buttons, tool_button_index(initial_tool));
 
     events::wire_editor_events(events::EventContext {
         app: app.clone(),
@@ -3985,8 +3985,12 @@ mod tests {
         assert!(
             production_source.contains("let initial_tool = state.lock().unwrap().selected_tool;")
                 && production_source.contains("update_toolbar_for_tool(initial_tool);")
-                && !production_source.contains("update_toolbar_for_tool(Tool::Arrow);"),
-            "Editor startup should route the inspector from the selected startup tool instead of forcing Arrow",
+                && production_source.contains(
+                    "set_active_tool_button(&tool_buttons, tool_button_index(initial_tool));",
+                )
+                && !production_source.contains("update_toolbar_for_tool(Tool::Arrow);")
+                && !production_source.contains("background_btn.add_css_class(\"active-tool\");"),
+            "Editor startup should highlight and route the inspector from the restored tool, not hardcode Background/Arrow",
         );
     }
 
