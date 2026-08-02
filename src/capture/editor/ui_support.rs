@@ -7,6 +7,10 @@ use std::process::Command;
 
 pub const EDITOR_MIN_WINDOW_WIDTH: i32 = 980;
 
+/// Reserved strip above the canvas for the floating toolbar + window drag.
+/// The image viewport starts below this so zoomed content cannot cover the tools.
+pub const EDITOR_TOP_CHROME_HEIGHT: i32 = 56;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditorToolIcon {
     Named(String),
@@ -151,6 +155,15 @@ pub fn install_editor_css() {
                 box-shadow: none;
             }
 
+            .editor-top-chrome {
+                min-height: 56px;
+                background: none;
+                background-color: transparent;
+                background-image: none;
+                border: none;
+                box-shadow: none;
+            }
+
             .editor-toolbar {
                 padding: 6px 12px;
                 background-color: #0f0f0f;
@@ -159,7 +172,7 @@ pub fn install_editor_css() {
                 box-shadow: none;
             }
 
-            button.recording-editor-traffic-btn {
+            .editor-root button.recording-editor-traffic-btn {
                 min-width: 24px;
                 min-height: 24px;
                 padding: 0;
@@ -173,13 +186,13 @@ pub fn install_editor_css() {
                 outline: none;
             }
 
-            button.recording-editor-traffic-btn image {
+            .editor-root button.recording-editor-traffic-btn image {
                 -gtk-icon-size: 14px;
             }
 
-            button.recording-editor-traffic-btn:hover,
-            button.recording-editor-traffic-btn:active,
-            button.recording-editor-traffic-btn:focus {
+            .editor-root button.recording-editor-traffic-btn:hover,
+            .editor-root button.recording-editor-traffic-btn:active,
+            .editor-root button.recording-editor-traffic-btn:focus {
                 background-color: rgba(255, 255, 255, 0.10);
                 background-image: none;
                 color: #ffffff;
@@ -188,9 +201,9 @@ pub fn install_editor_css() {
                 box-shadow: none;
             }
 
-            button.recording-editor-traffic-btn:hover image,
-            button.recording-editor-traffic-btn:active image,
-            button.recording-editor-traffic-btn:focus image {
+            .editor-root button.recording-editor-traffic-btn:hover image,
+            .editor-root button.recording-editor-traffic-btn:active image,
+            .editor-root button.recording-editor-traffic-btn:focus image {
                 color: #ffffff;
             }
 
@@ -1311,22 +1324,6 @@ pub fn install_editor_css() {
                 margin: 4px 10px;
             }
 
-            .editor-footer-zoom-mouse-hints {
-                padding: 12px 10px 14px 10px;
-            }
-
-            .editor-footer-zoom-mouse-hint-text {
-                font-size: 10px;
-                color: rgba(255, 255, 255, 0.50);
-                line-height: 1.35;
-            }
-
-            .editor-footer-zoom-mouse-drawing {
-                min-width: 60px;
-                min-height: 60px;
-                margin: 0 8px;
-            }
-
             .editor-root.editor-theme-dark {
                 background-color: #141414;
                 color: #f1f1f3;
@@ -1456,14 +1453,6 @@ pub fn install_editor_css() {
                 background: alpha(#111827, 0.08);
             }
 
-            .editor-root.editor-theme-light .editor-footer-zoom-mouse-hint-text {
-                color: alpha(#111827, 0.54);
-            }
-
-            .editor-root.editor-theme-light .editor-footer-zoom-mouse-drawing {
-                color: #1d2129;
-            }
-
             .editor-footer-zoom-popup.editor-theme-light {
                 background: #ffffff;
                 border-color: alpha(#111827, 0.10);
@@ -1515,14 +1504,6 @@ pub fn install_editor_css() {
 
             .editor-footer-zoom-popup.editor-theme-light .editor-footer-zoom-separator {
                 background: alpha(#111827, 0.08);
-            }
-
-            .editor-footer-zoom-popup.editor-theme-light .editor-footer-zoom-mouse-hint-text {
-                color: alpha(#111827, 0.54);
-            }
-
-            .editor-footer-zoom-popup.editor-theme-light .editor-footer-zoom-mouse-drawing {
-                color: #1d2129;
             }
 
             .editor-root.editor-theme-light button.editor-tool-button image,
@@ -1624,20 +1605,10 @@ pub fn install_editor_css() {
             .editor-root.editor-theme-light .editor-footer-zoom-separator {
                 background: alpha(#111827, 0.06);
             }
-            .editor-root.editor-theme-light .editor-footer-zoom-mouse-hint-text {
-                color: alpha(#1d2129, 0.55);
-            }
             .editor-root.editor-theme-light button.editor-footer-zoom-action-btn {
                 color: alpha(#1d2129, 0.85);
             }
             .editor-root.editor-theme-light .editor-footer-zoom-shortcut-box {
-                background: alpha(#111827, 0.04);
-                border: 1px solid alpha(#111827, 0.10);
-            }
-            .editor-root.editor-theme-light .editor-footer-zoom-mouse-hints {
-                background: transparent;
-            }
-            .editor-root.editor-theme-light .editor-footer-zoom-mouse-drawing {
                 background: alpha(#111827, 0.04);
                 border: 1px solid alpha(#111827, 0.10);
             }
@@ -3130,6 +3101,8 @@ pub fn icon_tool_button(icon_name: &str, tooltip: &str) -> Button {
     let button = Button::new();
     button.set_child(Some(&image));
     button.set_has_frame(false);
+    // Keep focus on the canvas so Space continues to pan after tool clicks.
+    button.set_focusable(false);
     button.set_tooltip_text(Some(tooltip));
     button.add_css_class("editor-tool-button");
     button
@@ -3159,6 +3132,7 @@ pub fn footer_icon_button(icon_name: &str, tooltip: &str) -> (Button, Image) {
     let button = Button::new();
     button.set_child(Some(&image));
     button.set_has_frame(false);
+    button.set_focusable(false);
     button.set_tooltip_text(Some(tooltip));
     button.add_css_class("editor-footer-icon-button");
 
@@ -3382,6 +3356,18 @@ pub fn install_edge_resize(root: &impl IsA<gtk4::Widget>, window: &gtk4::Applica
 fn is_interactive_widget(widget: &gtk4::Widget) -> bool {
     let mut current = Some(widget.clone());
     while let Some(widget) = current {
+        // Canvas lives under the floating top bar after the redesign. Treat the
+        // whole canvas subtree as interactive so the top-64px window-drag
+        // handler does not call begin_move() over DrawingArea hits.
+        if widget.has_css_class("editor-canvas")
+            || widget.has_css_class("editor-canvas-frame")
+            || widget.has_css_class("editor-canvas-workspace")
+            || widget.has_css_class("editor-floating-zoom")
+            || widget.has_css_class("editor-floating-history")
+        {
+            return true;
+        }
+
         if matches!(
             widget.type_().name(),
             "GtkButton"
@@ -3392,6 +3378,11 @@ fn is_interactive_widget(widget: &gtk4::Widget) -> bool {
                 | "GtkDropDown"
                 | "GtkCheckButton"
                 | "GtkPopover"
+                | "GtkDrawingArea"
+                | "GtkScrolledWindow"
+                | "GtkViewport"
+                | "GtkText"
+                | "GtkTextView"
         ) {
             return true;
         }
@@ -3426,20 +3417,26 @@ fn install_window_drag_in_region(
         }
 
         let Some(window) = window_drag.upgrade() else {
+            gesture.set_state(gtk4::EventSequenceState::Denied);
             return;
         };
         let Some(event) = gesture.current_event() else {
+            gesture.set_state(gtk4::EventSequenceState::Denied);
             return;
         };
         let Some(device) = event.device() else {
+            gesture.set_state(gtk4::EventSequenceState::Denied);
             return;
         };
         let Some(surface) = window.surface() else {
+            gesture.set_state(gtk4::EventSequenceState::Denied);
             return;
         };
         let Ok(toplevel) = surface.downcast::<gdk::Toplevel>() else {
+            gesture.set_state(gtk4::EventSequenceState::Denied);
             return;
         };
+        gesture.set_state(gtk4::EventSequenceState::Claimed);
         toplevel.begin_move(&device, gesture.current_button() as i32, x, y, event.time());
     });
     widget.add_controller(drag_window_gesture);
@@ -3453,7 +3450,7 @@ pub fn install_top_bar_window_drag(
     root: &impl IsA<gtk4::Widget>,
     window: &gtk4::ApplicationWindow,
 ) {
-    install_window_drag_in_region(root, window, Some(64.0));
+    install_window_drag_in_region(root, window, Some(f64::from(EDITOR_TOP_CHROME_HEIGHT)));
 }
 
 #[cfg(test)]
@@ -3462,6 +3459,21 @@ mod tests {
         arrow_style_toolbar_icon, custom_toolbar_icon_inset, toolbar_icon_size, EditorToolIcon,
     };
     use crate::capture::editor::types::ArrowStyle;
+
+    #[test]
+    fn window_drag_hit_test_treats_canvas_as_interactive() {
+        let source = include_str!("ui_support.rs");
+        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        assert!(
+            production_source.contains("\"GtkDrawingArea\"")
+                && production_source.contains("\"GtkScrolledWindow\"")
+                && production_source.contains("editor-canvas-frame")
+                && production_source.contains("editor-canvas-workspace")
+                && production_source.contains("EDITOR_TOP_CHROME_HEIGHT")
+                && production_source.contains(".editor-top-chrome"),
+            "top-bar window drag must not begin_move over the canvas subtree"
+        );
+    }
 
     #[test]
     fn arrow_style_toolbar_icon_maps_each_style_to_a_custom_preview() {
@@ -3667,7 +3679,6 @@ mod tests {
                 && production_source.contains(".editor-footer-zoom-popup.editor-theme-light {")
                 && production_source.contains("background: #ffffff;")
                 && production_source.contains(".editor-footer-zoom-popup.editor-theme-light .editor-footer-zoom-row {")
-                && production_source.contains(".editor-footer-zoom-popup.editor-theme-light .editor-footer-zoom-mouse-drawing {")
                 && !production_source.contains(".editor-footer-zoom-popup {\n                min-height: 100%;")
                 && !production_source.contains(".editor-footer-zoom-popup {\n                width: 210px;"),
             "Footer zoom popover should use flat dark/light surfaces matching the settings UI language without becoming a full-height or fixed-width sidebar",

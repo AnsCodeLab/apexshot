@@ -1,4 +1,4 @@
-use gtk4::{gdk, prelude::*, Box as GtkBox, Button, Label, Orientation};
+use gtk4::{prelude::*, Box as GtkBox, Button, Label, Orientation};
 
 use super::super::ui_support::footer_icon_button;
 
@@ -45,131 +45,6 @@ fn build_zoom_row(label: &str, shortcut: &str) -> (Button, GtkBox) {
         .build();
 
     (btn, row)
-}
-
-fn build_mouse_hints() -> GtkBox {
-    let container = GtkBox::new(Orientation::Horizontal, 0);
-    container.add_css_class("editor-footer-zoom-mouse-hints");
-    container.set_halign(gtk4::Align::Center);
-
-    let left_text = Label::new(Some("Zoom with\nthe scroll\nwheel"));
-    left_text.set_justify(gtk4::Justification::Right);
-    left_text.add_css_class("editor-footer-zoom-mouse-hint-text");
-
-    let drawing = gtk4::DrawingArea::new();
-    drawing.add_css_class("editor-footer-zoom-mouse-drawing");
-    drawing.set_content_width(60);
-    drawing.set_content_height(60);
-    drawing.set_draw_func(move |widget, cr, width, height| {
-        let w = f64::from(width);
-        let h = f64::from(height);
-        let fg = widget.style_context().color();
-        let accent = widget
-            .style_context()
-            .lookup_color("accent_color")
-            .unwrap_or_else(|| gdk::RGBA::new(0.69, 0.36, 0.22, 1.0));
-        let fg_r = fg.red() as f64;
-        let fg_g = fg.green() as f64;
-        let fg_b = fg.blue() as f64;
-        let accent_r = accent.red() as f64;
-        let accent_g = accent.green() as f64;
-        let accent_b = accent.blue() as f64;
-
-        // Draw mouse body (simple rounded rect)
-        let mouse_w = 24.0;
-        let mouse_h = 40.0;
-        let mouse_x = (w - mouse_w) / 2.0;
-        let mouse_y = h - mouse_h - 5.0;
-        let radius = 10.0;
-
-        cr.set_source_rgba(fg_r, fg_g, fg_b, 0.24);
-        cr.set_line_width(1.0);
-        cr.new_sub_path();
-        cr.arc(
-            mouse_x + radius,
-            mouse_y + radius,
-            radius,
-            180.0 * std::f64::consts::PI / 180.0,
-            270.0 * std::f64::consts::PI / 180.0,
-        );
-        cr.arc(
-            mouse_x + mouse_w - radius,
-            mouse_y + radius,
-            radius,
-            270.0 * std::f64::consts::PI / 180.0,
-            360.0 * std::f64::consts::PI / 180.0,
-        );
-        cr.line_to(mouse_x + mouse_w, mouse_y + mouse_h);
-        cr.line_to(mouse_x, mouse_y + mouse_h);
-        cr.close_path();
-        let _ = cr.stroke();
-
-        // Draw middle line for buttons
-        cr.move_to(mouse_x + mouse_w / 2.0, mouse_y);
-        cr.line_to(mouse_x + mouse_w / 2.0, mouse_y + 15.0);
-        let _ = cr.stroke();
-
-        // Draw scroll wheel (highlighted blue)
-        let wheel_w = 4.0;
-        let wheel_h = 10.0;
-        let wheel_x = (w - wheel_w) / 2.0;
-        let wheel_y = mouse_y + 8.0;
-        cr.set_source_rgba(accent_r, accent_g, accent_b, 0.85);
-        cr.new_sub_path();
-        cr.arc(
-            wheel_x + wheel_w / 2.0,
-            wheel_y + wheel_w / 2.0,
-            wheel_w / 2.0,
-            180.0 * std::f64::consts::PI / 180.0,
-            360.0 * std::f64::consts::PI / 180.0,
-        );
-        cr.arc(
-            wheel_x + wheel_w / 2.0,
-            wheel_y + wheel_h - wheel_w / 2.0,
-            wheel_w / 2.0,
-            0.0,
-            180.0 * std::f64::consts::PI / 180.0,
-        );
-        cr.close_path();
-        let _ = cr.fill();
-
-        // Draw lines pointing to hints
-        cr.set_source_rgba(accent_r, accent_g, accent_b, 0.45);
-        cr.set_line_width(0.8);
-
-        // To scroll wheel
-        cr.move_to(mouse_x - 5.0, wheel_y + wheel_h / 2.0);
-        cr.curve_to(
-            mouse_x - 15.0,
-            wheel_y + wheel_h / 2.0,
-            wheel_x - 5.0,
-            wheel_y + wheel_h / 2.0,
-            wheel_x - 2.0,
-            wheel_y + wheel_h / 2.0,
-        );
-        let _ = cr.stroke();
-
-        // To right button
-        cr.move_to(w - (mouse_x - 5.0), wheel_y + wheel_h / 2.0);
-        cr.curve_to(
-            w - (mouse_x - 15.0),
-            wheel_y + wheel_h / 2.0,
-            wheel_x + wheel_w + 5.0,
-            wheel_y + wheel_h / 2.0,
-            wheel_x + wheel_w + 2.0,
-            wheel_y + wheel_h / 2.0,
-        );
-        let _ = cr.stroke();
-    });
-
-    let right_text = Label::new(Some("Pan with\nthe right\nbutton"));
-    right_text.set_justify(gtk4::Justification::Left);
-    right_text.add_css_class("editor-footer-zoom-mouse-hint-text");
-
-    container.append(&left_text);
-    container.append(&drawing);
-    container.append(&right_text);
-    container
 }
 
 pub(super) fn build_footer(copy_icon_name: &str, upload_icon_name: &str) -> FooterParts {
@@ -221,11 +96,6 @@ pub(super) fn build_footer(copy_icon_name: &str, upload_icon_name: &str) -> Foot
     let sep1 = GtkBox::new(Orientation::Horizontal, 0);
     sep1.add_css_class("editor-footer-zoom-separator");
 
-    let sep2 = GtkBox::new(Orientation::Horizontal, 0);
-    sep2.add_css_class("editor-footer-zoom-separator");
-
-    let mouse_hints = build_mouse_hints();
-
     zoom_list.append(&zoom_in_btn);
     zoom_list.append(&zoom_out_btn);
     zoom_list.append(&fit_to_screen_btn);
@@ -234,8 +104,6 @@ pub(super) fn build_footer(copy_icon_name: &str, upload_icon_name: &str) -> Foot
     zoom_popup.append(&zoom_header);
     zoom_popup.append(&sep1);
     zoom_popup.append(&zoom_list);
-    zoom_popup.append(&sep2);
-    zoom_popup.append(&mouse_hints);
 
     let (copy_btn, _) = footer_icon_button(copy_icon_name, "Copy file URI");
     let (upload_btn, _) = footer_icon_button(upload_icon_name, "Upload to cloud");

@@ -706,7 +706,7 @@ pub(super) fn wire_editor_events(ctx: EventContext) {
     );
     let apply_zoom_change_scroll = apply_zoom_change.clone();
     let zoom_level_scroll = zoom_level.clone();
-    scroll_controller.connect_scroll(move |controller, _dx, dy| {
+    scroll_controller.connect_scroll(move |controller, dx, dy| {
         if !controller
             .current_event_state()
             .contains(gdk::ModifierType::CONTROL_MASK)
@@ -714,9 +714,11 @@ pub(super) fn wire_editor_events(ctx: EventContext) {
             return glib::Propagation::Proceed;
         }
 
-        if dy < 0.0 {
+        // Prefer vertical; fall back to horizontal for devices that only emit dx.
+        let delta = if dy != 0.0 { dy } else { dx };
+        if delta < 0.0 {
             apply_zoom_change_scroll(zoom_level_scroll.get() * ZOOM_STEP);
-        } else if dy > 0.0 {
+        } else if delta > 0.0 {
             apply_zoom_change_scroll(zoom_level_scroll.get() / ZOOM_STEP);
         }
         glib::Propagation::Stop
@@ -1752,6 +1754,7 @@ pub(super) fn wire_editor_events(ctx: EventContext) {
             let vadj = canvas_scroller_space_pan_begin.vadjustment();
             space_pan_origin_begin.set((hadj.value(), vadj.value()));
             space_pan_dragging_begin.set(true);
+            gesture.set_state(gtk4::EventSequenceState::Claimed);
             if let Some(window) = window_space_pan_begin.upgrade() {
                 set_window_cursor_name(&window, Some("grabbing"));
             }
@@ -3363,6 +3366,75 @@ pub(super) fn wire_editor_events(ctx: EventContext) {
 
     drawing_area.add_controller(motion);
 
+    // Capture-phase Space handler: tool/chrome buttons are often focusable and
+    // would activate on Space in the bubble phase, which breaks hand-pan after
+    // the first tool click. Capture runs before the focused widget.
+    let space_pan_controller = EventControllerKey::new();
+    space_pan_controller.set_propagation_phase(gtk4::PropagationPhase::Capture);
+    let space_pan_active_capture = space_pan_active.clone();
+    let space_pan_dragging_capture = space_pan_dragging.clone();
+    let eyedropper_mode_space = eyedropper_mode.clone();
+    let state_space = state.clone();
+    let window_space = window.downgrade();
+    let drawing_area_space = drawing_area.downgrade();
+    space_pan_controller.connect_key_pressed(move |_, key, _, _| {
+        if key != gdk::Key::space || eyedropper_mode_space.get() {
+            return glib::Propagation::Proceed;
+        }
+
+        // Canvas text editing and GTK entries still need Space as a character.
+        if state_space.lock().unwrap().active_text_input.is_some() {
+            return glib::Propagation::Proceed;
+        }
+        if let Some(window) = window_space.upgrade() {
+            if let Some(focused) = gtk4::prelude::GtkWindowExt::focus(&window) {
+                if focused.is::<gtk4::Entry>() || focused.is::<gtk4::Text>() {
+                    return glib::Propagation::Proceed;
+                }
+            }
+        }
+
+        space_pan_active_capture.set(true);
+        if let Some(window) = window_space.upgrade() {
+            set_window_cursor_name(
+                &window,
+                Some(if space_pan_dragging_capture.get() {
+                    "grabbing"
+                } else {
+                    "grab"
+                }),
+            );
+        }
+        if let Some(area) = drawing_area_space.upgrade() {
+            area.grab_focus();
+        }
+        glib::Propagation::Stop
+    });
+    let space_pan_active_released = space_pan_active.clone();
+    let space_pan_dragging_released = space_pan_dragging.clone();
+    let eyedropper_mode_released = eyedropper_mode.clone();
+    let window_released = window.downgrade();
+    space_pan_controller.connect_key_released(move |_, key, _, _| {
+        if key != gdk::Key::space {
+            return;
+        }
+
+        space_pan_active_released.set(false);
+        if !space_pan_dragging_released.get() {
+            if let Some(window) = window_released.upgrade() {
+                set_window_cursor_name(
+                    &window,
+                    if eyedropper_mode_released.get() {
+                        Some("crosshair")
+                    } else {
+                        None
+                    },
+                );
+            }
+        }
+    });
+    window.add_controller(space_pan_controller);
+
     let key_controller = EventControllerKey::new();
     let state_keys = state.clone();
     let drawing_area_keys = drawing_area.downgrade();
@@ -3381,8 +3453,6 @@ pub(super) fn wire_editor_events(ctx: EventContext) {
     let zoom_level_keys = zoom_level.clone();
     let update_canvas_content_size_keys = update_canvas_content_size.clone();
     let zoom_popup_keys = zoom_popup.clone();
-    let space_pan_active_keys = space_pan_active.clone();
-    let space_pan_dragging_keys = space_pan_dragging.clone();
 
     key_controller.connect_key_pressed(move |_, key, _, modifiers| {
         if key == gdk::Key::Escape && eyedropper_mode_keys.get() {
@@ -3447,21 +3517,6 @@ pub(super) fn wire_editor_events(ctx: EventContext) {
                     return glib::Propagation::Stop;
                 }
             }
-        }
-
-        if key == gdk::Key::space && !eyedropper_mode_keys.get() {
-            space_pan_active_keys.set(true);
-            if let Some(window) = window_keys.upgrade() {
-                set_window_cursor_name(
-                    &window,
-                    Some(if space_pan_dragging_keys.get() {
-                        "grabbing"
-                    } else {
-                        "grab"
-                    }),
-                );
-            }
-            return glib::Propagation::Stop;
         }
 
         if ctrl && (pressed == Some('z') || pressed == Some('Z')) {
@@ -3560,29 +3615,6 @@ pub(super) fn wire_editor_events(ctx: EventContext) {
 
         glib::Propagation::Proceed
     });
-    let space_pan_active_released = space_pan_active.clone();
-    let space_pan_dragging_released = space_pan_dragging.clone();
-    let eyedropper_mode_released = eyedropper_mode.clone();
-    let window_released = window.downgrade();
-    key_controller.connect_key_released(move |_, key, _, _| {
-        if key != gdk::Key::space {
-            return;
-        }
-
-        space_pan_active_released.set(false);
-        if !space_pan_dragging_released.get() {
-            if let Some(window) = window_released.upgrade() {
-                set_window_cursor_name(
-                    &window,
-                    if eyedropper_mode_released.get() {
-                        Some("crosshair")
-                    } else {
-                        None
-                    },
-                );
-            }
-        }
-    });
     window.add_controller(key_controller);
 
     let app_weak = app.downgrade();
@@ -3646,9 +3678,10 @@ mod tests {
             production_source.contains("return glib::Propagation::Proceed;")
                 && production_source.contains("if space_pan_active_drag_begin.get() {")
                 && production_source.contains("space_pan_dragging_begin.set(true);")
-                && production_source.contains("if key == gdk::Key::space && !eyedropper_mode_keys.get()")
+                && production_source.contains("space_pan_controller.set_propagation_phase(gtk4::PropagationPhase::Capture)")
+                && production_source.contains("if key != gdk::Key::space || eyedropper_mode_space.get()")
                 && production_source.contains("Some(\"grab\")"),
-            "normal scrolling should reach the canvas scroller while space temporarily enables hand panning"
+            "normal scrolling should reach the canvas scroller while capture-phase space enables hand panning"
         );
     }
 
