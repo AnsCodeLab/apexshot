@@ -3664,7 +3664,8 @@ mod tests {
                 && production_source.contains("zoom_popup_in.set_visible(false);")
                 && production_source.contains("update_canvas_content_size();")
                 && production_source.contains("drawing_area.queue_draw();")
-                && production_source.contains("scroll_controller.connect_scroll(move |controller, _dx, dy| {")
+                && production_source.contains("scroll_controller.connect_scroll(move |controller, dx, dy| {")
+                && production_source.contains("let delta = if dy != 0.0 { dy } else { dx };")
                 && production_source.contains("gdk::ModifierType::CONTROL_MASK"),
             "Footer zoom actions should open the popover, update the zoom state, refresh canvas layout, and support Ctrl-wheel zoom",
         );
