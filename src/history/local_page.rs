@@ -405,8 +405,19 @@ fn build_card(state: &Rc<PageState>, id: u64, entry: &CaptureEntry, now: SystemT
     let child = gtk4::FlowBoxChild::new();
     child.set_child(Some(&card_box));
 
-    // Right-click raises the action popover at the pointer, like a file
-    // manager's context menu.
+    // Double-click opens like a file manager; right-click raises the action menu.
+    {
+        let state = Rc::clone(state);
+        let entry = entry.clone();
+        let gesture = gtk4::GestureClick::new();
+        gesture.set_button(gtk4::gdk::BUTTON_PRIMARY);
+        gesture.connect_pressed(move |_, n_press, _, _| {
+            if n_press == 2 {
+                report(&state, super::actions::open_in_default_app(&entry));
+            }
+        });
+        clickable.add_controller(gesture);
+    }
     {
         let state = Rc::clone(state);
         let entry = entry.clone();
