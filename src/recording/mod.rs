@@ -626,6 +626,10 @@ fn command_exists(name: &str) -> bool {
 }
 
 fn should_use_wf_recorder(config: &RecordingConfig) -> bool {
+    // Flatpak: never shell out to host wf-recorder; use portal/PipeWire path only.
+    if crate::app_identity::portal_only() {
+        return false;
+    }
     is_wlroots_session() && config.output_path.extension().is_none_or(|e| e != "gif")
 }
 
@@ -676,6 +680,9 @@ async fn record_with_wf_recorder(
     config: RecordingConfig,
     command_rx: Option<mpsc::UnboundedReceiver<RecordingControlCommand>>,
 ) -> RecordResult<(PathBuf, RecordingTerminalAction)> {
+    if let Some(msg) = crate::app_identity::host_escape_blocked("wf-recorder") {
+        return Err(RecordError::UnsupportedBackend(msg));
+    }
     if !command_exists("wf-recorder") {
         return Err(RecordError::UnsupportedBackend(
             "wlroots recording requires wf-recorder. Install it with: sudo pacman -S wf-recorder"
@@ -820,6 +827,10 @@ async fn record_gif_with_wf_recorder(
     command_rx: Option<mpsc::UnboundedReceiver<RecordingControlCommand>>,
 ) -> RecordResult<(PathBuf, RecordingTerminalAction)> {
     use std::process::{Command, Stdio};
+
+    if let Some(msg) = crate::app_identity::host_escape_blocked("wf-recorder") {
+        return Err(RecordError::UnsupportedBackend(msg));
+    }
 
     if !command_exists("wf-recorder") {
         return Err(RecordError::UnsupportedBackend(

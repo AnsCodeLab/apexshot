@@ -115,8 +115,59 @@ fn autostart_dir() -> anyhow::Result<std::path::PathBuf> {
     Ok(config_home.join("autostart"))
 }
 
+/// Flatpak autostart via XDG Background portal (no ~/.config/autostart write).
+fn request_background_autostart(enable: bool) -> anyhow::Result<std::path::PathBuf> {
+    let reason = if enable {
+        "Start ApexShot on login for tray icon and global hotkeys"
+    } else {
+        "Disable ApexShot login autostart"
+    };
+
+    let result = block_on_async(async {
+        ashpd::desktop::background::Background::request()
+            .reason(reason)
+            .auto_start(enable)
+            .command(&["apexshot", "daemon"])
+            .dbus_activatable(false)
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("Background portal request failed: {e}"))?
+            .response()
+            .map_err(|e| anyhow::anyhow!("Background portal response failed: {e}"))
+    })?;
+
+    if enable && !result.auto_start() {
+        anyhow::bail!("Background portal did not grant autostart");
+    }
+
+    // No desktop file is written; return a marker path for callers that log it.
+    Ok(std::path::PathBuf::from(if enable {
+        "portal:background-autostart"
+    } else {
+        "portal:background-autostart-disabled"
+    }))
+}
+
+fn block_on_async<F, T>(future: F) -> anyhow::Result<T>
+where
+    F: std::future::Future<Output = anyhow::Result<T>>,
+{
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => tokio::task::block_in_place(|| handle.block_on(future)),
+        Err(_) => {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+            rt.block_on(future)
+        }
+    }
+}
+
 #[allow(dead_code)]
 pub fn install_autostart_entry_for_current_exe() -> anyhow::Result<std::path::PathBuf> {
+    if crate::app_identity::portal_only() {
+        return request_background_autostart(true);
+    }
     let autostart_dir = autostart_dir()?;
     std::fs::create_dir_all(&autostart_dir)?;
 
@@ -151,6 +202,9 @@ pub fn install_autostart_entry_for_current_exe() -> anyhow::Result<std::path::Pa
 
 #[allow(dead_code)]
 pub fn install_autostart_entry_smart() -> anyhow::Result<std::path::PathBuf> {
+    if crate::app_identity::portal_only() {
+        return request_background_autostart(true);
+    }
     let autostart_dir = autostart_dir()?;
     std::fs::create_dir_all(&autostart_dir)?;
 
@@ -187,6 +241,10 @@ pub fn install_autostart_entry_smart() -> anyhow::Result<std::path::PathBuf> {
 
 #[allow(dead_code)]
 pub fn uninstall_autostart_entry() -> anyhow::Result<()> {
+    if crate::app_identity::portal_only() {
+        let _ = request_background_autostart(false);
+        return Ok(());
+    }
     let autostart_dir = autostart_dir()?;
     // Remove both possible autostart files
     for name in ["apexshot-daemon.desktop", "apexshot.desktop"] {

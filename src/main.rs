@@ -413,9 +413,17 @@ async fn async_main(args: Vec<String>) {
         "--version" | "-V" => println!("apexshot {}", env!("CARGO_PKG_VERSION")),
         "--help" | "-h" | "help" => print_usage(),
         "install" => {
+            if app_identity::portal_only() {
+                eprintln!("Error: host install is not available in Flatpak/portal-only builds.");
+                std::process::exit(1);
+            }
             run_install(&args);
         }
         "uninstall" => {
+            if app_identity::portal_only() {
+                eprintln!("Error: host uninstall is not available in Flatpak/portal-only builds.");
+                std::process::exit(1);
+            }
             run_uninstall(&args);
         }
         _ => {
@@ -1326,6 +1334,10 @@ fn uninstall_native_host_manifest(browser: BrowserTarget) -> Result<(), String> 
 }
 
 fn run_native_host_command(args: &[String]) {
+    if app_identity::portal_only() {
+        eprintln!("Error: browser native-host install is not available in Flatpak/portal-only builds.");
+        std::process::exit(1);
+    }
     if args.len() < 3 {
         eprintln!("Error: native-host requires subcommand (install|uninstall)");
         std::process::exit(1);

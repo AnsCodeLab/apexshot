@@ -469,10 +469,14 @@ async fn run_daemon_inner(gtk_tx: Option<std::sync::mpsc::Sender<GtkWork>>) -> a
 
     // Ensure XDG portal permissions are persisted so the user doesn't have
     // to re-approve screenshot/screencast access after reboot.
+    // (no-op in portal_only / Flatpak — never mutates PermissionStore)
     crate::backend::portal_permissions::ensure_portal_permissions();
 
     // Pre-warm apexshot-capture so the first hotkey doesn't pay Qt cold start.
-    ensure_warm_capture_helper();
+    // Flatpak builds do not ship the Qt helper.
+    if !crate::app_identity::portal_only() {
+        ensure_warm_capture_helper();
+    }
 
     // ── SINGLE-INSTANCE CHECK ─────────────────────────────────────────────────
     // Try to register D-Bus name BEFORE any other initialization.
@@ -2561,11 +2565,7 @@ fn spawn_editor_subprocess(path: std::path::PathBuf) {
 /// Shared with the History window so "open in default app" behaves identically
 /// whether it comes from the tray or from a history card.
 pub fn open_file(path: std::path::PathBuf) -> Result<(), String> {
-    std::process::Command::new("xdg-open")
-        .arg(&path)
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| format!("Could not open this file: {e}"))
+    crate::utils::open::open_path(&path)
 }
 
 fn screenshot_timer_delay_duration(seconds: u32) -> Option<std::time::Duration> {

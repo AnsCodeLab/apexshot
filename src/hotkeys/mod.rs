@@ -311,6 +311,9 @@ fn try_relaunch_via_desktop(
     config_path: &PathBuf,
     configure: bool,
 ) -> anyhow::Result<()> {
+    if let Some(msg) = crate::app_identity::host_escape_blocked("gtk-launch") {
+        anyhow::bail!(msg);
+    }
     if std::env::var_os("APEXSHOT_DESKTOP_RELAUNCHED").is_some() {
         return Ok(());
     }
@@ -821,6 +824,9 @@ pub fn hotkey_config_from_app_config(app_config: &crate::config::AppConfig) -> H
 }
 
 pub fn sync_hotkeys_from_app_config(app_config: &crate::config::AppConfig) -> anyhow::Result<()> {
+    if let Some(msg) = crate::app_identity::host_escape_blocked("compositor hotkey install") {
+        anyhow::bail!(msg);
+    }
     let path = default_config_path();
     let cfg = hotkey_config_from_app_config(app_config);
     save_hotkey_config(&path, &cfg)?;
@@ -1024,6 +1030,9 @@ fn ensure_hyprland_sources_hotkey_snippet(snippet_path: &Path) -> anyhow::Result
 }
 
 fn reload_hyprland_config() {
+    if crate::app_identity::portal_only() {
+        return;
+    }
     if std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_none() {
         return;
     }
@@ -1063,6 +1072,9 @@ fn write_sway_hotkey_snippet(cfg: &HotkeyConfig) -> anyhow::Result<PathBuf> {
 }
 
 fn reload_sway_config() {
+    if crate::app_identity::portal_only() {
+        return;
+    }
     if std::env::var_os("SWAYSOCK").is_none() && std::env::var_os("I3SOCK").is_none() {
         return;
     }
@@ -1446,6 +1458,12 @@ fn gnome_binding_issues(cfg: &HotkeyConfig) -> anyhow::Result<Vec<String>> {
 pub fn sync_gnome_hotkeys_for_current_desktop(
     config_path: Option<PathBuf>,
 ) -> anyhow::Result<GnomeHotkeySyncResult> {
+    if crate::app_identity::portal_only() {
+        return Ok(GnomeHotkeySyncResult {
+            updated: false,
+            issues: Vec::new(),
+        });
+    }
     let (_config_path, cfg) = load_or_create_config(config_path)?;
     if cfg.bindings.is_empty() {
         return Ok(GnomeHotkeySyncResult {
@@ -1558,6 +1576,9 @@ fn uninstall_gnome_custom_keybindings() -> anyhow::Result<()> {
 }
 
 pub fn install_hotkeys_for_current_desktop(config_path: Option<PathBuf>) -> anyhow::Result<()> {
+    if let Some(msg) = crate::app_identity::host_escape_blocked("host hotkey install") {
+        anyhow::bail!(msg);
+    }
     let (_config_path, cfg) = load_or_create_config(config_path)?;
 
     if is_gnome_desktop() {
@@ -1573,6 +1594,9 @@ pub fn install_hotkeys_for_current_desktop(config_path: Option<PathBuf>) -> anyh
 }
 
 pub fn uninstall_hotkeys_for_current_desktop() -> anyhow::Result<()> {
+    if let Some(msg) = crate::app_identity::host_escape_blocked("host hotkey uninstall") {
+        anyhow::bail!(msg);
+    }
     if is_gnome_desktop() {
         uninstall_gnome_custom_keybindings()?;
         println!("Removed ApexShot GNOME custom keybindings.");

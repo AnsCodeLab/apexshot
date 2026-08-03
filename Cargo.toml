@@ -47,7 +47,7 @@ chrono = { version = "0.4", features = ["serde"] }
 sha2 = "0.10"
 
 # OCR
-tesseract = "0.15"
+tesseract = { version = "0.15", optional = true }
 ocrs = "0.12"
 rten = "0.24"
 rten-tensor = "0.24"
@@ -76,6 +76,14 @@ pretty_assertions = "1.4.1"  # better test output
 test-case = "3.3.1"         # parameterized tests
 mockall = "0.13.1"          # mocking framework
 qrcode = "0.14.1"           # QR fixture generation for decoder tests
+
+[features]
+default = ["tesseract-ocr"]
+# System Tesseract (native packages). Flatpak uses pure-Rust ocrs instead.
+tesseract-ocr = ["dep:tesseract"]
+# Portal-only build: no Qt capture helper, no host escapes, no system tesseract.
+# Build with: cargo build --no-default-features --features flatpak
+flatpak = []
 
 [profile.release]
 strip = true

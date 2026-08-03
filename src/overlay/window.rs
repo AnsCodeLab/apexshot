@@ -1598,7 +1598,7 @@ pub(crate) fn setup_window(
             if x >= btn_x && x <= btn_x + btn_w && y >= btn_y && y <= btn_y + btn_h {
                 let url = crate::onboarding::extensions::CHROME_EXTENSION_URL.to_string();
                 std::thread::spawn(move || {
-                    let _ = std::process::Command::new("xdg-open").arg(&url).spawn();
+                    let _ = crate::utils::open::open_url(&url);
                 });
                 st.scroll_popup_open = false;
                 st.hovered_scroll_popup_close = false;
