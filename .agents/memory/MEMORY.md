@@ -1,4 +1,0 @@
-- [ApexShot build quirks](apexshot-build-quirks.md) — keep .cargo/config.toml portable; never commit Replit/Nix store rustc or LIBCLANG_PATH hashes
-- [ApexShot clippy](apexshot-clippy.md) — use the active Rust toolchain; do not commit Replit/Nix build.rustc overrides
-- [Running ApexShot tests](apexshot-test-runtime-libs.md) — test binaries need LD_LIBRARY_PATH from pkg-config; Doc-tests always fail on rustc/rustdoc skew
-- [GTK History sizing and focus](gtk-history-sizing-focus.md) — size requests are minima; constrain scrollers and separate pointer hover from keyboard focus
