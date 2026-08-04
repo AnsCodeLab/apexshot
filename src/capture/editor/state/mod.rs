@@ -1,30 +1,37 @@
+//! Editor session state and annotation mutation API.
+//!
+//! Behavior is split across child modules; the struct and shared helpers stay here
+//! so private field access remains inside the `state` module tree.
+
+mod drag_draw;
+mod export;
+mod history;
+mod text_input;
+
 use super::color::{
     clamp_focus_intensity, clamp_obfuscate_amount, clamp_pixelate_amount, clamp_stroke_size,
     clamp_text_size, selection_handle_hit_radius_for_scale, selection_hit_padding_for_scale,
     DEFAULT_COLOR_INDEX, DEFAULT_FOCUS_INTENSITY, DEFAULT_OBFUSCATE_AMOUNT, DRAW_COLORS,
     SELECT_MIN_RESIZE_SIZE, STROKE_WIDTH, TEXT_SIZE,
 };
-use super::composition::{BackgroundComposition, CompositionLayout};
 use super::numbering_style::{NumberSize, NumberingStyle};
 use super::pen_weight::{HighlighterMode, PenWeight};
 use super::render::{
-    apply_blackout_rect, apply_blur_rect, apply_censor_rect, apply_focus_rect, apply_hybrid_blur,
+    apply_blackout_rect, apply_censor_rect, apply_focus_rect, apply_hybrid_blur,
     cairo_argb_to_rgba_image, layout_wrapped_text, rgba_image_to_surface,
 };
 use super::selection::{
-    action_bounds_with_padding, action_contains_point_with_padding,
-    action_resize_handle_at_point_with_radius, resize_action, resize_rect_with_handle,
-    translate_action,
+    action_contains_point_with_padding, action_resize_handle_at_point_with_radius, resize_action,
+    resize_rect_with_handle, translate_action,
 };
 use super::text_detect::{BackgroundTextDetection, TextDetector};
 use super::types::{
     AnnotationAction, ArrowStyle, BackgroundAlignment, BackgroundStyle, CropAspectRatio, DrawColor,
-    EditorError, FontSettings, FontStyle, MoveHandle, ObfuscateMethod, Point, Rect, SelectHandle,
-    SizeControlMode, TextAlignment, TextDecoration, TextEditBounds, Tool,
+    EditorError, FontSettings, MoveHandle, ObfuscateMethod, Point, Rect, SelectHandle,
+    SizeControlMode, TextEditBounds, Tool,
 };
 use gtk4;
 use image::RgbaImage;
-use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
@@ -87,14 +94,11 @@ pub struct EditorState {
     pub active_text_drag_start_bounds: Option<Rect>,
     pub active_text_is_resizing: bool,
     pub hovered_text_action_index: Option<usize>,
-    #[allow(dead_code)]
     pub active_text_input: Option<TextInputState>,
 
     // Text detection for highlighter
     pub text_detector: Arc<Mutex<TextDetector>>,
-    #[allow(dead_code)]
     pub text_detection_ready: Arc<AtomicBool>,
-    #[allow(dead_code)]
     pub text_detection_handle: Option<BackgroundTextDetection>,
 
     // Highlighter mode
@@ -109,7 +113,6 @@ pub struct EditorState {
 }
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct TextInputState {
     pub text: String,
     pub cursor_position: usize,
@@ -120,7 +123,7 @@ pub struct TextInputState {
     pub editing_action_index: Option<usize>,
 }
 
-fn resize_crop_rect_with_handle(
+pub(super) fn resize_crop_rect_with_handle(
     rect: &mut Rect,
     handle: SelectHandle,
     dx: f64,
@@ -209,7 +212,7 @@ fn resize_crop_rect_with_handle(
     changed
 }
 
-fn crop_rect_with_aspect_fit(
+pub(super) fn crop_rect_with_aspect_fit(
     image_width: i32,
     image_height: i32,
     aspect_ratio: f64,
@@ -232,7 +235,7 @@ fn crop_rect_with_aspect_fit(
     Rect::from_bounds(x, y, x + width, y + height)
 }
 
-fn simplify_drag_path(points: &[Point], epsilon: f64) -> Vec<Point> {
+pub(super) fn simplify_drag_path(points: &[Point], epsilon: f64) -> Vec<Point> {
     if points.len() <= 2 {
         return points.to_vec();
     }
@@ -249,7 +252,7 @@ fn simplify_drag_path(points: &[Point], epsilon: f64) -> Vec<Point> {
         .collect()
 }
 
-fn simplify_drag_path_range(
+pub(super) fn simplify_drag_path_range(
     points: &[Point],
     start: usize,
     end: usize,
@@ -282,7 +285,7 @@ fn simplify_drag_path_range(
     }
 }
 
-fn perpendicular_distance(point: Point, start: Point, end: Point) -> f64 {
+pub(super) fn perpendicular_distance(point: Point, start: Point, end: Point) -> f64 {
     let dx = end.x - start.x;
     let dy = end.y - start.y;
     if dx.abs() <= f64::EPSILON && dy.abs() <= f64::EPSILON {
@@ -294,7 +297,7 @@ fn perpendicular_distance(point: Point, start: Point, end: Point) -> f64 {
     numerator / denominator
 }
 
-fn expand_rgba_image(
+pub(super) fn expand_rgba_image(
     image: &RgbaImage,
     new_width: u32,
     new_height: u32,
@@ -311,7 +314,7 @@ fn expand_rgba_image(
     expanded
 }
 
-fn resize_crop_rect_with_fixed_aspect(
+pub(super) fn resize_crop_rect_with_fixed_aspect(
     rect: &mut Rect,
     handle: SelectHandle,
     point: Point,
@@ -470,591 +473,6 @@ impl EditorState {
         self.clear_drag_without_rebuild_and_check_effect()
     }
 
-    fn existing_text_bounds(&self, skip_index: Option<usize>) -> Vec<Rect> {
-        self.actions
-            .iter()
-            .enumerate()
-            .filter_map(|(index, action)| {
-                if Some(index) == skip_index || !matches!(action, AnnotationAction::Text { .. }) {
-                    return None;
-                }
-                action_bounds_with_padding(action, 0.0)
-            })
-            .collect()
-    }
-
-    fn text_obstacle_limits(
-        &self,
-        bounds: &TextEditBounds,
-        skip_index: Option<usize>,
-    ) -> (f64, f64) {
-        let image_width = self.base_image.width() as f64;
-        let image_height = self.base_image.height() as f64;
-        let mut right_limit = image_width - bounds.rect.x as f64;
-        let mut bottom_limit = image_height - bounds.rect.y as f64;
-
-        for obstacle in self.existing_text_bounds(skip_index) {
-            let vertical_overlap = bounds.rect.y < obstacle.y + obstacle.height
-                && bounds.rect.y + bounds.rect.height > obstacle.y;
-            if vertical_overlap && obstacle.x >= bounds.rect.x {
-                right_limit = right_limit.min((obstacle.x - bounds.rect.x).max(50) as f64);
-            }
-
-            let horizontal_overlap = bounds.rect.x < obstacle.x + obstacle.width
-                && bounds.rect.x + bounds.rect.width > obstacle.x;
-            if horizontal_overlap && obstacle.y >= bounds.rect.y {
-                bottom_limit = bottom_limit.min((obstacle.y - bounds.rect.y).max(44) as f64);
-            }
-        }
-
-        (right_limit.max(50.0), bottom_limit.max(44.0))
-    }
-
-    pub fn begin_text_input(&mut self, position: Point, width: f64, height: f64) {
-        let image_width = self.base_image.width() as f64;
-        let image_height = self.base_image.height() as f64;
-        let baseline_y = position.y.clamp(self.text_size + 8.0, image_height - 8.0);
-        let max_width = (image_width - position.x).max(50.0);
-        let constrained_width = width.clamp(50.0, max_width);
-        let max_height = (image_height - (baseline_y - self.text_size - 8.0)).max(44.0);
-        let constrained_height = height.clamp(44.0, max_height);
-        let top_left = Point {
-            x: position.x.clamp(0.0, image_width - 50.0),
-            y: (baseline_y - self.text_size - 8.0).clamp(0.0, image_height - constrained_height),
-        };
-        let bounds = TextEditBounds::new(top_left, constrained_width, constrained_height);
-        self.active_text_bounds = Some(bounds);
-        self.active_text_is_dragging = false;
-        self.active_text_drag_handle = None;
-        self.active_text_drag_start = None;
-        self.active_text_drag_start_bounds = None;
-        self.active_text_is_resizing = false;
-        self.start_text_input();
-    }
-
-    #[allow(dead_code)]
-    pub fn start_text_input(&mut self) {
-        self.active_text_input = Some(TextInputState {
-            text: String::new(),
-            cursor_position: 0,
-            cursor_visible: true,
-            cursor_blink_timer: 0,
-            color: self.selected_color,
-            background_color: None,
-            editing_action_index: None,
-        });
-    }
-
-    #[allow(dead_code)]
-    pub fn add_text_input_char(&mut self, c: char) {
-        if let Some(ref mut state) = self.active_text_input {
-            state.text.insert(state.cursor_position, c);
-            state.cursor_position += 1;
-            state.cursor_visible = true;
-            state.cursor_blink_timer = 0;
-        }
-    }
-
-    pub fn reset_text_cursor_blink(&mut self) {
-        if let Some(ref mut state) = self.active_text_input {
-            state.cursor_visible = true;
-            state.cursor_blink_timer = 0;
-        }
-    }
-
-    pub fn set_text_cursor_position(&mut self, position: usize) {
-        if let Some(ref mut state) = self.active_text_input {
-            state.cursor_position = position.min(state.text.chars().count());
-            state.cursor_visible = true;
-            state.cursor_blink_timer = 0;
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn delete_text_input_char(&mut self) {
-        if let Some(ref mut state) = self.active_text_input {
-            if state.cursor_position > 0 {
-                state.cursor_position -= 1;
-                state.text.remove(state.cursor_position);
-                state.cursor_blink_timer = 0;
-            }
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn move_cursor_left(&mut self) {
-        if let Some(ref mut state) = self.active_text_input {
-            if state.cursor_position > 0 {
-                state.cursor_position -= 1;
-                state.cursor_visible = true;
-                state.cursor_blink_timer = 0;
-            }
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn move_cursor_right(&mut self) {
-        if let Some(ref mut state) = self.active_text_input {
-            if state.cursor_position < state.text.len() {
-                state.cursor_position += 1;
-                state.cursor_visible = true;
-                state.cursor_blink_timer = 0;
-            }
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn tick_cursor_blink(&mut self) {
-        if let Some(ref mut state) = self.active_text_input {
-            state.cursor_blink_timer += 1;
-            if state.cursor_blink_timer >= 1 {
-                state.cursor_blink_timer = 0;
-                state.cursor_visible = !state.cursor_visible;
-            }
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn commit_text_input(&mut self) -> Option<AnnotationAction> {
-        if let Some(input_state) = self.active_text_input.take() {
-            let trimmed_text = input_state.text.trim().to_string();
-            let bounds = self.active_text_bounds.take();
-            self.active_text_is_dragging = false;
-            self.active_text_drag_handle = None;
-            self.active_text_drag_start = None;
-            self.active_text_drag_start_bounds = None;
-            self.active_text_is_resizing = false;
-
-            if let Some(index) = input_state.editing_action_index {
-                if trimmed_text.is_empty() {
-                    if index < self.actions.len()
-                        && matches!(self.actions[index], AnnotationAction::Text { .. })
-                    {
-                        self.actions.remove(index);
-                        self.selected_action_index = None;
-                        self.select_drag_anchor = None;
-                        self.select_resize_handle = None;
-                        self.redo_actions.clear();
-                    }
-                    return None;
-                }
-
-                if let Some(b) = bounds {
-                    let Some(AnnotationAction::Text {
-                        position,
-                        text,
-                        color,
-                        font,
-                        max_width,
-                        ..
-                    }) = self.actions.get_mut(index)
-                    else {
-                        return None;
-                    };
-                    position.x = b.rect.x as f64;
-                    position.y = (b.rect.y as f64 + self.text_size + 8.0).clamp(
-                        self.text_size + 8.0,
-                        (self.base_image.height() as f64 - self.text_size * 0.5)
-                            .max(self.text_size + 8.0),
-                    );
-                    *text = trimmed_text;
-                    *color = input_state.color;
-                    font.family = self.text_font_family.clone();
-                    font.size = self.text_size;
-                    font.style = FontStyle::Normal;
-                    font.decoration = TextDecoration::None;
-                    font.alignment = TextAlignment::Left;
-                    *max_width = Some(b.rect.width as f64);
-                    self.selected_action_index = Some(index);
-                    self.redo_actions.clear();
-                }
-                return None;
-            }
-
-            if trimmed_text.is_empty() {
-                self.clear_text_edit_state();
-                return None;
-            }
-
-            if let Some(b) = bounds {
-                let position = Point {
-                    x: b.rect.x as f64,
-                    y: (b.rect.y as f64 + self.text_size + 8.0)
-                        .clamp(self.text_size + 8.0, self.base_image.height() as f64 - 8.0),
-                };
-                let font = FontSettings {
-                    family: self.text_font_family.clone(),
-                    size: self.text_size,
-                    style: FontStyle::Normal,
-                    decoration: TextDecoration::None,
-                    alignment: TextAlignment::Left,
-                };
-                let clamped_position = Point {
-                    x: position.x.clamp(
-                        0.0,
-                        (self.base_image.width() as f64 - font.size * 1.8).max(0.0),
-                    ),
-                    y: position.y.clamp(
-                        font.size,
-                        (self.base_image.height() as f64 - font.size * 0.5).max(font.size),
-                    ),
-                };
-                let clamped_width = (b.rect.width as f64).min(
-                    (self.base_image.width() as f64 - clamped_position.x).max(font.size * 1.8),
-                );
-                return Some(AnnotationAction::Text {
-                    position: clamped_position,
-                    text: trimmed_text,
-                    color: input_state.color,
-                    font,
-                    max_width: Some(clamped_width),
-                    shadow: self.draw_object_shadow,
-                    background_color: input_state.background_color,
-                });
-            }
-        }
-        None
-    }
-
-    #[allow(dead_code)]
-    pub fn cancel_text_input(&mut self) {
-        self.active_text_input = None;
-        self.clear_text_edit_state();
-    }
-
-    #[allow(dead_code)]
-    fn clear_text_edit_state(&mut self) {
-        self.active_text_bounds = None;
-        self.active_text_is_dragging = false;
-        self.active_text_drag_handle = None;
-        self.active_text_drag_start = None;
-        self.active_text_drag_start_bounds = None;
-        self.active_text_is_resizing = false;
-    }
-
-    #[allow(dead_code)]
-    pub fn get_text_input(&self) -> Option<&TextInputState> {
-        self.active_text_input.as_ref()
-    }
-
-    #[allow(dead_code)]
-    pub fn get_text_bounds(&self) -> Option<&TextEditBounds> {
-        self.active_text_bounds.as_ref()
-    }
-
-    pub fn fit_active_text_to_layout_with_constraints(
-        &mut self,
-        preserve_width: bool,
-        preserve_height: bool,
-        preserve_font_size: bool,
-    ) {
-        let Some(input) = self.active_text_input.as_ref() else {
-            return;
-        };
-        let Some(mut bounds) = self.active_text_bounds.clone() else {
-            return;
-        };
-
-        let skip_index = input.editing_action_index;
-        let text = input.text.clone();
-        let family = self.text_font_family.clone();
-        let surface = match gtk4::cairo::ImageSurface::create(gtk4::cairo::Format::ARgb32, 1, 1) {
-            Ok(surface) => surface,
-            Err(_) => return,
-        };
-        let context = match gtk4::cairo::Context::new(&surface) {
-            Ok(context) => context,
-            Err(_) => return,
-        };
-
-        let mut fitted_size = self.text_size;
-        loop {
-            let (available_width_limit, available_height_limit) =
-                self.text_obstacle_limits(&bounds, skip_index);
-            let available_height = if preserve_height {
-                bounds.rect.height.max(1) as f64
-            } else {
-                available_height_limit
-            };
-            // When not preserving width, allow the box to grow up to the full
-            // available space (image edge or next obstacle). This lets text
-            // stay on one line and only wrap when it truly runs out of room.
-            // When preserving width, cap at the current box width.
-            let mut max_width = if preserve_width {
-                (bounds.rect.width.max(1) as f64).min(available_width_limit)
-            } else {
-                available_width_limit
-            };
-
-            let measure = |size: f64, width: f64| {
-                let font = FontSettings {
-                    family: family.clone(),
-                    size,
-                    style: FontStyle::Normal,
-                    decoration: TextDecoration::None,
-                    alignment: TextAlignment::Left,
-                };
-                let content_width = (width - 20.0).max(font.size * 0.8);
-                let layout = layout_wrapped_text(&context, &text, &font, content_width);
-                let line_height = (font.size * 1.2).max(font.size + 4.0);
-                // Include top+bottom padding and border inset so the box is
-                // always tall enough that the bottom border never clips text.
-                // border_inset mirrors TEXT_EDIT_BORDER_WIDTH/2 + 1 from render.rs
-                let padding_y = 8.0;
-                let border_inset = 2.0; // = TEXT_EDIT_BORDER_WIDTH / 2.0 + 1.0
-                let text_block_height =
-                    (layout.lines.len().max(1) as f64 - 1.0).max(0.0) * line_height + font.size;
-                let height = (text_block_height + (padding_y + border_inset) * 2.0).max(44.0);
-                (layout, height)
-            };
-
-            if !preserve_font_size {
-                while fitted_size < 120.0 {
-                    let next_size = (fitted_size + 1.0).min(120.0);
-                    let (_, next_height) = measure(next_size, max_width);
-                    if next_height > available_height {
-                        break;
-                    }
-                    fitted_size = next_size;
-                }
-            }
-
-            let (mut layout, mut height) = measure(fitted_size, max_width);
-            if !preserve_font_size {
-                while fitted_size > 10.0 && height > available_height {
-                    fitted_size = (fitted_size - 1.0).max(10.0);
-                    let measured = measure(fitted_size, max_width);
-                    layout = measured.0;
-                    height = measured.1;
-                }
-            }
-
-            if preserve_font_size {
-                if height > available_height {
-                    let mut low = max_width;
-                    let mut high = available_width_limit;
-                    while high - low > 1.0 {
-                        let mid = (low + high) / 2.0;
-                        let measured = measure(fitted_size, mid);
-                        if measured.1 > available_height {
-                            low = mid;
-                        } else {
-                            high = mid;
-                        }
-                    }
-                    max_width = high;
-                    let measured = measure(fitted_size, max_width);
-                    layout = measured.0;
-                    height = measured.1;
-                }
-
-                // Live typing should prefer the current font size, but once
-                // width is exhausted we must shrink instead of letting text
-                // extend past the bottom image boundary.
-                while fitted_size > 10.0 && height > available_height {
-                    fitted_size = (fitted_size - 1.0).max(10.0);
-                    let measured = measure(fitted_size, max_width);
-                    layout = measured.0;
-                    height = measured.1;
-                }
-            }
-
-            let old_width = bounds.rect.width;
-            let old_height = bounds.rect.height;
-            let target_width = if preserve_width {
-                // Preserving width: keep the current box width (capped at available).
-                max_width.round().max(fitted_size * 1.8) as i32
-            } else {
-                // Not preserving width: size the box to the actual text width
-                // (with padding), only growing as wide as the text needs.
-                // Add padding_x * 2 to match draw_active_text_input's padding.
-                let padding_x = 10.0;
-                (layout.max_width + padding_x * 2.0)
-                    .max(fitted_size * 1.8)
-                    .min(max_width)
-                    .round() as i32
-            };
-            let target_height = if preserve_height {
-                bounds.rect.height
-            } else {
-                height.min(available_height.max(44.0)).round().max(1.0) as i32
-            };
-            bounds.rect.width = target_width;
-            bounds.rect.height = target_height;
-            bounds.sync_handles();
-
-            if bounds.rect.width == old_width && bounds.rect.height == old_height {
-                break;
-            }
-        }
-
-        self.text_size = fitted_size;
-
-        // Clamp so the box never overflows below the image.
-        let image_height = self.base_image.height() as i32;
-        if bounds.rect.y + bounds.rect.height > image_height {
-            bounds.rect.height = (image_height - bounds.rect.y).max(44);
-        }
-
-        bounds.sync_handles();
-        self.active_text_bounds = Some(bounds);
-    }
-
-    #[allow(dead_code)]
-    pub fn fit_active_text_to_layout_preserving_height(&mut self, preserve_height: bool) {
-        self.fit_active_text_to_layout_with_constraints(false, preserve_height, false);
-    }
-
-    #[allow(dead_code)]
-    pub fn fit_active_text_to_layout_preserving_font_size(&mut self) {
-        self.fit_active_text_to_layout_with_constraints(true, false, true);
-    }
-
-    #[allow(dead_code)]
-    pub fn fit_active_text_to_layout_preserving_box(&mut self) {
-        self.fit_active_text_to_layout_with_constraints(true, true, false);
-    }
-
-    pub fn fit_active_text_to_layout(&mut self) {
-        self.fit_active_text_to_layout_with_constraints(false, false, true);
-    }
-
-    /// Reflow only the box height to fit the current text at the current width
-    /// and font size. Does NOT touch x, y, or width — safe to call during a
-    /// Left/Right handle drag where the user is explicitly controlling width.
-    pub fn fit_active_text_height_only(&mut self) {
-        let Some(input) = self.active_text_input.as_ref() else {
-            return;
-        };
-        let Some(mut bounds) = self.active_text_bounds.clone() else {
-            return;
-        };
-
-        let text = input.text.clone();
-        let family = self.text_font_family.clone();
-        let size = self.text_size;
-
-        let surface = match gtk4::cairo::ImageSurface::create(gtk4::cairo::Format::ARgb32, 1, 1) {
-            Ok(s) => s,
-            Err(_) => return,
-        };
-        let context = match gtk4::cairo::Context::new(&surface) {
-            Ok(c) => c,
-            Err(_) => return,
-        };
-
-        let font = FontSettings {
-            family,
-            size,
-            style: FontStyle::Normal,
-            decoration: TextDecoration::None,
-            alignment: TextAlignment::Left,
-        };
-        let content_width = (bounds.rect.width as f64 - 20.0).max(font.size * 0.8);
-        let layout = layout_wrapped_text(&context, &text, &font, content_width);
-        let line_height = (font.size * 1.2).max(font.size + 4.0);
-        let padding_y = 8.0;
-        let border_inset = 2.0;
-        let text_block_height =
-            (layout.lines.len().max(1) as f64 - 1.0).max(0.0) * line_height + font.size;
-        let new_height = (text_block_height + (padding_y + border_inset) * 2.0)
-            .max(44.0)
-            .round() as i32;
-
-        // Only update height — x, y, width are untouched.
-        bounds.rect.height = new_height;
-
-        // Clamp so the box never overflows below the image.
-        let image_height = self.base_image.height() as i32;
-        if bounds.rect.y + bounds.rect.height > image_height {
-            bounds.rect.height = (image_height - bounds.rect.y).max(44);
-        }
-
-        bounds.sync_handles();
-        self.active_text_bounds = Some(bounds);
-    }
-
-    /// Like fit_active_text_height_only but reads text/font from the selected
-    /// committed action instead of active_text_input. Used during circle-handle
-    /// resizes of committed text actions (no active edit session open).
-    pub fn fit_committed_text_height_only(&mut self) {
-        let Some(mut bounds) = self.active_text_bounds.clone() else {
-            return;
-        };
-        let Some(index) = self.selected_action_index else {
-            return;
-        };
-        let (text, font) = match self.actions.get(index) {
-            Some(AnnotationAction::Text { text, font, .. }) => (text.clone(), font.clone()),
-            _ => return,
-        };
-
-        let surface = match gtk4::cairo::ImageSurface::create(gtk4::cairo::Format::ARgb32, 1, 1) {
-            Ok(s) => s,
-            Err(_) => return,
-        };
-        let context = match gtk4::cairo::Context::new(&surface) {
-            Ok(c) => c,
-            Err(_) => return,
-        };
-
-        let content_width = (bounds.rect.width as f64 - 20.0).max(font.size * 0.8);
-        let layout = layout_wrapped_text(&context, &text, &font, content_width);
-        let line_height = (font.size * 1.2).max(font.size + 4.0);
-        let padding_y = 8.0;
-        let border_inset = 2.0;
-        let text_block_height =
-            (layout.lines.len().max(1) as f64 - 1.0).max(0.0) * line_height + font.size;
-        let new_height = (text_block_height + (padding_y + border_inset) * 2.0)
-            .max(44.0)
-            .round() as i32;
-
-        bounds.rect.height = new_height;
-
-        // Clamp so the box never overflows below the image.
-        let image_height = self.base_image.height() as i32;
-        if bounds.rect.y + bounds.rect.height > image_height {
-            bounds.rect.height = (image_height - bounds.rect.y).max(44);
-        }
-
-        bounds.sync_handles();
-        self.active_text_bounds = Some(bounds);
-    }
-
-    /// Compute the minimum box width needed to display the committed text
-    /// action without any word being cut off. Returns the width of the longest
-    /// single word (plus padding), or a font-size-based floor if no action.
-    pub fn committed_text_min_width(&self) -> f64 {
-        let Some(index) = self.selected_action_index else {
-            return 50.0;
-        };
-        let (text, font) = match self.actions.get(index) {
-            Some(AnnotationAction::Text { text, font, .. }) => (text.as_str(), font),
-            _ => return 50.0,
-        };
-
-        let surface = match gtk4::cairo::ImageSurface::create(gtk4::cairo::Format::ARgb32, 1, 1) {
-            Ok(s) => s,
-            Err(_) => return 50.0,
-        };
-        let context = match gtk4::cairo::Context::new(&surface) {
-            Ok(c) => c,
-            Err(_) => return 50.0,
-        };
-
-        // Measure the width of each word; the widest word is the minimum.
-        let padding_x = 10.0;
-        let max_word_width = text
-            .split_whitespace()
-            .map(|word| super::render::measure_text_width(&context, word, font))
-            .fold(0.0_f64, f64::max);
-
-        // Add padding on both sides, floor at font_size * 1.8.
-        (max_word_width + padding_x * 2.0)
-            .max(font.size * 1.8)
-            .max(50.0)
-    }
-
     pub fn crop_aspect_ratio_value(&self) -> Option<f64> {
         self.crop_aspect_ratio.aspect_ratio(
             self.working_image.width() as i32,
@@ -1112,7 +530,6 @@ impl EditorState {
         self.obfuscate_method = method;
     }
 
-    #[allow(dead_code)]
     pub fn obfuscate_method(&self) -> ObfuscateMethod {
         self.obfuscate_method
     }
@@ -1426,7 +843,6 @@ impl EditorState {
         true
     }
 
-    #[allow(dead_code)]
     pub fn set_text_size(&mut self, size: f64) -> bool {
         let next = clamp_text_size(size);
         if let Some(index) = self
@@ -1574,16 +990,6 @@ impl EditorState {
         Some(*amount)
     }
 
-    #[allow(dead_code)]
-    pub fn set_selected_obfuscate_action_amount(&mut self, amount: f64) -> bool {
-        if self.set_selected_obfuscate_action_amount_without_rebuild(amount) {
-            self.rebuild_effect_layer();
-            true
-        } else {
-            false
-        }
-    }
-
     pub fn set_selected_obfuscate_action_amount_without_rebuild(&mut self, amount: f64) -> bool {
         let next = clamp_obfuscate_amount(amount);
 
@@ -1680,16 +1086,6 @@ impl EditorState {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn set_active_size(&mut self, size: f64) -> bool {
-        if self.set_active_size_without_rebuild(size) {
-            self.rebuild_effect_layer();
-            true
-        } else {
-            false
-        }
-    }
-
     pub fn set_active_size_without_rebuild(&mut self, size: f64) -> bool {
         match self.active_size_control_mode() {
             Some(SizeControlMode::Stroke) => {
@@ -1769,135 +1165,6 @@ impl EditorState {
         *target = color;
         self.redo_actions.clear();
         true
-    }
-
-    pub fn history_availability(&self) -> (bool, bool) {
-        (!self.actions.is_empty(), !self.redo_actions.is_empty())
-    }
-
-    pub fn can_remove_selected_action(&self) -> bool {
-        self.selected_action_index
-            .is_some_and(|index| index < self.actions.len())
-    }
-
-    pub fn mark_working_image_dirty(&mut self) {
-        self.working_image_revision = self.working_image_revision.wrapping_add(1);
-    }
-
-    pub fn push_action(&mut self, mut action: AnnotationAction) {
-        self.expand_canvas_for_action_if_needed(&mut action);
-
-        let next_number_after_push = match &action {
-            AnnotationAction::Number { number, style, .. } if *style == self.numbering_style => {
-                Some(number.saturating_add(1))
-            }
-            _ => None,
-        };
-
-        self.actions.push(action);
-        self.redo_actions.clear();
-        self.selected_action_index = Some(self.actions.len() - 1);
-        self.select_drag_anchor = None;
-        self.select_resize_handle = None;
-
-        if let Some(next_number) = next_number_after_push {
-            self.next_number = next_number;
-        } else {
-            self.sync_next_number();
-        }
-        // NOTE: Effect-requiring actions (Obfuscate, Focus) should NOT rebuild here
-        // synchronously as it blocks the UI. The caller should use the async pipeline
-        // via rebuild_effects_async callback after calling this method.
-    }
-
-    /// Check if an action modifies pixels and requires effect layer rebuild
-    pub fn action_requires_effect_rebuild(action: &AnnotationAction) -> bool {
-        matches!(
-            action,
-            AnnotationAction::Obfuscate { .. } | AnnotationAction::Focus { .. }
-        )
-    }
-
-    pub fn undo(&mut self) -> bool {
-        if self.undo_without_rebuild() {
-            // Check if any remaining actions require effect rebuild
-            if self
-                .actions
-                .iter()
-                .any(Self::action_requires_effect_rebuild)
-            {
-                self.rebuild_effect_layer();
-            }
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn undo_without_rebuild(&mut self) -> bool {
-        if let Some(action) = self.actions.pop() {
-            let next_number_after_undo = match &action {
-                AnnotationAction::Number { number, style, .. }
-                    if *style == self.numbering_style =>
-                {
-                    Some(*number)
-                }
-                _ => None,
-            };
-
-            self.redo_actions.push(action);
-            self.selected_action_index = None;
-            self.select_drag_anchor = None;
-            self.select_resize_handle = None;
-
-            if let Some(next_number) = next_number_after_undo {
-                self.next_number = next_number;
-            } else {
-                self.sync_next_number();
-            }
-            return true;
-        }
-        false
-    }
-
-    pub fn redo(&mut self) -> bool {
-        if self.redo_without_rebuild() {
-            // Only rebuild if the redone action requires it
-            if let Some(action) = self.actions.last() {
-                if Self::action_requires_effect_rebuild(action) {
-                    self.rebuild_effect_layer();
-                }
-            }
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn redo_without_rebuild(&mut self) -> bool {
-        if let Some(action) = self.redo_actions.pop() {
-            let next_number_after_redo = match &action {
-                AnnotationAction::Number { number, style, .. }
-                    if *style == self.numbering_style =>
-                {
-                    Some(number.saturating_add(1))
-                }
-                _ => None,
-            };
-
-            self.actions.push(action);
-            self.selected_action_index = None;
-            self.select_drag_anchor = None;
-            self.select_resize_handle = None;
-
-            if let Some(next_number) = next_number_after_redo {
-                self.next_number = next_number;
-            } else {
-                self.sync_next_number();
-            }
-            return true;
-        }
-        false
     }
 
     pub fn sync_next_number(&mut self) {
@@ -1996,7 +1263,6 @@ impl EditorState {
         ))
     }
 
-    #[allow(dead_code)]
     pub fn commit_active_text_input(&mut self) -> bool {
         if let Some(action) = self.commit_text_input() {
             self.push_action(action);
@@ -2055,7 +1321,7 @@ impl EditorState {
         true
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn update_text_action(&mut self, index: usize, new_text: String) -> bool {
         if index >= self.actions.len() {
             return false;
@@ -2098,27 +1364,6 @@ impl EditorState {
             .enumerate()
             .rev()
             .find(|(_, action)| action_contains_point_with_padding(action, point, hit_padding))
-            .map(|(index, _)| index);
-        self.select_drag_anchor = None;
-        self.select_resize_handle = None;
-        self.selected_action_index.is_some()
-    }
-
-    #[allow(dead_code)]
-    pub fn select_text_action_at_point_with_scale(
-        &mut self,
-        point: Point,
-        _view_scale: f64,
-    ) -> bool {
-        self.selected_action_index = self
-            .actions
-            .iter()
-            .enumerate()
-            .rev()
-            .find(|(_, action)| {
-                matches!(action, AnnotationAction::Text { .. })
-                    && action_contains_point_with_padding(action, point, 0.0)
-            })
             .map(|(index, _)| index);
         self.select_drag_anchor = None;
         self.select_resize_handle = None;
@@ -2328,7 +1573,7 @@ impl EditorState {
         true
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn end_select_drag(&mut self) -> bool {
         let rebuild = self.select_drag_effect_dirty;
         if rebuild {
@@ -2397,42 +1642,6 @@ impl EditorState {
         self.working_image = Arc::new(working);
         self.select_effect_rebuild_pending = false;
         self.mark_working_image_dirty();
-    }
-
-    #[allow(dead_code)]
-    pub fn commit_text_edit(
-        &mut self,
-        bounds: &TextEditBounds,
-        text: String,
-        color: DrawColor,
-        font: FontSettings,
-    ) {
-        if text.trim().is_empty() {
-            self.cancel_text_edit();
-            return;
-        }
-
-        let position = Point {
-            x: bounds.rect.x as f64,
-            y: bounds.rect.y as f64,
-        };
-
-        self.actions.push(AnnotationAction::Text {
-            position,
-            text,
-            color,
-            font,
-            max_width: Some(bounds.rect.width as f64),
-            shadow: self.draw_object_shadow,
-            background_color: None,
-        });
-
-        self.active_text_edit = None;
-        self.active_text_entry = None;
-        self.active_text_bounds = None;
-        self.active_text_is_dragging = false;
-        self.active_text_drag_handle = None;
-        self.active_text_drag_start = None;
     }
 
     pub fn cancel_text_edit(&mut self) {
@@ -2631,479 +1840,6 @@ pub fn apply_effect_actions(image: &mut RgbaImage, actions: &[AnnotationAction])
 }
 
 impl EditorState {
-    fn current_highlighter_stroke_size(&self) -> f64 {
-        self.locked_highlighter_stroke_size
-            .unwrap_or_else(|| match self.highlighter_mode {
-                HighlighterMode::TextAware => self.stroke_size,
-                HighlighterMode::Freehand => self.pen_weight.highlighter_stroke_width(),
-            })
-    }
-
-    fn current_pen_stroke_size(&self) -> f64 {
-        self.pen_weight.pen_stroke_width()
-    }
-
-    pub fn draft_crop_rect(&self) -> Option<Rect> {
-        let start = self.drag_start?;
-        let current = self.drag_current?;
-        let image_width = self.working_image.width() as i32;
-        let image_height = self.working_image.height() as i32;
-        let end = if let Some(aspect_ratio) = self.crop_aspect_ratio_value() {
-            let dx = current.x - start.x;
-            let dy = current.y - start.y;
-            if dx.abs() < 0.0001 || dy.abs() < 0.0001 {
-                current
-            } else {
-                let dx_abs = dx.abs();
-                let dy_abs = dy.abs();
-                let width_from_height = dy_abs * aspect_ratio;
-                let height_from_width = dx_abs / aspect_ratio;
-                if width_from_height <= dx_abs {
-                    Point {
-                        x: start.x + dx.signum() * width_from_height,
-                        y: current.y,
-                    }
-                } else {
-                    Point {
-                        x: current.x,
-                        y: start.y + dy.signum() * height_from_width,
-                    }
-                }
-            }
-        } else {
-            current
-        };
-
-        Rect::from_points(start, end).map(|mut rect| {
-            rect.x = rect.x.clamp(0, image_width.saturating_sub(1));
-            rect.y = rect.y.clamp(0, image_height.saturating_sub(1));
-            let max_width = image_width.saturating_sub(rect.x);
-            let max_height = image_height.saturating_sub(rect.y);
-            rect.width = rect.width.clamp(0, max_width);
-            rect.height = rect.height.clamp(0, max_height);
-            rect
-        })
-    }
-
-    pub fn begin_drag(&mut self, point: Point) {
-        self.selected_action_index = None;
-        self.drag_start = Some(point);
-        self.drag_current = Some(point);
-        self.drag_path.clear();
-        self.locked_highlighter_stroke_size = None;
-        if matches!(self.selected_tool, Tool::Pen | Tool::Highlighter) {
-            self.drag_path.push(point);
-        }
-        if self.selected_tool == Tool::Highlighter {
-            self.locked_highlighter_stroke_size = Some(self.current_highlighter_stroke_size());
-            // In TextAware mode, also lock the detected text height at the drag start point
-            // so the stroke size matches what the cursor was showing
-            if self.highlighter_mode == HighlighterMode::TextAware {
-                if let Ok(detector) = self.text_detector.lock() {
-                    if detector.is_ready() {
-                        if let Some(text_height) = detector.best_text_height_at_point(point) {
-                            self.locked_highlighter_stroke_size = Some(text_height);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    pub fn update_drag(&mut self, point: Point) {
-        self.drag_current = Some(point);
-        if matches!(self.selected_tool, Tool::Pen | Tool::Highlighter)
-            && self
-                .drag_path
-                .last()
-                .map(|last| (last.x - point.x).abs() > 0.1 || (last.y - point.y).abs() > 0.1)
-                .unwrap_or(true)
-        {
-            self.drag_path.push(point);
-        }
-    }
-
-    pub fn clear_drag(&mut self) -> bool {
-        let rebuild = self.clear_drag_without_rebuild_and_check_effect();
-        if rebuild {
-            self.rebuild_effect_layer();
-        }
-        rebuild
-    }
-
-    pub fn clear_drag_without_rebuild(&mut self) {
-        self.drag_start = None;
-        self.drag_current = None;
-        self.drag_start_view = None;
-        self.select_drag_anchor = None;
-        self.select_resize_handle = None;
-        self.arrow_control_dragging = None;
-        self.drag_path.clear();
-        self.drag_shift_active = false;
-        self.locked_highlighter_stroke_size = None;
-    }
-
-    pub fn clear_drag_without_rebuild_and_check_effect(&mut self) -> bool {
-        let rebuild = self.select_effect_rebuild_pending;
-        self.select_effect_rebuild_pending = false;
-        self.clear_drag_without_rebuild();
-        rebuild
-    }
-
-    pub fn draft_action(&self) -> Option<AnnotationAction> {
-        let start = self.drag_start?;
-        let end = super::types::constrained_drag_endpoint(
-            self.selected_tool,
-            start,
-            self.drag_current?,
-            self.drag_shift_active,
-        );
-        let color = self.selected_color;
-        let stroke_size = self.stroke_size;
-
-        match self.selected_tool {
-            Tool::Select => None,
-            Tool::Crop => None,
-            Tool::Background => None,
-            Tool::Pen => {
-                // Skip Douglas–Peucker simplification for the in-progress draft.
-                // Simplification is O(n log n) (worst-case O(n²)) and runs on every
-                // redraw, which adds visible lag for long pen strokes. The raw path
-                // already de-duplicates points within 0.1px in `update_drag`, so the
-                // draft renders identically without the per-frame work. The full
-                // simplification still runs once in `finalize_drag_action`.
-                let points = self.drag_path.clone();
-                if points.len() >= 2 {
-                    Some(AnnotationAction::Pen {
-                        points,
-                        color,
-                        stroke_size: self.current_pen_stroke_size(),
-                    })
-                } else {
-                    None
-                }
-            }
-            Tool::Highlighter => {
-                // See note above on Tool::Pen – skip simplification for the draft.
-                let source_points = self.drag_path.clone();
-                if source_points.len() >= 2 {
-                    let points = if self.drag_shift_active {
-                        let first = source_points[0];
-                        let last = source_points[source_points.len() - 1];
-                        vec![
-                            first,
-                            super::types::constrained_drag_endpoint(
-                                Tool::Highlighter,
-                                first,
-                                last,
-                                true,
-                            ),
-                        ]
-                    } else {
-                        source_points
-                    };
-
-                    Some(AnnotationAction::Highlighter {
-                        points,
-                        color,
-                        stroke_size: self.current_highlighter_stroke_size(),
-                    })
-                } else {
-                    None
-                }
-            }
-            Tool::Circle => Rect::from_points(start, end).map(|rect| AnnotationAction::Circle {
-                rect,
-                color,
-                stroke_size,
-                shadow: self.draw_object_shadow,
-            }),
-            Tool::Line => Some(AnnotationAction::Line {
-                start,
-                end,
-                color,
-                stroke_size,
-                shadow: self.draw_object_shadow,
-            }),
-            Tool::Arrow => {
-                let (start, end) = self.arrow_points(start, end);
-                // Reject zero-length arrows (clicks without dragging).
-                if (start.x - end.x).abs() < 0.5 && (start.y - end.y).abs() < 0.5 {
-                    None
-                } else {
-                    Some(AnnotationAction::Arrow {
-                        start,
-                        end,
-                        color,
-                        stroke_size,
-                        style: self.arrow_style,
-                        control_points: None,
-                        shadow: self.draw_object_shadow,
-                    })
-                }
-            }
-            Tool::Box => Rect::from_points(start, end).map(|rect| AnnotationAction::Box {
-                rect,
-                color,
-                stroke_size,
-                shadow: self.draw_object_shadow,
-            }),
-            Tool::Number => None,
-            Tool::Obfuscate => {
-                Rect::from_points(start, end).map(|rect| AnnotationAction::Obfuscate {
-                    rect,
-                    method: self.obfuscate_method,
-                    amount: self.current_obfuscate_amount(),
-                })
-            }
-            Tool::Focus => Rect::from_points(start, end).map(|rect| AnnotationAction::Focus {
-                rect,
-                intensity: self.current_focus_intensity(),
-            }),
-            Tool::Text => None,
-        }
-    }
-
-    pub fn finalize_drag_action(&mut self) -> Option<AnnotationAction> {
-        if matches!(self.selected_tool, Tool::Pen | Tool::Highlighter) {
-            let drag_path = std::mem::take(&mut self.drag_path);
-            let mut points = self.processed_drag_path(drag_path);
-            let color = self.selected_color;
-            let tool = self.selected_tool;
-            let shift_active = self.drag_shift_active;
-            let pen_stroke_size = self.current_pen_stroke_size();
-            let highlighter_stroke_size = if tool == Tool::Highlighter {
-                Some(self.current_highlighter_stroke_size())
-            } else {
-                None
-            };
-            self.clear_drag();
-            return if points.len() >= 2 {
-                match tool {
-                    Tool::Pen => Some(AnnotationAction::Pen {
-                        points,
-                        color,
-                        stroke_size: pen_stroke_size,
-                    }),
-                    Tool::Highlighter => {
-                        if shift_active {
-                            let first = points[0];
-                            let last = points[points.len() - 1];
-                            let constrained_last = super::types::constrained_drag_endpoint(
-                                Tool::Highlighter,
-                                first,
-                                last,
-                                true,
-                            );
-                            points = vec![first, constrained_last];
-                        }
-
-                        let stroke_size = highlighter_stroke_size
-                            .unwrap_or_else(|| self.pen_weight.highlighter_stroke_width());
-
-                        if points.len() >= 2
-                            && ((points[0].x - points[1].x).abs() > 0.1
-                                || (points[0].y - points[1].y).abs() > 0.1)
-                        {
-                            Some(AnnotationAction::Highlighter {
-                                points,
-                                color,
-                                stroke_size,
-                            })
-                        } else {
-                            None
-                        }
-                    }
-                    _ => None,
-                }
-            } else {
-                None
-            };
-        }
-
-        let start = self.drag_start?;
-        let end = super::types::constrained_drag_endpoint(
-            self.selected_tool,
-            start,
-            self.drag_current?,
-            self.drag_shift_active,
-        );
-        let color = self.selected_color;
-        let stroke_size = self.stroke_size;
-        self.clear_drag();
-
-        let mut result = match self.selected_tool {
-            Tool::Select => None,
-            Tool::Crop => None,
-            Tool::Background => None,
-            Tool::Pen => None,
-            Tool::Highlighter => None,
-            Tool::Circle => Rect::from_points(start, end).map(|rect| AnnotationAction::Circle {
-                rect,
-                color,
-                stroke_size,
-                shadow: self.draw_object_shadow,
-            }),
-            Tool::Line => Some(AnnotationAction::Line {
-                start,
-                end,
-                color,
-                stroke_size,
-                shadow: self.draw_object_shadow,
-            }),
-            Tool::Arrow => {
-                let (start, end) = self.arrow_points(start, end);
-                // Reject zero-length arrows (clicks without dragging).
-                if (start.x - end.x).abs() < 0.5 && (start.y - end.y).abs() < 0.5 {
-                    None
-                } else {
-                    Some(AnnotationAction::Arrow {
-                        start,
-                        end,
-                        color,
-                        stroke_size,
-                        style: self.arrow_style,
-                        control_points: None,
-                        shadow: self.draw_object_shadow,
-                    })
-                }
-            }
-            Tool::Box => Rect::from_points(start, end).map(|rect| AnnotationAction::Box {
-                rect,
-                color,
-                stroke_size,
-                shadow: self.draw_object_shadow,
-            }),
-            Tool::Number => None,
-            Tool::Obfuscate => {
-                Rect::from_points(start, end).map(|rect| AnnotationAction::Obfuscate {
-                    rect,
-                    method: self.obfuscate_method,
-                    amount: self.current_obfuscate_amount(),
-                })
-            }
-            Tool::Focus => Rect::from_points(start, end).map(|rect| AnnotationAction::Focus {
-                rect,
-                intensity: self.current_focus_intensity(),
-            }),
-            Tool::Text => None,
-        };
-
-        // For all arrows, initialize control handles after finalize
-        if let Some(AnnotationAction::Arrow {
-            style,
-            control_points,
-            start,
-            end,
-            ..
-        }) = result.as_mut()
-        {
-            match style {
-                ArrowStyle::Curved | ArrowStyle::Double => {
-                    let mid = Point {
-                        x: (start.x + end.x) / 2.0,
-                        y: (start.y + end.y) / 2.0,
-                    };
-                    *control_points = Some(vec![*start, mid, *end]);
-                }
-                _ => {
-                    *control_points = Some(vec![*start, *end]);
-                }
-            }
-            self.arrow_editing_controls = true;
-        }
-
-        result
-    }
-
-    fn arrow_points(&self, start: Point, end: Point) -> (Point, Point) {
-        if self.inverse_arrow_direction {
-            (end, start)
-        } else {
-            (start, end)
-        }
-    }
-
-    fn processed_drag_path(&self, points: Vec<Point>) -> Vec<Point> {
-        if !self.smooth_drawing_enabled {
-            return points;
-        }
-
-        // Light simplification only: large epsilons make strokes jump to
-        // angular polylines on mouse-up after a smooth draft. Keep enough
-        // points that midpoint curve smoothing still looks continuous.
-        let epsilon = (self.current_pen_stroke_size() * 0.08).clamp(0.25, 0.55);
-        simplify_drag_path(&points, epsilon)
-    }
-
-    fn expand_canvas_for_action_if_needed(&mut self, action: &mut AnnotationAction) {
-        if !self.auto_expand_canvas {
-            return;
-        }
-
-        let Some(bounds) = action_bounds_with_padding(action, 0.0) else {
-            return;
-        };
-
-        let left_padding = (-bounds.x).max(0);
-        let top_padding = (-bounds.y).max(0);
-        let right_edge = (bounds.x + bounds.width).max(self.working_image.width() as i32);
-        let bottom_edge = (bounds.y + bounds.height).max(self.working_image.height() as i32);
-        let new_width = (right_edge + left_padding).max(self.working_image.width() as i32);
-        let new_height = (bottom_edge + top_padding).max(self.working_image.height() as i32);
-
-        let expand_left = left_padding.max(0) as u32;
-        let expand_top = top_padding.max(0) as u32;
-        let next_width = new_width.max(1) as u32;
-        let next_height = new_height.max(1) as u32;
-
-        if next_width == self.working_image.width()
-            && next_height == self.working_image.height()
-            && expand_left == 0
-            && expand_top == 0
-        {
-            return;
-        }
-
-        self.base_image = Arc::new(expand_rgba_image(
-            &self.base_image,
-            next_width,
-            next_height,
-            expand_left,
-            expand_top,
-        ));
-        self.working_image = Arc::new(expand_rgba_image(
-            &self.working_image,
-            next_width,
-            next_height,
-            expand_left,
-            expand_top,
-        ));
-
-        if expand_left > 0 || expand_top > 0 {
-            let dx = expand_left as f64;
-            let dy = expand_top as f64;
-
-            for existing in &mut self.actions {
-                translate_action(existing, dx, dy);
-            }
-            translate_action(action, dx, dy);
-
-            if let Some(crop) = self.crop_selection.as_mut() {
-                crop.x += expand_left as i32;
-                crop.y += expand_top as i32;
-            }
-
-            if let Some(bounds) = self.active_text_bounds.as_mut() {
-                bounds.rect.x += expand_left as i32;
-                bounds.rect.y += expand_top as i32;
-                bounds.sync_handles();
-            }
-        }
-
-        self.mark_working_image_dirty();
-    }
-
     pub fn apply_crop_selection(&mut self) -> Result<bool, EditorError> {
         if self.crop_selection.is_none() {
             return Ok(false);
@@ -3128,250 +1864,9 @@ impl EditorState {
 
         Ok(true)
     }
-
-    pub fn to_rendered_image(&self) -> Result<RgbaImage, EditorError> {
-        let (width, height) = self.working_image.dimensions();
-        if width == 0 || height == 0 {
-            return Err(EditorError::ImageSave(
-                "image has invalid dimensions".into(),
-            ));
-        }
-
-        let stride = gtk4::cairo::Format::ARgb32
-            .stride_for_width(width)
-            .map_err(|e| EditorError::ImageSave(e.to_string()))?;
-
-        let data = super::render::rgba_to_cairo_argb_bytes(&self.working_image);
-        let mut surface = gtk4::cairo::ImageSurface::create_for_data(
-            data,
-            gtk4::cairo::Format::ARgb32,
-            width as i32,
-            height as i32,
-            stride,
-        )
-        .map_err(|e| EditorError::ImageSave(e.to_string()))?;
-
-        {
-            let context = gtk4::cairo::Context::new(&surface)
-                .map_err(|e| EditorError::ImageSave(e.to_string()))?;
-
-            for action in &self.actions {
-                if matches!(
-                    action,
-                    AnnotationAction::Obfuscate { .. } | AnnotationAction::Focus { .. }
-                ) {
-                    continue;
-                }
-                super::render::draw_annotation_action(&context, action);
-            }
-        }
-
-        surface.flush();
-        let surface_data = surface
-            .data()
-            .map_err(|e| EditorError::ImageSave(e.to_string()))?;
-
-        Ok(super::render::cairo_argb_to_rgba_image(
-            width,
-            height,
-            stride as usize,
-            surface_data.as_ref(),
-        ))
-    }
-
-    pub fn to_final_image(&self) -> Result<RgbaImage, EditorError> {
-        let mut rendered = self.to_rendered_image()?;
-
-        if let Some(crop) = self.crop_selection {
-            rendered = crop_image(&rendered, crop, self.crop_background_color);
-        }
-
-        if self.background_style != BackgroundStyle::None {
-            return self.render_with_background(&rendered);
-        }
-
-        Ok(rendered)
-    }
-
-    fn background_layout_for(&self, screenshot: &RgbaImage) -> CompositionLayout {
-        BackgroundComposition::new(screenshot.width() as f64, screenshot.height() as f64)
-            .with_style(self.background_style.clone())
-            .with_padding(self.background_padding)
-            .with_shadow(self.background_shadow)
-            .with_insert(self.background_insert)
-            .with_alignment(self.background_alignment)
-            .with_corner_radius(self.background_corner_radius)
-            .with_aspect_ratio(self.background_aspect_ratio)
-            .compute()
-    }
-
-    fn render_with_background(&self, screenshot: &RgbaImage) -> Result<RgbaImage, EditorError> {
-        let layout = self.background_layout_for(screenshot);
-
-        let mut canvas = match &self.background_style {
-            BackgroundStyle::PlainColor(color) => {
-                let pixel = image::Rgba([
-                    (color.r.clamp(0.0, 1.0) * 255.0) as u8,
-                    (color.g.clamp(0.0, 1.0) * 255.0) as u8,
-                    (color.b.clamp(0.0, 1.0) * 255.0) as u8,
-                    (color.a.clamp(0.0, 1.0) * 255.0) as u8,
-                ]);
-                RgbaImage::from_pixel(
-                    layout.canvas_width as u32,
-                    layout.canvas_height as u32,
-                    pixel,
-                )
-            }
-            BackgroundStyle::Gradient(idx) => {
-                let file_name = crate::capture::editor::window::background_panel::BACKGROUND_GRADIENT_PREVIEW_FILES[*idx];
-                let path = crate::capture::editor::window::background_panel::background_gradient_asset_path(file_name);
-                self.load_and_resize_background(
-                    &path,
-                    layout.canvas_width as u32,
-                    layout.canvas_height as u32,
-                )?
-            }
-            BackgroundStyle::Wallpaper(path) => self.load_and_resize_background(
-                path,
-                layout.canvas_width as u32,
-                layout.canvas_height as u32,
-            )?,
-            BackgroundStyle::Blurred(blur_idx) => {
-                let blur_radius = match blur_idx {
-                    0 => 10.0,
-                    1 => 35.0,
-                    2 => 80.0,
-                    _ => 20.0,
-                };
-                // Match the editor's on-screen preview: downsample the screenshot
-                // to <=800px on its longest edge BEFORE blurring, then upscale to
-                // canvas size. The on-screen draw path does this for the cached
-                // preview surface, but the original save path re-blurred at full
-                // resolution which dominated "Done" latency on large captures
-                // (4K screenshots could spend 1-2 s just blurring before encode).
-                // Blur is intrinsically smooth, so the visible result of
-                // downsample -> blur -> upscale is indistinguishable from
-                // full-resolution blur.
-                const MAX_BLUR_DIM: u32 = 800;
-                let (sw, sh) = screenshot.dimensions();
-                let mut blurred = if sw > MAX_BLUR_DIM || sh > MAX_BLUR_DIM {
-                    let scale = MAX_BLUR_DIM as f64 / (sw.max(sh) as f64);
-                    image::imageops::resize(
-                        screenshot,
-                        ((sw as f64) * scale).round().max(1.0) as u32,
-                        ((sh as f64) * scale).round().max(1.0) as u32,
-                        image::imageops::FilterType::Triangle,
-                    )
-                } else {
-                    screenshot.clone()
-                };
-                let (bw, bh) = blurred.dimensions();
-                apply_blur_rect(
-                    &mut blurred,
-                    Rect {
-                        x: 0,
-                        y: 0,
-                        width: bw as i32,
-                        height: bh as i32,
-                    },
-                    blur_radius,
-                    false,
-                );
-                image::imageops::resize(
-                    &blurred,
-                    layout.canvas_width as u32,
-                    layout.canvas_height as u32,
-                    image::imageops::FilterType::Triangle,
-                )
-            }
-            BackgroundStyle::None => return Ok(screenshot.clone()),
-        };
-
-        let mut final_screenshot = if (layout.draw_scale - 1.0).abs() > 0.001 {
-            image::imageops::resize(
-                screenshot,
-                layout.image_rect.width.round().max(1.0) as u32,
-                layout.image_rect.height.round().max(1.0) as u32,
-                image::imageops::FilterType::CatmullRom,
-            )
-        } else {
-            screenshot.clone()
-        };
-
-        if self.background_corner_radius > 0.0 {
-            let radius = self.background_corner_radius * layout.scale_factor * layout.draw_scale;
-            apply_corner_radius(&mut final_screenshot, radius);
-        }
-
-        if let Some(shadow) = layout.shadow {
-            let mut shadow_layer = render_shadow_layer(
-                final_screenshot.width(),
-                final_screenshot.height(),
-                shadow.blur,
-                shadow.opacity,
-                self.background_corner_radius * layout.scale_factor * layout.draw_scale,
-            )?;
-            if shadow.blur > 0.0 {
-                let shadow_width = shadow_layer.width() as i32;
-                let shadow_height = shadow_layer.height() as i32;
-                let blur_rect = Rect {
-                    x: 0,
-                    y: 0,
-                    width: shadow_width,
-                    height: shadow_height,
-                };
-                // Apply 3 passes of box blur to approximate Gaussian blur.
-                // A single pass produces harsh edges; multiple passes create
-                // the smooth falloff expected of a realistic shadow.
-                let pass_radius = (shadow.blur / 2.0).max(1.0);
-                for _ in 0..3 {
-                    apply_blur_rect(&mut shadow_layer, blur_rect, pass_radius, true);
-                }
-            }
-            image::imageops::overlay(
-                &mut canvas,
-                &shadow_layer,
-                shadow.rect.x.round() as i64,
-                shadow.rect.y.round() as i64,
-            );
-        }
-
-        image::imageops::overlay(
-            &mut canvas,
-            &final_screenshot,
-            layout.image_rect.x.round() as i64,
-            layout.image_rect.y.round() as i64,
-        );
-
-        Ok(canvas)
-    }
-
-    fn load_and_resize_background(
-        &self,
-        path: &Path,
-        width: u32,
-        height: u32,
-    ) -> Result<RgbaImage, EditorError> {
-        let img = image::open(path).map_err(|e| EditorError::ImageLoad(e.to_string()))?;
-        let rgba = img.into_rgba8();
-        Ok(image::imageops::resize(
-            &rgba,
-            width,
-            height,
-            image::imageops::FilterType::Triangle,
-        ))
-    }
-
-    pub fn set_highlighter_mode(&mut self, mode: HighlighterMode) {
-        self.highlighter_mode = mode;
-    }
-
-    pub fn set_pen_weight(&mut self, weight: PenWeight) {
-        self.pen_weight = weight;
-    }
 }
 
-fn crop_fill_pixel(fill: DrawColor) -> image::Rgba<u8> {
+pub(super) fn crop_fill_pixel(fill: DrawColor) -> image::Rgba<u8> {
     image::Rgba([
         (fill.r.clamp(0.0, 1.0) * 255.0).round() as u8,
         (fill.g.clamp(0.0, 1.0) * 255.0).round() as u8,
@@ -3380,7 +1875,7 @@ fn crop_fill_pixel(fill: DrawColor) -> image::Rgba<u8> {
     ])
 }
 
-fn crop_image(source: &RgbaImage, crop: Rect, fill: DrawColor) -> RgbaImage {
+pub(super) fn crop_image(source: &RgbaImage, crop: Rect, fill: DrawColor) -> RgbaImage {
     let crop_width = crop.width.max(0) as u32;
     let crop_height = crop.height.max(0) as u32;
     if crop_width == 0 || crop_height == 0 {
@@ -3449,7 +1944,7 @@ pub(crate) fn render_shadow_layer(
     ))
 }
 
-fn draw_rounded_rect_path(
+pub(super) fn draw_rounded_rect_path(
     context: &gtk4::cairo::Context,
     x: f64,
     y: f64,
@@ -3497,7 +1992,7 @@ fn draw_rounded_rect_path(
     context.close_path();
 }
 
-fn apply_corner_radius(image: &mut RgbaImage, radius: f64) {
+pub(super) fn apply_corner_radius(image: &mut RgbaImage, radius: f64) {
     let (width, height) = image.dimensions();
     if width == 0 || height == 0 || radius <= 0.0 {
         return;
@@ -3563,7 +2058,7 @@ mod tests {
 
     #[test]
     fn editor_state_defaults_to_background_tool() {
-        let source = include_str!("state.rs");
+        let source = include_str!("mod.rs");
         let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
         assert!(
             production_source.contains("selected_tool: Tool::Background,"),

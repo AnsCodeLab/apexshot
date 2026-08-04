@@ -4,7 +4,7 @@ use gtk4::gio;
 use gtk4::{
     glib, prelude::*, Align, Application, ApplicationWindow, Box as GtkBox, Button, CheckButton,
     DrawingArea, DropTarget, Entry, FileChooserAction, FileChooserNative, FileFilter, Image, Label,
-    Orientation, Overlay, Popover, ResponseType, Revealer, Spinner, Stack,
+    Orientation, Overlay, Popover, ResponseType, Revealer, Spinner,
 };
 use image::RgbaImage;
 use std::cell::{Cell, RefCell};
@@ -343,7 +343,10 @@ pub mod colors_panel;
 mod cursor;
 mod events;
 mod footer;
+mod inspectors;
 mod toolbar;
+
+use inspectors::InspectorParts;
 
 #[allow(dead_code)]
 pub mod icon_names {
@@ -1785,234 +1788,40 @@ fn setup_editor_window_full(
     number_options_group.set_visible(false);
     arrow_style_group.set_visible(false);
 
-    let build_tool_inspector = || {
-        let root = GtkBox::new(Orientation::Vertical, 12);
-        root.set_width_request(BACKGROUND_SIDEBAR_WIDTH);
-        root.set_hexpand(false);
-        root.set_halign(gtk4::Align::Fill);
-        root.set_vexpand(true);
-
-        let content = GtkBox::new(Orientation::Vertical, 10);
-        content.set_margin_top(4);
-        content.set_margin_bottom(12);
-        content.set_margin_start(12);
-        content.set_margin_end(12);
-        content.set_hexpand(false);
-        content.set_halign(gtk4::Align::Fill);
-
-        root.append(&content);
-        (root, content)
-    };
-
-    let append_inspector_section = |content: &GtkBox, title: &str, widget: &gtk4::Widget| {
-        let section = GtkBox::new(Orientation::Vertical, 8);
-        section.add_css_class("editor-inspector-section");
-        section.set_hexpand(false);
-        section.set_halign(gtk4::Align::Fill);
-
-        let section_title = Label::new(Some(title));
-        section_title.add_css_class("editor-background-section-title");
-        section_title.set_xalign(0.0);
-        section_title.set_hexpand(false);
-        section_title.set_halign(gtk4::Align::Fill);
-
-        let section_body = GtkBox::new(Orientation::Vertical, 0);
-        section_body.set_hexpand(false);
-        section_body.set_halign(gtk4::Align::Fill);
-        section_body.append(widget);
-
-        section.append(&section_title);
-        section.append(&section_body);
-        content.append(&section);
-    };
-
-    let (select_inspector, select_inspector_content) = build_tool_inspector();
-    append_inspector_section(
-        &select_inspector_content,
-        "Selection",
-        select_status_label.upcast_ref(),
-    );
-    append_inspector_section(
-        &select_inspector_content,
-        "Details",
-        select_detail_label.upcast_ref(),
-    );
-    append_inspector_section(
-        &select_inspector_content,
-        "Geometry",
-        select_geometry_label.upcast_ref(),
-    );
-    append_inspector_section(
-        &select_inspector_content,
-        "Actions",
-        select_hint_label.upcast_ref(),
-    );
-
-    let (crop_inspector, crop_inspector_content) = build_tool_inspector();
-    crop_ratio_list.add_css_class("editor-inspector-option-list");
-    append_inspector_section(
-        &crop_inspector_content,
-        "Dimensions",
-        crop_dimensions_group.upcast_ref(),
-    );
-    append_inspector_section(
-        &crop_inspector_content,
-        "Aspect Ratio",
-        crop_ratio_list.upcast_ref(),
-    );
-    append_inspector_section(
-        &crop_inspector_content,
-        "Actions",
-        crop_actions_group.upcast_ref(),
-    );
-
-    let (pen_inspector, pen_inspector_content) = build_tool_inspector();
-    pen_inspector_list.add_css_class("editor-inspector-option-list");
-    append_inspector_section(
-        &pen_inspector_content,
-        "Thickness",
-        pen_inspector_list.upcast_ref(),
-    );
-
-    let (arrow_inspector, arrow_inspector_content) = build_tool_inspector();
-    arrow_style_list.add_css_class("editor-inspector-option-list");
-    arrow_thickness_list.add_css_class("editor-inspector-option-list");
-    append_inspector_section(
-        &arrow_inspector_content,
-        "Style",
-        arrow_style_list.upcast_ref(),
-    );
-    append_inspector_section(
-        &arrow_inspector_content,
-        "Thickness",
-        arrow_thickness_list.upcast_ref(),
-    );
-    append_inspector_section(
-        &arrow_inspector_content,
-        "Behavior",
-        arrow_behavior_group.upcast_ref(),
-    );
-
-    let (line_inspector, line_inspector_content) = build_tool_inspector();
-    line_inspector_list.add_css_class("editor-inspector-option-list");
-    append_inspector_section(
-        &line_inspector_content,
-        "Thickness",
-        line_inspector_list.upcast_ref(),
-    );
-
-    let (text_inspector, text_inspector_content) = build_tool_inspector();
-    text_size_list.add_css_class("editor-inspector-option-list");
-    font_family_list.add_css_class("editor-inspector-option-list");
-    append_inspector_section(&text_inspector_content, "Size", text_size_list.upcast_ref());
-    append_inspector_section(
-        &text_inspector_content,
-        "Font",
-        font_family_list.upcast_ref(),
-    );
-
-    let (obfuscate_inspector, obfuscate_inspector_content) = build_tool_inspector();
-    obfuscate_method_list.add_css_class("editor-inspector-option-list");
-    append_inspector_section(
-        &obfuscate_inspector_content,
-        "Method",
-        obfuscate_method_list.upcast_ref(),
-    );
-
-    let (number_inspector, number_inspector_content) = build_tool_inspector();
-    number_options_list.add_css_class("editor-inspector-option-list");
-    number_size_list.add_css_class("editor-inspector-option-list");
-    append_inspector_section(
-        &number_inspector_content,
-        "Style",
-        number_options_list.upcast_ref(),
-    );
-    append_inspector_section(
-        &number_inspector_content,
-        "Start",
-        number_start_row.upcast_ref(),
-    );
-    append_inspector_section(
-        &number_inspector_content,
-        "Size",
-        number_size_list.upcast_ref(),
-    );
-
-    let (highlighter_inspector, highlighter_inspector_content) = build_tool_inspector();
-    highlighter_inspector_list.add_css_class("editor-inspector-option-list");
-    append_inspector_section(
-        &highlighter_inspector_content,
-        "Thickness",
-        highlighter_inspector_list.upcast_ref(),
-    );
-
-    let inspector_tabs = GtkBox::new(Orientation::Horizontal, 8);
-    inspector_tabs.add_css_class("editor-inspector-tabs");
-    inspector_tabs.set_width_request(BACKGROUND_SIDEBAR_WIDTH);
-    inspector_tabs.set_hexpand(false);
-    inspector_tabs.set_halign(gtk4::Align::Fill);
-
-    let background_tab_btn = Button::with_label("Background");
-    background_tab_btn.set_has_frame(false);
-    background_tab_btn.add_css_class("editor-inspector-tab-button");
-
-    let colors_tab_btn = Button::with_label("Colors");
-    colors_tab_btn.set_has_frame(false);
-    colors_tab_btn.add_css_class("editor-inspector-tab-button");
-
-    inspector_tabs.append(&background_tab_btn);
-    inspector_tabs.append(&colors_tab_btn);
-
-    let inspector = GtkBox::new(Orientation::Vertical, 0);
-    inspector.add_css_class("editor-right-inspector");
-    inspector.set_width_request(BACKGROUND_SIDEBAR_WIDTH);
-    inspector.set_hexpand(false);
-    inspector.set_vexpand(true);
-    inspector.append(&sidebar_utility_controls);
-    inspector.append(&inspector_tabs);
-
-    let inspector_stack = Stack::new();
-    inspector_stack.set_hhomogeneous(true);
-    inspector_stack.set_vhomogeneous(false);
-    inspector_stack.set_width_request(BACKGROUND_SIDEBAR_WIDTH);
-    inspector_stack.set_hexpand(false);
-    inspector_stack.set_vexpand(true);
-    background_inspector.set_visible(true);
-    crop_inspector.set_visible(true);
-    pen_inspector.set_visible(true);
-    arrow_inspector.set_visible(true);
-    line_inspector.set_visible(true);
-    text_inspector.set_visible(true);
-    highlighter_inspector.set_visible(true);
-    obfuscate_inspector.set_visible(true);
-    number_inspector.set_visible(true);
-    colors_inspector.set_visible(true);
-    placeholder_inspector.set_visible(true);
-    select_inspector.set_visible(true);
-    inspector_stack.add_named(&background_inspector, Some("background"));
-    inspector_stack.add_named(&select_inspector, Some("select"));
-    inspector_stack.add_named(&crop_inspector, Some("crop"));
-    inspector_stack.add_named(&pen_inspector, Some("pen"));
-    inspector_stack.add_named(&arrow_inspector, Some("arrow"));
-    inspector_stack.add_named(&line_inspector, Some("line"));
-    inspector_stack.add_named(&text_inspector, Some("text"));
-    inspector_stack.add_named(&highlighter_inspector, Some("highlighter"));
-    inspector_stack.add_named(&obfuscate_inspector, Some("obfuscate"));
-    inspector_stack.add_named(&number_inspector, Some("number"));
-    inspector_stack.add_named(&colors_inspector, Some("colors"));
-    inspector_stack.add_named(&placeholder_inspector, Some("placeholder"));
-    inspector_stack.set_visible_child_name("placeholder");
-    inspector.append(&inspector_stack);
-
-    let sidebar_actions = GtkBox::new(Orientation::Horizontal, 8);
-    sidebar_actions.add_css_class("editor-sidebar-actions");
-    let sidebar_action_spacer = GtkBox::new(Orientation::Horizontal, 0);
-    sidebar_action_spacer.set_hexpand(true);
-    sidebar_actions.append(&copy_btn);
-    sidebar_actions.append(&upload_btn);
-    sidebar_actions.append(&sidebar_action_spacer);
-    sidebar_actions.append(&save_btn);
-    inspector.append(&sidebar_actions);
+    let InspectorParts {
+        inspector_tabs,
+        background_tab_btn,
+        colors_tab_btn,
+        inspector,
+        inspector_stack,
+    } = inspectors::build_tool_inspectors(inspectors::InspectorContentInputs {
+        select_status_label: &select_status_label,
+        select_detail_label: &select_detail_label,
+        select_geometry_label: &select_geometry_label,
+        select_hint_label: &select_hint_label,
+        crop_dimensions_group: &crop_dimensions_group,
+        crop_ratio_list: &crop_ratio_list,
+        crop_actions_group: &crop_actions_group,
+        pen_inspector_list: &pen_inspector_list,
+        arrow_style_list: &arrow_style_list,
+        arrow_thickness_list: &arrow_thickness_list,
+        arrow_behavior_group: &arrow_behavior_group,
+        line_inspector_list: &line_inspector_list,
+        text_size_list: &text_size_list,
+        font_family_list: &font_family_list,
+        obfuscate_method_list: &obfuscate_method_list,
+        number_options_list: &number_options_list,
+        number_start_row: &number_start_row,
+        number_size_list: &number_size_list,
+        highlighter_inspector_list: &highlighter_inspector_list,
+        sidebar_utility_controls: &sidebar_utility_controls,
+        background_inspector: &background_inspector,
+        colors_inspector: &colors_inspector,
+        placeholder_inspector: &placeholder_inspector,
+        copy_btn: &copy_btn,
+        upload_btn: &upload_btn,
+        save_btn: &save_btn,
+    });
 
     // Canvas fills the pane (checkerboard). Toolbar + drag strip float on top;
     // image content is inset below the strip so it never covers the tools.
@@ -3863,6 +3672,14 @@ fn draw_rounded_rect_path(
 
 #[cfg(test)]
 mod tests {
+
+    fn production_editor_window_source() -> String {
+        let mod_src = include_str!("mod.rs");
+        let inspectors_src = include_str!("inspectors.rs");
+        let mod_prod = mod_src.split("#[cfg(test)]").next().unwrap_or(mod_src);
+        format!("{mod_prod}\n{inspectors_src}")
+    }
+
     #[test]
     fn toolbar_color_status_syncs_from_shared_active_color() {
         let source = include_str!("mod.rs");
@@ -3898,8 +3715,7 @@ mod tests {
 
     #[test]
     fn editor_layout_includes_persistent_right_inspector_shell() {
-        let source = include_str!("mod.rs");
-        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        let production_source = production_editor_window_source();
         assert!(production_source.contains("editor-right-inspector"));
     }
 
@@ -3946,12 +3762,11 @@ mod tests {
 
     #[test]
     fn editor_layout_uses_stack_for_inspector_surface_switching() {
-        let source = include_str!("mod.rs");
-        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        let production_source = production_editor_window_source();
         assert!(
             production_source.contains("let inspector_stack = Stack::new();")
                 && production_source.contains("inspector_stack.set_hhomogeneous(true);")
-                && production_source.contains("background_inspector.set_visible(true);")
+                && production_source.contains("input.background_inspector.set_visible(true);")
                 && production_source.contains("select_inspector.set_visible(true);")
                 && production_source.contains("crop_inspector.set_visible(true);")
                 && production_source.contains("pen_inspector.set_visible(true);")
@@ -3960,9 +3775,9 @@ mod tests {
                 && production_source.contains("text_inspector.set_visible(true);")
                 && production_source.contains("highlighter_inspector.set_visible(true);")
                 && production_source.contains("number_inspector.set_visible(true);")
-                && production_source.contains("colors_inspector.set_visible(true);")
-                && production_source.contains("placeholder_inspector.set_visible(true);")
-                && production_source.contains("inspector_stack.add_named(&background_inspector, Some(\"background\"));")
+                && production_source.contains("input.colors_inspector.set_visible(true);")
+                && production_source.contains("input.placeholder_inspector.set_visible(true);")
+                && production_source.contains("inspector_stack.add_named(input.background_inspector, Some(\"background\"));")
                 && production_source.contains("inspector_stack.add_named(&select_inspector, Some(\"select\"));")
                 && production_source.contains("inspector_stack.add_named(&crop_inspector, Some(\"crop\"));")
                 && production_source.contains("inspector_stack.add_named(&pen_inspector, Some(\"pen\"));")
@@ -3971,8 +3786,8 @@ mod tests {
                 && production_source.contains("inspector_stack.add_named(&text_inspector, Some(\"text\"));")
                 && production_source.contains("inspector_stack.add_named(&highlighter_inspector, Some(\"highlighter\"));")
                 && production_source.contains("inspector_stack.add_named(&number_inspector, Some(\"number\"));")
-                && production_source.contains("inspector_stack.add_named(&colors_inspector, Some(\"colors\"));")
-                && production_source.contains("inspector_stack.add_named(&placeholder_inspector, Some(\"placeholder\"));")
+                && production_source.contains("inspector_stack.add_named(input.colors_inspector, Some(\"colors\"));")
+                && production_source.contains("inspector_stack.add_named(input.placeholder_inspector, Some(\"placeholder\"));")
                 && production_source.contains("inspector_stack.set_visible_child_name(surface);"),
             "Inspector surfaces should switch through a dedicated stack so tab changes keep one stable container",
         );
@@ -4022,8 +3837,7 @@ mod tests {
 
     #[test]
     fn select_tool_has_real_inspector_content() {
-        let source = include_str!("mod.rs");
-        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        let production_source = production_editor_window_source();
         assert!(
             production_source.contains("let (select_inspector, select_inspector_content) = build_tool_inspector();")
                 && production_source.contains("sync_select_inspector")
@@ -4036,8 +3850,7 @@ mod tests {
 
     #[test]
     fn crop_inspector_includes_aspect_ratio_dimensions_and_actions_sections() {
-        let source = include_str!("mod.rs");
-        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        let production_source = production_editor_window_source();
         assert!(
             production_source
                 .contains("let (crop_inspector, crop_inspector_content) = build_tool_inspector();")
@@ -4050,8 +3863,7 @@ mod tests {
 
     #[test]
     fn crop_inspector_reuses_existing_fixed_sidebar_width() {
-        let source = include_str!("mod.rs");
-        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        let production_source = production_editor_window_source();
         assert!(
             production_source.contains("root.set_width_request(BACKGROUND_SIDEBAR_WIDTH);")
                 && !production_source.contains("CROP_SIDEBAR_WIDTH"),
@@ -4073,8 +3885,7 @@ mod tests {
 
     #[test]
     fn arrow_inspector_includes_style_thickness_and_behavior_sections() {
-        let source = include_str!("mod.rs");
-        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        let production_source = production_editor_window_source();
         assert!(
             production_source.contains(
                 "let (arrow_inspector, arrow_inspector_content) = build_tool_inspector();"
@@ -4087,8 +3898,7 @@ mod tests {
 
     #[test]
     fn arrow_inspector_reuses_existing_fixed_sidebar_width() {
-        let source = include_str!("mod.rs");
-        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        let production_source = production_editor_window_source();
         assert!(
             production_source.contains("root.set_width_request(BACKGROUND_SIDEBAR_WIDTH);")
                 && !production_source.contains("ARROW_SIDEBAR_WIDTH"),
@@ -4123,8 +3933,7 @@ mod tests {
 
     #[test]
     fn pen_line_and_highlighter_inspectors_use_thickness_sections_with_arrow_row_styles() {
-        let source = include_str!("mod.rs");
-        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        let production_source = production_editor_window_source();
         assert!(
             production_source.contains("let (pen_inspector, pen_inspector_content) = build_tool_inspector();")
                 && production_source.contains("let (line_inspector, line_inspector_content) = build_tool_inspector();")
@@ -4133,9 +3942,9 @@ mod tests {
                 && production_source.contains("&line_inspector_content")
                 && production_source.contains("&highlighter_inspector_content")
                 && production_source.contains("\"Thickness\"")
-                && production_source.contains("pen_inspector_list.upcast_ref()")
-                && production_source.contains("line_inspector_list.upcast_ref()")
-                && production_source.contains("highlighter_inspector_list.upcast_ref()")
+                && production_source.contains("input.pen_inspector_list.upcast_ref()")
+                && production_source.contains("input.line_inspector_list.upcast_ref()")
+                && production_source.contains("input.highlighter_inspector_list.upcast_ref()")
                 && production_source.contains("\"editor-arrow-inspector-option\"")
                 && production_source.contains("sync_arrow_option_selection(&pen_inspector_list, selected_pen_thickness);")
                 && production_source.contains("sync_arrow_option_selection(&line_inspector_list, selected_thickness);")
@@ -4146,8 +3955,7 @@ mod tests {
 
     #[test]
     fn text_inspector_rows_use_label_plus_tick_layout_and_shared_sidebar_width() {
-        let source = include_str!("mod.rs");
-        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        let production_source = production_editor_window_source();
         assert!(
             production_source.contains("check_icon.add_css_class(\"editor-text-inspector-check\");")
                 && production_source.contains("btn.add_css_class(\"editor-text-inspector-option-active\");")
@@ -4161,8 +3969,7 @@ mod tests {
 
     #[test]
     fn obfuscate_inspector_renders_method_section_and_reuses_shared_sidebar_width() {
-        let source = include_str!("mod.rs");
-        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        let production_source = production_editor_window_source();
         assert!(
             production_source.contains(
                 "let (obfuscate_inspector, obfuscate_inspector_content) = build_tool_inspector();"
@@ -4188,8 +3995,7 @@ mod tests {
 
     #[test]
     fn number_inspector_style_and_size_rows_use_matching_row_composition() {
-        let source = include_str!("mod.rs");
-        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        let production_source = production_editor_window_source();
         assert!(
             production_source.contains("editor-number-style-check")
                 && production_source.contains("editor-number-size-check")
@@ -4205,8 +4011,7 @@ mod tests {
 
     #[test]
     fn number_inspector_includes_start_controls_in_the_sidebar() {
-        let source = include_str!("mod.rs");
-        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        let production_source = production_editor_window_source();
         assert!(
             production_source.contains("let number_start_row = GtkBox::new(Orientation::Horizontal, 8);")
                 && production_source.contains("let number_start_label = Label::new(Some(\"Start with:\"));")
