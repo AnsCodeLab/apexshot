@@ -360,7 +360,10 @@ mod tests {
     #[test]
     fn flatpak_default_config_has_telemetry_off() {
         // Default must be opt-in under the flatpak feature (plan §10.3).
-        assert_eq!(AppConfig::default().telemetry_enabled, !cfg!(feature = "flatpak"));
+        assert_eq!(
+            AppConfig::default().telemetry_enabled,
+            !cfg!(feature = "flatpak")
+        );
     }
 
     #[test]

@@ -1107,11 +1107,6 @@ fn copy_uri_to_clipboard(path: &Path) -> Result<(), CapturePreviewError> {
     })
 }
 
-#[allow(dead_code)]
-fn open_target(path: &Path) -> Result<(), CapturePreviewError> {
-    crate::utils::open::open_path(path).map_err(CapturePreviewError::OpenTargetError)
-}
-
 /// Compute the card's input region in surface-local coordinates.
 ///
 /// `Widget::allocation()` is parent-relative and can miss window chrome / overlay

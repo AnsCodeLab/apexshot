@@ -137,6 +137,7 @@ pub struct OcrOutput {
 }
 
 /// OCR preprocessing settings
+#[cfg(feature = "tesseract-ocr")]
 #[derive(Debug, Clone)]
 struct PreprocessConfig {
     /// Scale factor for upscaling (2.0-4.0 recommended)
@@ -150,6 +151,7 @@ struct PreprocessConfig {
     threshold: bool,
 }
 
+#[cfg(feature = "tesseract-ocr")]
 impl Default for PreprocessConfig {
     fn default() -> Self {
         Self {
@@ -172,6 +174,7 @@ impl Default for PreprocessConfig {
 ///
 /// Samples pixels and checks if the median luminance is below 100.
 /// Dark-mode UIs typically have median luminance < 100.
+#[cfg(any(test, feature = "tesseract-ocr"))]
 fn is_dark_mode(image: &RgbaImage) -> bool {
     let mut samples = Vec::new();
     let step = (image.width() * image.height()).max(1000) / 1000;
@@ -205,6 +208,7 @@ fn is_dark_mode(image: &RgbaImage) -> bool {
 /// 3. Auto-detect dark/light mode and invert only if dark-mode
 /// 4. Optional contrast enhancement
 /// 5. Optional adaptive thresholding
+#[cfg(feature = "tesseract-ocr")]
 fn preprocess_image(image: &RgbaImage, config: &PreprocessConfig) -> Vec<u8> {
     use image::imageops::{resize, FilterType};
 
@@ -281,6 +285,7 @@ fn rgba_to_luma(image: &RgbaImage) -> Vec<u8> {
 ///
 /// Finds the threshold that minimizes intra-class variance between
 /// foreground (text) and background pixels. O(n) single-pass algorithm.
+#[cfg(any(test, feature = "tesseract-ocr"))]
 fn apply_otsu_threshold(data: &mut [u8]) {
     let mut histogram = [0u32; 256];
     let total = data.len() as u32;
@@ -423,12 +428,13 @@ fn run_ocr_pipeline(rgba_image: &RgbaImage, config: &OcrConfig) -> OcrResult<Ocr
     #[cfg(feature = "tesseract-ocr")]
     {
         match run_tesseract_engine(rgba_image, config) {
-            Ok(result) => return Ok(result),
+            Ok(result) => Ok(result),
             Err(tess_err) => {
                 if let Some(out) = run_ocrs_fallback(rgba_image, config) {
-                    return Ok(out);
+                    Ok(out)
+                } else {
+                    Err(tess_err)
                 }
-                return Err(tess_err);
             }
         }
     }
@@ -782,6 +788,7 @@ pub struct DetectedTextRegion {
     pub confidence: i32,
 }
 
+#[cfg(any(test, feature = "tesseract-ocr"))]
 #[derive(Debug)]
 struct TsvWord {
     line_key: (i32, i32, i32, i32),
@@ -790,6 +797,7 @@ struct TsvWord {
     confidence: i32,
 }
 
+#[cfg(any(test, feature = "tesseract-ocr"))]
 #[derive(Debug)]
 struct TsvLineAccumulator {
     bounds: BoundingBox,
@@ -798,6 +806,7 @@ struct TsvLineAccumulator {
     word_count: i32,
 }
 
+#[cfg(any(test, feature = "tesseract-ocr"))]
 impl TsvLineAccumulator {
     fn new(word: &TsvWord) -> Self {
         Self {
@@ -838,11 +847,13 @@ impl TsvLineAccumulator {
     }
 }
 
+#[cfg(any(test, feature = "tesseract-ocr"))]
 fn scaled_i32(value: &str, inv_scale: f32) -> Option<i32> {
     let parsed = value.parse::<f32>().ok()?;
     Some((parsed * inv_scale).round() as i32)
 }
 
+#[cfg(any(test, feature = "tesseract-ocr"))]
 fn parse_tesseract_tsv_regions(tsv: &str, inv_scale: f32) -> Vec<DetectedTextRegion> {
     use std::collections::BTreeMap;
 
@@ -933,7 +944,7 @@ fn parse_tesseract_tsv_regions(tsv: &str, inv_scale: f32) -> Vec<DetectedTextReg
 pub fn extract_text_regions(image: &RgbaImage) -> Result<Vec<DetectedTextRegion>, OcrError> {
     #[cfg(feature = "tesseract-ocr")]
     {
-        return extract_text_regions_tesseract(image);
+        extract_text_regions_tesseract(image)
     }
     #[cfg(not(feature = "tesseract-ocr"))]
     {
@@ -994,6 +1005,7 @@ fn extract_text_regions_tesseract(image: &RgbaImage) -> Result<Vec<DetectedTextR
 
 /// Fast preprocessing config optimized for text region detection (highlighter cursor sizing)
 /// Uses higher upscaling to catch small text (11-12px view counts) and mild contrast
+#[cfg(feature = "tesseract-ocr")]
 fn fast_region_preprocess_config() -> PreprocessConfig {
     PreprocessConfig {
         scale_factor: 2.5, // Higher upscale for small text detection (view counts, channel names)

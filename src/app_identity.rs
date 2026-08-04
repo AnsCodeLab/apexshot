@@ -16,8 +16,7 @@ pub const OFFICIAL_BINARY: &str = "/usr/bin/apexshot";
 pub const DEV_WRAPPER: &str = "/usr/local/bin/apexshot-dev";
 
 #[cfg(feature = "flatpak")]
-pub const OFFICIAL_DESKTOP_FILE: &str =
-    "/usr/share/applications/org.apexshot.ApexShot.desktop";
+pub const OFFICIAL_DESKTOP_FILE: &str = "/usr/share/applications/org.apexshot.ApexShot.desktop";
 #[cfg(not(feature = "flatpak"))]
 pub const OFFICIAL_DESKTOP_FILE: &str =
     "/usr/share/applications/io.github.codegoddy.apexshot.desktop";
@@ -42,9 +41,7 @@ pub fn portal_only() -> bool {
 
 /// Error string when a host-escape path is attempted under portal-only.
 pub fn host_escape_blocked(what: &str) -> Option<String> {
-    portal_only().then(|| {
-        format!("{what} is unavailable in Flatpak/portal-only builds")
-    })
+    portal_only().then(|| format!("{what} is unavailable in Flatpak/portal-only builds"))
 }
 
 pub fn is_dev() -> bool {
@@ -139,6 +136,9 @@ mod tests {
 
     #[test]
     fn portal_only_matches_flatpak_feature() {
-        assert_eq!(portal_only(), cfg!(feature = "flatpak") || std::env::var_os("FLATPAK_ID").is_some());
+        assert_eq!(
+            portal_only(),
+            cfg!(feature = "flatpak") || std::env::var_os("FLATPAK_ID").is_some()
+        );
     }
 }
