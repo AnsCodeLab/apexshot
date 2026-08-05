@@ -5,9 +5,9 @@ use crate::{
     capture::{copy_capture_uri_to_clipboard, save_capture, save_existing_png, SaveConfig},
     capture_overlay::{
         begin_capture_session, capture_area_file_via_cpp, capture_crosshair_file_via_cpp,
-        capture_screen_file_via_cpp, is_launch_blocked_error, request_existing_overlay_focus,
-        user_facing_capture_failure_message, AreaCapturePathResult, CaptureOverlayGuard,
-        LaunchBlockedReason,
+        capture_screen_file_via_cpp, capture_still_via_portal, is_launch_blocked_error,
+        request_existing_overlay_focus, user_facing_capture_failure_message, AreaCapturePathResult,
+        CaptureOverlayGuard, LaunchBlockedReason,
     },
     config::load_config,
     ocr::{extract_text, OcrConfig},
@@ -603,9 +603,37 @@ pub(super) fn handle_capture_crosshair(state: Arc<Mutex<DaemonState>>) {
     handle_capture_crosshair_with_active_session(state);
 }
 
+/// Flatpak / portal-only still capture: Screenshot portal → save/open pipeline.
+/// Does not invoke `apexshot-capture` (omitted from portal-only builds).
+fn handle_portal_only_still_capture(
+    state: Arc<Mutex<DaemonState>>,
+    interactive: bool,
+    label: &str,
+) {
+    match capture_still_via_portal(interactive) {
+        Ok(capture) => {
+            let _ = save_and_open(capture, state);
+        }
+        Err(crate::overlay::SelectionError::Cancelled) => {
+            eprintln!("[daemon] {label} capture cancelled.");
+        }
+        Err(err) if is_launch_blocked_error(&err) => {
+            eprintln!("[daemon] {label} capture blocked: {err}");
+        }
+        Err(err) => {
+            notify_screenshot_capture_failed(label, &err);
+        }
+    }
+}
+
 pub(super) fn handle_capture_area_with_active_session(state: Arc<Mutex<DaemonState>>) {
     let app_config = load_config().sanitized();
     apply_screenshot_timer_if_needed("area", &app_config);
+
+    if crate::app_identity::portal_only() {
+        handle_portal_only_still_capture(state, true, "Area");
+        return;
+    }
 
     let gtk_tx = state.lock().unwrap().gtk_tx.clone();
 
@@ -674,6 +702,12 @@ pub(super) fn handle_capture_crosshair_with_active_session(state: Arc<Mutex<Daem
     let app_config = load_config().sanitized();
     apply_screenshot_timer_if_needed("crosshair", &app_config);
 
+    if crate::app_identity::portal_only() {
+        // No custom crosshair UI in the sandbox — interactive portal selector.
+        handle_portal_only_still_capture(state, true, "Crosshair");
+        return;
+    }
+
     let gtk_tx = state.lock().unwrap().gtk_tx.clone();
 
     let crosshair = if let Some(gtk_tx) = gtk_tx {
@@ -724,6 +758,11 @@ pub(super) fn handle_capture_screen(state: Arc<Mutex<DaemonState>>) {
 pub(super) fn handle_capture_screen_with_active_session(state: Arc<Mutex<DaemonState>>) {
     let app_config = load_config().sanitized();
     apply_screenshot_timer_if_needed("screen", &app_config);
+
+    if crate::app_identity::portal_only() {
+        handle_portal_only_still_capture(state, false, "Fullscreen");
+        return;
+    }
 
     let gtk_tx = state.lock().unwrap().gtk_tx.clone();
 

@@ -15,8 +15,9 @@ pub const DEV_APP_ID: &str = "io.github.codegoddy.apexshot.dev";
 pub const OFFICIAL_BINARY: &str = "/usr/bin/apexshot";
 pub const DEV_WRAPPER: &str = "/usr/local/bin/apexshot-dev";
 
+// Flatpak installs under /app/share; native packages use /usr/share.
 #[cfg(feature = "flatpak")]
-pub const OFFICIAL_DESKTOP_FILE: &str = "/usr/share/applications/org.apexshot.ApexShot.desktop";
+pub const OFFICIAL_DESKTOP_FILE: &str = "/app/share/applications/org.apexshot.ApexShot.desktop";
 #[cfg(not(feature = "flatpak"))]
 pub const OFFICIAL_DESKTOP_FILE: &str =
     "/usr/share/applications/io.github.codegoddy.apexshot.desktop";

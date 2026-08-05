@@ -458,13 +458,29 @@ fn run_daemon_with_gtk_on_main_thread() {
                 let _ = reply.send(result);
             }
             GtkWork::CaptureAreaInit { reply } => {
-                eprintln!("[gtk] CaptureAreaInit received — launching area selector");
+                // portal_only: interactive Screenshot portal (no apexshot-capture).
+                // Native: C++ / layer-shell area selector.
+                eprintln!(
+                    "[gtk] CaptureAreaInit received — {}",
+                    if app_identity::portal_only() {
+                        "portal-only area capture"
+                    } else {
+                        "launching area selector"
+                    }
+                );
                 let result = apexshot::capture_overlay::capture_area_file_via_cpp()
                     .map_err(|e| e.to_string());
                 let _ = reply.send(result);
             }
             GtkWork::CaptureCrosshair { reply } => {
-                eprintln!("[gtk] CaptureCrosshair received — launching Rust crosshair selector");
+                eprintln!(
+                    "[gtk] CaptureCrosshair received — {}",
+                    if app_identity::portal_only() {
+                        "portal-only interactive capture"
+                    } else {
+                        "launching Rust crosshair selector"
+                    }
+                );
                 let result = apexshot::capture_overlay::capture_crosshair_file_via_cpp().map_err(
                     |e| match e {
                         apexshot::SelectionError::Cancelled => "cancelled".to_string(),
@@ -474,7 +490,14 @@ fn run_daemon_with_gtk_on_main_thread() {
                 let _ = reply.send(result);
             }
             GtkWork::CaptureScreen { reply } => {
-                eprintln!("[gtk] CaptureScreen received — launching fullscreen capture");
+                eprintln!(
+                    "[gtk] CaptureScreen received — {}",
+                    if app_identity::portal_only() {
+                        "portal-only fullscreen capture"
+                    } else {
+                        "launching fullscreen capture"
+                    }
+                );
                 let result =
                     apexshot::capture_overlay::capture_screen_file_via_cpp().map_err(|e| match e {
                         apexshot::SelectionError::Cancelled => "cancelled".to_string(),
