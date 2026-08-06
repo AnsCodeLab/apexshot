@@ -3,6 +3,8 @@
 //! Behavior is split across child modules; the struct and shared helpers stay here
 //! so private field access remains inside the `state` module tree.
 
+mod arrow;
+mod crop;
 mod drag_draw;
 mod export;
 mod history;
@@ -10,25 +12,23 @@ mod text_input;
 
 use super::color::{
     clamp_focus_intensity, clamp_obfuscate_amount, clamp_pixelate_amount, clamp_stroke_size,
-    clamp_text_size, selection_handle_hit_radius_for_scale, selection_hit_padding_for_scale,
-    DEFAULT_COLOR_INDEX, DEFAULT_FOCUS_INTENSITY, DEFAULT_OBFUSCATE_AMOUNT, DRAW_COLORS,
-    SELECT_MIN_RESIZE_SIZE, STROKE_WIDTH, TEXT_SIZE,
+    selection_handle_hit_radius_for_scale, selection_hit_padding_for_scale, DEFAULT_COLOR_INDEX,
+    DEFAULT_FOCUS_INTENSITY, DEFAULT_OBFUSCATE_AMOUNT, DRAW_COLORS, STROKE_WIDTH, TEXT_SIZE,
 };
 use super::numbering_style::{NumberSize, NumberingStyle};
 use super::pen_weight::{HighlighterMode, PenWeight};
 use super::render::{
     apply_blackout_rect, apply_censor_rect, apply_focus_rect, apply_hybrid_blur,
-    cairo_argb_to_rgba_image, layout_wrapped_text, rgba_image_to_surface,
+    cairo_argb_to_rgba_image, rgba_image_to_surface,
 };
 use super::selection::{
     action_contains_point_with_padding, action_resize_handle_at_point_with_radius, resize_action,
-    resize_rect_with_handle, translate_action,
+    translate_action,
 };
 use super::text_detect::{BackgroundTextDetection, TextDetector};
 use super::types::{
     AnnotationAction, ArrowStyle, BackgroundAlignment, BackgroundStyle, CropAspectRatio, DrawColor,
-    EditorError, FontSettings, MoveHandle, ObfuscateMethod, Point, Rect, SelectHandle,
-    SizeControlMode, TextEditBounds, Tool,
+    EditorError, MoveHandle, ObfuscateMethod, Point, Rect, SizeControlMode, TextEditBounds, Tool,
 };
 use gtk4;
 use image::RgbaImage;
@@ -123,118 +123,6 @@ pub struct TextInputState {
     pub editing_action_index: Option<usize>,
 }
 
-pub(super) fn resize_crop_rect_with_handle(
-    rect: &mut Rect,
-    handle: SelectHandle,
-    dx: f64,
-    dy: f64,
-    image_width: i32,
-    image_height: i32,
-) -> bool {
-    let mut left = rect.x as f64;
-    let mut top = rect.y as f64;
-    let mut right = left + rect.width as f64;
-    let mut bottom = top + rect.height as f64;
-
-    let move_left = matches!(
-        handle,
-        SelectHandle::TopLeft | SelectHandle::Left | SelectHandle::BottomLeft
-    );
-    let move_right = matches!(
-        handle,
-        SelectHandle::TopRight | SelectHandle::Right | SelectHandle::BottomRight
-    );
-    let move_top = matches!(
-        handle,
-        SelectHandle::TopLeft | SelectHandle::Top | SelectHandle::TopRight
-    );
-    let move_bottom = matches!(
-        handle,
-        SelectHandle::BottomLeft | SelectHandle::Bottom | SelectHandle::BottomRight
-    );
-
-    if !move_left && !move_right && !move_top && !move_bottom {
-        return false;
-    }
-
-    if move_left {
-        left += dx;
-    }
-    if move_right {
-        right += dx;
-    }
-    if move_top {
-        top += dy;
-    }
-    if move_bottom {
-        bottom += dy;
-    }
-
-    // Enforce maximum expansion limits (sanity check to prevent runaway/freeze)
-    // We allow up to 5000px of padding beyond the image on any side.
-    let max_exp = 5000.0;
-    left = left.max(-max_exp);
-    top = top.max(-max_exp);
-    right = right.min(image_width as f64 + max_exp);
-    bottom = bottom.min(image_height as f64 + max_exp);
-
-    // Enforce minimum size constraints
-    if move_left && right - left < SELECT_MIN_RESIZE_SIZE {
-        left = right - SELECT_MIN_RESIZE_SIZE;
-    }
-    if move_right && right - left < SELECT_MIN_RESIZE_SIZE {
-        right = left + SELECT_MIN_RESIZE_SIZE;
-    }
-    if move_top && bottom - top < SELECT_MIN_RESIZE_SIZE {
-        top = bottom - SELECT_MIN_RESIZE_SIZE;
-    }
-    if move_bottom && bottom - top < SELECT_MIN_RESIZE_SIZE {
-        bottom = top + SELECT_MIN_RESIZE_SIZE;
-    }
-
-    let Some(updated) = Rect::from_bounds(
-        left.min(right),
-        top.min(bottom),
-        left.max(right),
-        top.max(bottom),
-    ) else {
-        return false;
-    };
-
-    let changed = updated.x != rect.x
-        || updated.y != rect.y
-        || updated.width != rect.width
-        || updated.height != rect.height;
-    if changed {
-        *rect = updated;
-    }
-
-    changed
-}
-
-pub(super) fn crop_rect_with_aspect_fit(
-    image_width: i32,
-    image_height: i32,
-    aspect_ratio: f64,
-) -> Option<Rect> {
-    if image_width <= 1 || image_height <= 1 || aspect_ratio <= 0.0 {
-        return None;
-    }
-
-    let image_ratio = image_width as f64 / image_height as f64;
-    let (width, height) = if image_ratio >= aspect_ratio {
-        let height = image_height as f64;
-        (height * aspect_ratio, height)
-    } else {
-        let width = image_width as f64;
-        (width, width / aspect_ratio)
-    };
-
-    let x = (image_width as f64 - width) / 2.0;
-    let y = (image_height as f64 - height) / 2.0;
-    Rect::from_bounds(x, y, x + width, y + height)
-}
-
 pub(super) fn simplify_drag_path(points: &[Point], epsilon: f64) -> Vec<Point> {
     if points.len() <= 2 {
         return points.to_vec();
@@ -312,61 +200,6 @@ pub(super) fn expand_rgba_image(
     let mut expanded = RgbaImage::from_pixel(new_width, new_height, image::Rgba([0, 0, 0, 0]));
     image::imageops::overlay(&mut expanded, image, offset_x as i64, offset_y as i64);
     expanded
-}
-
-pub(super) fn resize_crop_rect_with_fixed_aspect(
-    rect: &mut Rect,
-    handle: SelectHandle,
-    point: Point,
-    image_width: i32,
-    _image_height: i32,
-    aspect_ratio: f64,
-) -> bool {
-    if aspect_ratio <= 0.0 {
-        return false;
-    }
-
-    let center = Point {
-        x: rect.x as f64 + rect.width as f64 / 2.0,
-        y: rect.y as f64 + rect.height as f64 / 2.0,
-    };
-    let min_half_width = SELECT_MIN_RESIZE_SIZE / 2.0;
-    let min_half_height = min_half_width / aspect_ratio;
-    let mut half_width = match handle {
-        SelectHandle::Left | SelectHandle::Right => (point.x - center.x).abs().max(min_half_width),
-        SelectHandle::Top | SelectHandle::Bottom => {
-            ((point.y - center.y).abs().max(min_half_height)) * aspect_ratio
-        }
-        _ => (point.x - center.x)
-            .abs()
-            .max((point.y - center.y).abs() * aspect_ratio)
-            .max(min_half_width),
-    };
-
-    // Sanity check: cap half_width to avoid infinite expansion
-    let max_exp = 5000.0;
-    let max_half_width = (image_width as f64 + max_exp * 2.0) / 2.0;
-    half_width = half_width.min(max_half_width);
-
-    let half_height = half_width / aspect_ratio;
-
-    let Some(updated) = Rect::from_bounds(
-        center.x - half_width,
-        center.y - half_height,
-        center.x + half_width,
-        center.y + half_height,
-    ) else {
-        return false;
-    };
-
-    let changed = updated.x != rect.x
-        || updated.y != rect.y
-        || updated.width != rect.width
-        || updated.height != rect.height;
-    if changed {
-        *rect = updated;
-    }
-    changed
 }
 
 impl EditorState {
@@ -473,35 +306,6 @@ impl EditorState {
         self.clear_drag_without_rebuild_and_check_effect()
     }
 
-    pub fn crop_aspect_ratio_value(&self) -> Option<f64> {
-        self.crop_aspect_ratio.aspect_ratio(
-            self.working_image.width() as i32,
-            self.working_image.height() as i32,
-        )
-    }
-
-    pub fn set_crop_aspect_ratio(&mut self, crop_aspect_ratio: CropAspectRatio) -> bool {
-        if self.crop_aspect_ratio == crop_aspect_ratio {
-            return false;
-        }
-
-        self.crop_aspect_ratio = crop_aspect_ratio;
-
-        let Some(rect) = self.crop_selection else {
-            return true;
-        };
-
-        let image_width = self.working_image.width() as i32;
-        let image_height = self.working_image.height() as i32;
-        self.crop_selection = match self.crop_aspect_ratio_value() {
-            Some(aspect_ratio) => {
-                crop_rect_with_aspect_fit(image_width, image_height, aspect_ratio)
-            }
-            None => Some(rect),
-        };
-        true
-    }
-
     pub fn set_color_index(&mut self, index: usize) {
         if let Some(color) = DRAW_COLORS.get(index).copied() {
             self.selected_color = color;
@@ -509,11 +313,6 @@ impl EditorState {
                 input.color = color;
             }
         }
-    }
-
-    pub fn set_crop_background_color(&mut self, color: DrawColor) {
-        self.crop_background_color = color;
-        self.crop_background_color_explicit = true;
     }
 
     pub fn set_stroke_size(&mut self, size: f64) -> bool {
@@ -532,190 +331,6 @@ impl EditorState {
 
     pub fn obfuscate_method(&self) -> ObfuscateMethod {
         self.obfuscate_method
-    }
-
-    pub fn set_arrow_style(&mut self, style: ArrowStyle) {
-        self.arrow_style = style;
-    }
-
-    pub fn selected_arrow_style(&self) -> Option<ArrowStyle> {
-        let AnnotationAction::Arrow { style, .. } = self.selected_action()? else {
-            return None;
-        };
-
-        Some(*style)
-    }
-
-    pub fn set_selected_arrow_style(&mut self, style: ArrowStyle) -> bool {
-        let Some(index) = self.selected_action_index else {
-            return false;
-        };
-
-        let Some(action) = self.actions.get_mut(index) else {
-            self.selected_action_index = None;
-            return false;
-        };
-
-        let AnnotationAction::Arrow {
-            style: current_style,
-            ..
-        } = action
-        else {
-            return false;
-        };
-
-        if *current_style == style {
-            return false;
-        }
-
-        *current_style = style;
-        self.redo_actions.clear();
-        true
-    }
-
-    pub fn reverse_selected_arrow_action(&mut self) -> bool {
-        let Some(index) = self.selected_action_index else {
-            return false;
-        };
-
-        let Some(action) = self.actions.get_mut(index) else {
-            self.selected_action_index = None;
-            return false;
-        };
-
-        let AnnotationAction::Arrow {
-            start,
-            end,
-            control_points,
-            ..
-        } = action
-        else {
-            return false;
-        };
-
-        std::mem::swap(start, end);
-        if let Some(points) = control_points.as_mut() {
-            points.reverse();
-        }
-        self.redo_actions.clear();
-        true
-    }
-
-    const CONTROL_HANDLE_HIT_RADIUS: f64 = 10.0;
-
-    pub fn arrow_control_handle_at(&self, point: Point) -> Option<usize> {
-        let action = self.selected_action()?;
-        if let AnnotationAction::Arrow {
-            control_points: Some(handles),
-            ..
-        } = action
-        {
-            if handles.len() >= 3 {
-                // Curved/Double: hit-test against on-curve midpoint B(0.5)
-                let mid_on_curve = Point {
-                    x: 0.25 * handles[0].x + 0.5 * handles[1].x + 0.25 * handles[2].x,
-                    y: 0.25 * handles[0].y + 0.5 * handles[1].y + 0.25 * handles[2].y,
-                };
-                let test_points = [handles[0], mid_on_curve, handles[2]];
-                for (i, handle) in test_points.iter().enumerate() {
-                    let dx = point.x - handle.x;
-                    let dy = point.y - handle.y;
-                    if (dx * dx + dy * dy).sqrt() < Self::CONTROL_HANDLE_HIT_RADIUS {
-                        return Some(i);
-                    }
-                }
-            } else {
-                // Standard/Fancy: hit-test against start and end
-                for (i, handle) in handles.iter().enumerate() {
-                    let dx = point.x - handle.x;
-                    let dy = point.y - handle.y;
-                    if (dx * dx + dy * dy).sqrt() < Self::CONTROL_HANDLE_HIT_RADIUS {
-                        return Some(i);
-                    }
-                }
-            }
-        }
-        None
-    }
-
-    pub fn move_arrow_control_handle(&mut self, index: usize, new_pos: Point) {
-        let Some(action_index) = self.selected_action_index else {
-            return;
-        };
-        let Some(action) = self.actions.get_mut(action_index) else {
-            return;
-        };
-        let iw = self.base_image.width() as f64;
-        let ih = self.base_image.height() as f64;
-        if let AnnotationAction::Arrow {
-            control_points: Some(handles),
-            start,
-            end,
-            ..
-        } = action
-        {
-            if handles.len() >= 3 {
-                let clamp_point = |mut point: Point| {
-                    point.x = point.x.max(0.0).min(iw);
-                    point.y = point.y.max(0.0).min(ih);
-                    point
-                };
-                match index {
-                    0 => {
-                        let clamped = clamp_point(new_pos);
-                        *start = clamped;
-                        handles[0] = clamped;
-                        handles[1] = clamp_point(handles[1]);
-                    }
-                    1 => {
-                        // new_pos is the desired on-curve midpoint B(0.5).
-                        // Invert: P1 = 2*B(0.5) - 0.5*P0 - 0.5*P2
-                        handles[1] = clamp_point(Point {
-                            x: 2.0 * new_pos.x - 0.5 * handles[0].x - 0.5 * handles[2].x,
-                            y: 2.0 * new_pos.y - 0.5 * handles[0].y - 0.5 * handles[2].y,
-                        });
-                    }
-                    2 => {
-                        let clamped = clamp_point(new_pos);
-                        *end = clamped;
-                        handles[2] = clamped;
-                        handles[1] = clamp_point(handles[1]);
-                    }
-                    _ => {}
-                }
-            } else {
-                match index {
-                    0 => {
-                        let mut clamped = new_pos;
-                        clamped.x = clamped.x.max(0.0).min(iw);
-                        clamped.y = clamped.y.max(0.0).min(ih);
-                        *start = clamped;
-                        handles[0] = clamped;
-                    }
-                    1 => {
-                        let mut clamped = new_pos;
-                        clamped.x = clamped.x.max(0.0).min(iw);
-                        clamped.y = clamped.y.max(0.0).min(ih);
-                        *end = clamped;
-                        handles[1] = clamped;
-                    }
-                    _ => {}
-                }
-            }
-        }
-    }
-
-    pub fn finalize_arrow_control_editing(&mut self) {
-        self.arrow_editing_controls = false;
-        self.arrow_control_dragging = None;
-    }
-
-    pub fn finalize_arrow_interaction_cleanup(&mut self) {
-        self.clear_drag_without_rebuild();
-        self.arrow_editing_controls = self
-            .selected_action_index
-            .and_then(|index| self.actions.get(index))
-            .is_some_and(|action| matches!(action, AnnotationAction::Arrow { .. }));
     }
 
     pub fn current_obfuscate_amount(&self) -> f64 {
@@ -839,145 +454,6 @@ impl EditorState {
         }
 
         *target = next;
-        self.redo_actions.clear();
-        true
-    }
-
-    pub fn set_text_size(&mut self, size: f64) -> bool {
-        let next = clamp_text_size(size);
-        if let Some(index) = self
-            .active_text_input
-            .as_ref()
-            .and_then(|input| input.editing_action_index)
-        {
-            let Some(AnnotationAction::Text { font, .. }) = self.actions.get_mut(index) else {
-                return false;
-            };
-            if (font.size - next).abs() <= f64::EPSILON {
-                return false;
-            }
-            font.size = next;
-            self.text_size = next;
-            self.redo_actions.clear();
-            return true;
-        }
-
-        if self.active_text_input.is_some() {
-            if (next - self.text_size).abs() <= f64::EPSILON {
-                return false;
-            }
-            self.text_size = next;
-            return true;
-        }
-
-        if self.selected_action_index.is_some() {
-            if self.set_selected_text_action_size(next) {
-                self.text_size = next;
-                return true;
-            }
-            return false;
-        }
-
-        if (next - self.text_size).abs() <= f64::EPSILON {
-            return false;
-        }
-
-        self.text_size = next;
-        true
-    }
-
-    pub fn selected_text_action_size(&self) -> Option<f64> {
-        let AnnotationAction::Text { font, .. } = self.selected_action()? else {
-            return None;
-        };
-
-        Some(font.size)
-    }
-
-    pub fn set_selected_text_action_size(&mut self, size: f64) -> bool {
-        let next = clamp_text_size(size);
-
-        if let Some(index) = self
-            .active_text_input
-            .as_ref()
-            .and_then(|input| input.editing_action_index)
-        {
-            let Some(AnnotationAction::Text { font, .. }) = self.actions.get_mut(index) else {
-                return false;
-            };
-            if (font.size - next).abs() <= f64::EPSILON {
-                return false;
-            }
-            font.size = next;
-            self.redo_actions.clear();
-            return true;
-        }
-
-        let Some(index) = self.selected_action_index else {
-            return false;
-        };
-
-        let Some(action) = self.actions.get_mut(index) else {
-            self.selected_action_index = None;
-            return false;
-        };
-
-        let AnnotationAction::Text { font, .. } = action else {
-            return false;
-        };
-
-        if (font.size - next).abs() <= f64::EPSILON {
-            return false;
-        }
-
-        font.size = next;
-        self.redo_actions.clear();
-        true
-    }
-
-    pub fn selected_text_font_family(&self) -> Option<String> {
-        let AnnotationAction::Text { font, .. } = self.selected_action()? else {
-            return None;
-        };
-
-        Some(font.family.clone())
-    }
-
-    pub fn set_selected_text_font_family(&mut self, family: String) -> bool {
-        if let Some(index) = self
-            .active_text_input
-            .as_ref()
-            .and_then(|input| input.editing_action_index)
-        {
-            let Some(AnnotationAction::Text { font, .. }) = self.actions.get_mut(index) else {
-                return false;
-            };
-            if font.family == family {
-                return false;
-            }
-            font.family = family;
-            self.redo_actions.clear();
-            return true;
-        }
-
-        let Some(index) = self.selected_action_index else {
-            return false;
-        };
-
-        let Some(action) = self.actions.get_mut(index) else {
-            self.selected_action_index = None;
-            return false;
-        };
-
-        let AnnotationAction::Text { font, .. } = action else {
-            return false;
-        };
-
-        if font.family == family {
-            return false;
-        }
-
-        font.family = family;
         self.redo_actions.clear();
         true
     }
@@ -1227,134 +703,6 @@ impl EditorState {
             .and_then(|index| self.actions.get(index))
     }
 
-    pub fn selected_text_action_data(
-        &self,
-    ) -> Option<(
-        usize,
-        String,
-        DrawColor,
-        FontSettings,
-        Option<f64>,
-        Point,
-        Option<DrawColor>,
-    )> {
-        let index = self.selected_action_index?;
-        let AnnotationAction::Text {
-            position,
-            text,
-            color,
-            font,
-            max_width,
-            background_color,
-            ..
-        } = self.actions.get(index)?
-        else {
-            return None;
-        };
-
-        Some((
-            index,
-            text.clone(),
-            *color,
-            font.clone(),
-            *max_width,
-            *position,
-            *background_color,
-        ))
-    }
-
-    pub fn commit_active_text_input(&mut self) -> bool {
-        if let Some(action) = self.commit_text_input() {
-            self.push_action(action);
-            return true;
-        }
-        false
-    }
-
-    pub fn begin_editing_selected_text(&mut self) -> bool {
-        let Some((index, text, color, font, max_width, position, background_color)) =
-            self.selected_text_action_data()
-        else {
-            return false;
-        };
-        let Some(width) = max_width else {
-            return false;
-        };
-
-        // Use the stored max_width as the box width directly.
-        // Do NOT recompute from text_action_bounds() — that would shrink the box
-        // to fit the text tightly, then commit_text_input() would write that
-        // smaller width back, permanently changing the action's max_width.
-        let padding_y = 8.0;
-        let bounds_position = Point {
-            x: position.x,
-            y: position.y - font.size - padding_y,
-        };
-        let height = gtk4::cairo::ImageSurface::create(gtk4::cairo::Format::ARgb32, 1, 1)
-            .ok()
-            .and_then(|surface| gtk4::cairo::Context::new(&surface).ok())
-            .map(|context| {
-                let content_width = (width - 20.0).max(font.size * 0.8);
-                let layout = layout_wrapped_text(&context, &text, &font, content_width);
-                let line_height = (font.size * 1.2).max(font.size + 4.0);
-                (layout.lines.len().max(1) as f64 * line_height + font.size * 0.2 + padding_y * 2.0)
-                    .max(44.0)
-            })
-            .unwrap_or_else(|| (font.size * 1.45 + 16.0).max(44.0));
-        let bounds = TextEditBounds::new(bounds_position, width, height);
-        self.active_text_bounds = Some(bounds);
-        self.active_text_input = Some(TextInputState {
-            cursor_position: text.chars().count(),
-            text,
-            cursor_visible: true,
-            cursor_blink_timer: 0,
-            color,
-            background_color,
-            editing_action_index: Some(index),
-        });
-        self.active_text_is_dragging = false;
-        self.active_text_drag_handle = None;
-        self.active_text_drag_start = None;
-        self.text_font_family = font.family.clone();
-        self.text_size = font.size;
-        self.selected_color = color;
-        true
-    }
-
-    #[cfg(test)]
-    pub fn update_text_action(&mut self, index: usize, new_text: String) -> bool {
-        if index >= self.actions.len() {
-            return false;
-        }
-
-        let trimmed = new_text.trim().to_string();
-        if trimmed.is_empty() {
-            let removed = self.actions.remove(index);
-            if !matches!(removed, AnnotationAction::Text { .. }) {
-                self.actions.insert(index, removed);
-                return false;
-            }
-
-            self.selected_action_index = None;
-            self.select_drag_anchor = None;
-            self.select_resize_handle = None;
-            self.redo_actions.clear();
-            return true;
-        }
-
-        let Some(AnnotationAction::Text { text, .. }) = self.actions.get_mut(index) else {
-            return false;
-        };
-
-        if *text == trimmed {
-            return false;
-        }
-
-        *text = trimmed;
-        self.redo_actions.clear();
-        true
-    }
-
     pub fn select_action_at_point_with_scale(&mut self, point: Point, view_scale: f64) -> bool {
         let hit_padding = selection_hit_padding_for_scale(view_scale);
 
@@ -1389,138 +737,6 @@ impl EditorState {
             self.select_drag_anchor = Some(point);
         }
         selected
-    }
-
-    pub fn ensure_crop_selection_initialized(&mut self) -> bool {
-        if self.crop_selection.is_some() {
-            return false;
-        }
-
-        let image_width = self.working_image.width() as i32;
-        let image_height = self.working_image.height() as i32;
-        if image_width <= 1 || image_height <= 1 {
-            return false;
-        }
-
-        self.crop_selection = match self.crop_aspect_ratio_value() {
-            Some(aspect_ratio) => {
-                crop_rect_with_aspect_fit(image_width, image_height, aspect_ratio)
-            }
-            None => Some(Rect {
-                x: 0,
-                y: 0,
-                width: image_width,
-                height: image_height,
-            }),
-        };
-        self.crop_selection.is_some()
-    }
-
-    pub fn reset_crop_interaction(&mut self) {
-        self.crop_selection = None;
-        self.clear_drag_without_rebuild();
-    }
-
-    pub fn begin_crop_drag_with_scale(&mut self, point: Point, view_scale: f64) -> bool {
-        let Some(crop_rect) = self.crop_selection else {
-            return false;
-        };
-
-        let crop_action = AnnotationAction::Box {
-            rect: crop_rect,
-            color: self.selected_color,
-            stroke_size: self.stroke_size,
-            shadow: false,
-        };
-        let handle_hit_radius = selection_handle_hit_radius_for_scale(view_scale);
-        if let Some(handle) =
-            action_resize_handle_at_point_with_radius(&crop_action, point, handle_hit_radius)
-        {
-            self.select_resize_handle = Some(handle);
-            self.select_drag_anchor = Some(point);
-            return true;
-        }
-
-        self.select_resize_handle = None;
-        let hit_padding = selection_hit_padding_for_scale(view_scale);
-        if action_contains_point_with_padding(&crop_action, point, hit_padding) {
-            self.select_drag_anchor = Some(point);
-            return true;
-        }
-
-        false
-    }
-
-    pub fn update_crop_drag(&mut self, point: Point) -> bool {
-        let Some(anchor) = self.select_drag_anchor else {
-            return false;
-        };
-        let aspect_ratio = self.crop_aspect_ratio_value();
-        let Some(rect) = self.crop_selection.as_mut() else {
-            return false;
-        };
-
-        let dx = point.x - anchor.x;
-        let dy = point.y - anchor.y;
-        if dx.abs() < 0.0001 && dy.abs() < 0.0001 {
-            return false;
-        }
-
-        let image_width = self.working_image.width() as i32;
-        let image_height = self.working_image.height() as i32;
-
-        let original = *rect;
-        let moved = if let Some(handle) = self.select_resize_handle {
-            if let Some(aspect_ratio) = aspect_ratio {
-                resize_crop_rect_with_fixed_aspect(
-                    rect,
-                    handle,
-                    point,
-                    image_width,
-                    image_height,
-                    aspect_ratio,
-                )
-            } else {
-                match handle {
-                    SelectHandle::Left
-                    | SelectHandle::Right
-                    | SelectHandle::Top
-                    | SelectHandle::Bottom => resize_crop_rect_with_handle(
-                        rect,
-                        handle,
-                        dx,
-                        dy,
-                        image_width,
-                        image_height,
-                    ),
-                    _ => resize_rect_with_handle(rect, handle, dx, dy),
-                }
-            }
-        } else {
-            let dx_i = dx.round() as i32;
-            let dy_i = dy.round() as i32;
-            if dx_i == 0 && dy_i == 0 {
-                false
-            } else {
-                rect.x += dx_i;
-                rect.y += dy_i;
-                rect.x != original.x
-                    || rect.y != original.y
-                    || rect.width != original.width
-                    || rect.height != original.height
-            }
-        };
-
-        if !moved {
-            return false;
-        }
-
-        self.select_drag_anchor = Some(point);
-        true
-    }
-
-    pub fn end_crop_drag(&mut self) {
-        self.clear_drag();
     }
 
     pub fn update_select_drag(&mut self, point: Point) -> bool {
@@ -1642,15 +858,6 @@ impl EditorState {
         self.working_image = Arc::new(working);
         self.select_effect_rebuild_pending = false;
         self.mark_working_image_dirty();
-    }
-
-    pub fn cancel_text_edit(&mut self) {
-        self.active_text_edit = None;
-        self.active_text_entry = None;
-        self.active_text_bounds = None;
-        self.active_text_is_dragging = false;
-        self.active_text_drag_handle = None;
-        self.active_text_drag_start = None;
     }
 }
 
@@ -1839,69 +1046,6 @@ pub fn apply_effect_actions(image: &mut RgbaImage, actions: &[AnnotationAction])
     }
 }
 
-impl EditorState {
-    pub fn apply_crop_selection(&mut self) -> Result<bool, EditorError> {
-        if self.crop_selection.is_none() {
-            return Ok(false);
-        }
-
-        let cropped_image = self.to_final_image()?;
-        if cropped_image.width() == 0 || cropped_image.height() == 0 {
-            return Ok(false);
-        }
-
-        self.base_image = Arc::new(cropped_image.clone());
-        self.working_image = Arc::new(cropped_image);
-        self.actions.clear();
-        self.redo_actions.clear();
-        self.selected_action_index = None;
-        self.select_drag_anchor = None;
-        self.select_resize_handle = None;
-        self.next_number = self.numbering_start;
-        self.crop_selection = None;
-        self.clear_drag();
-        self.mark_working_image_dirty();
-
-        Ok(true)
-    }
-}
-
-pub(super) fn crop_fill_pixel(fill: DrawColor) -> image::Rgba<u8> {
-    image::Rgba([
-        (fill.r.clamp(0.0, 1.0) * 255.0).round() as u8,
-        (fill.g.clamp(0.0, 1.0) * 255.0).round() as u8,
-        (fill.b.clamp(0.0, 1.0) * 255.0).round() as u8,
-        (fill.a.clamp(0.0, 1.0) * 255.0).round() as u8,
-    ])
-}
-
-pub(super) fn crop_image(source: &RgbaImage, crop: Rect, fill: DrawColor) -> RgbaImage {
-    let crop_width = crop.width.max(0) as u32;
-    let crop_height = crop.height.max(0) as u32;
-    if crop_width == 0 || crop_height == 0 {
-        return source.clone();
-    }
-
-    let mut output = RgbaImage::from_pixel(crop_width, crop_height, crop_fill_pixel(fill));
-    let source_x = crop.x.max(0) as u32;
-    let source_y = crop.y.max(0) as u32;
-    let source_right = (crop.x + crop.width).clamp(0, source.width() as i32) as u32;
-    let source_bottom = (crop.y + crop.height).clamp(0, source.height() as i32) as u32;
-
-    if source_right > source_x && source_bottom > source_y {
-        let source_width = source_right - source_x;
-        let source_height = source_bottom - source_y;
-        let source_crop =
-            image::imageops::crop_imm(source, source_x, source_y, source_width, source_height)
-                .to_image();
-        let dest_x = source_x as i64 - crop.x as i64;
-        let dest_y = source_y as i64 - crop.y as i64;
-        image::imageops::overlay(&mut output, &source_crop, dest_x, dest_y);
-    }
-
-    output
-}
-
 pub(crate) fn render_shadow_layer(
     width: u32,
     height: u32,
@@ -2050,9 +1194,7 @@ mod tests {
     use image::RgbaImage;
 
     use crate::capture::editor::color::DEFAULT_OBFUSCATE_AMOUNT;
-    use crate::capture::editor::types::{
-        AnnotationAction, ArrowStyle, DrawColor, ObfuscateMethod, Point, Rect, SelectHandle,
-    };
+    use crate::capture::editor::types::{AnnotationAction, ObfuscateMethod, Point, Rect};
 
     use super::{apply_corner_radius, EditorState};
 
@@ -2064,66 +1206,6 @@ mod tests {
             production_source.contains("selected_tool: Tool::Background,"),
             "Editor state should default to the Background tool so startup inspector width matches the initial tool surface",
         );
-    }
-
-    #[test]
-    fn selected_arrow_style_updates_selected_arrow_immediately() {
-        let mut state = EditorState::new(RgbaImage::new(32, 32));
-        state.actions.push(AnnotationAction::Arrow {
-            start: Point { x: 2.0, y: 3.0 },
-            end: Point { x: 24.0, y: 26.0 },
-            color: DrawColor::new(1.0, 0.5, 0.0, 1.0),
-            stroke_size: 4.0,
-            style: ArrowStyle::Standard,
-            control_points: Some(vec![
-                Point { x: 2.0, y: 3.0 },
-                Point { x: 13.0, y: 14.0 },
-                Point { x: 24.0, y: 26.0 },
-            ]),
-            shadow: false,
-        });
-        state.selected_action_index = Some(0);
-
-        assert!(state.set_selected_arrow_style(ArrowStyle::Curved));
-        assert_eq!(state.selected_arrow_style(), Some(ArrowStyle::Curved));
-        assert!(!state.set_selected_arrow_style(ArrowStyle::Curved));
-    }
-
-    #[test]
-    fn reverse_selected_arrow_action_swaps_endpoints_and_control_points() {
-        let mut state = EditorState::new(RgbaImage::new(32, 32));
-        state.actions.push(AnnotationAction::Arrow {
-            start: Point { x: 1.0, y: 2.0 },
-            end: Point { x: 20.0, y: 22.0 },
-            color: DrawColor::new(1.0, 1.0, 1.0, 1.0),
-            stroke_size: 4.0,
-            style: ArrowStyle::Curved,
-            control_points: Some(vec![
-                Point { x: 1.0, y: 2.0 },
-                Point { x: 10.0, y: 18.0 },
-                Point { x: 20.0, y: 22.0 },
-            ]),
-            shadow: false,
-        });
-        state.selected_action_index = Some(0);
-
-        assert!(state.reverse_selected_arrow_action());
-
-        match state.selected_action() {
-            Some(AnnotationAction::Arrow {
-                start,
-                end,
-                control_points: Some(points),
-                ..
-            }) => {
-                assert_eq!(*start, Point { x: 20.0, y: 22.0 });
-                assert_eq!(*end, Point { x: 1.0, y: 2.0 });
-                assert_eq!(points[0], Point { x: 20.0, y: 22.0 });
-                assert_eq!(points[1], Point { x: 10.0, y: 18.0 });
-                assert_eq!(points[2], Point { x: 1.0, y: 2.0 });
-            }
-            other => panic!("expected selected arrow after reverse, got {other:?}"),
-        }
     }
 
     #[test]
@@ -2145,31 +1227,6 @@ mod tests {
         );
         assert_eq!(image.get_pixel(39, 0)[3], 0);
         assert_eq!(image.get_pixel(20, 20)[3], 255);
-    }
-
-    #[test]
-    fn reset_crop_interaction_clears_crop_selection_and_drag_handles() {
-        let mut state = EditorState::new(RgbaImage::new(32, 32));
-        state.crop_selection = Some(Rect {
-            x: 2,
-            y: 3,
-            width: 12,
-            height: 14,
-        });
-        state.drag_start = Some(Point { x: 2.0, y: 3.0 });
-        state.drag_current = Some(Point { x: 15.0, y: 18.0 });
-        state.drag_start_view = Some(Point { x: 4.0, y: 5.0 });
-        state.select_drag_anchor = Some(Point { x: 8.0, y: 9.0 });
-        state.select_resize_handle = Some(SelectHandle::BottomRight);
-
-        state.reset_crop_interaction();
-
-        assert!(state.crop_selection.is_none());
-        assert!(state.drag_start.is_none());
-        assert!(state.drag_current.is_none());
-        assert!(state.drag_start_view.is_none());
-        assert!(state.select_drag_anchor.is_none());
-        assert!(state.select_resize_handle.is_none());
     }
 
     #[test]

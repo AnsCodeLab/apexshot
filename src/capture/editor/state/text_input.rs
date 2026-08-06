@@ -1,8 +1,9 @@
+use super::super::color::clamp_text_size;
 use super::super::render::layout_wrapped_text;
 use super::super::selection::action_bounds_with_padding;
 use super::super::types::{
-    AnnotationAction, FontSettings, FontStyle, Point, Rect, TextAlignment, TextDecoration,
-    TextEditBounds,
+    AnnotationAction, DrawColor, FontSettings, FontStyle, Point, Rect, TextAlignment,
+    TextDecoration, TextEditBounds,
 };
 use super::{EditorState, TextInputState};
 
@@ -573,5 +574,281 @@ impl EditorState {
         (max_word_width + padding_x * 2.0)
             .max(font.size * 1.8)
             .max(50.0)
+    }
+
+    pub fn set_text_size(&mut self, size: f64) -> bool {
+        let next = clamp_text_size(size);
+        if let Some(index) = self
+            .active_text_input
+            .as_ref()
+            .and_then(|input| input.editing_action_index)
+        {
+            let Some(AnnotationAction::Text { font, .. }) = self.actions.get_mut(index) else {
+                return false;
+            };
+            if (font.size - next).abs() <= f64::EPSILON {
+                return false;
+            }
+            font.size = next;
+            self.text_size = next;
+            self.redo_actions.clear();
+            return true;
+        }
+
+        if self.active_text_input.is_some() {
+            if (next - self.text_size).abs() <= f64::EPSILON {
+                return false;
+            }
+            self.text_size = next;
+            return true;
+        }
+
+        if self.selected_action_index.is_some() {
+            if self.set_selected_text_action_size(next) {
+                self.text_size = next;
+                return true;
+            }
+            return false;
+        }
+
+        if (next - self.text_size).abs() <= f64::EPSILON {
+            return false;
+        }
+
+        self.text_size = next;
+        true
+    }
+
+    pub fn selected_text_action_size(&self) -> Option<f64> {
+        let AnnotationAction::Text { font, .. } = self.selected_action()? else {
+            return None;
+        };
+
+        Some(font.size)
+    }
+
+    pub fn set_selected_text_action_size(&mut self, size: f64) -> bool {
+        let next = clamp_text_size(size);
+
+        if let Some(index) = self
+            .active_text_input
+            .as_ref()
+            .and_then(|input| input.editing_action_index)
+        {
+            let Some(AnnotationAction::Text { font, .. }) = self.actions.get_mut(index) else {
+                return false;
+            };
+            if (font.size - next).abs() <= f64::EPSILON {
+                return false;
+            }
+            font.size = next;
+            self.redo_actions.clear();
+            return true;
+        }
+
+        let Some(index) = self.selected_action_index else {
+            return false;
+        };
+
+        let Some(action) = self.actions.get_mut(index) else {
+            self.selected_action_index = None;
+            return false;
+        };
+
+        let AnnotationAction::Text { font, .. } = action else {
+            return false;
+        };
+
+        if (font.size - next).abs() <= f64::EPSILON {
+            return false;
+        }
+
+        font.size = next;
+        self.redo_actions.clear();
+        true
+    }
+
+    pub fn selected_text_font_family(&self) -> Option<String> {
+        let AnnotationAction::Text { font, .. } = self.selected_action()? else {
+            return None;
+        };
+
+        Some(font.family.clone())
+    }
+
+    pub fn set_selected_text_font_family(&mut self, family: String) -> bool {
+        if let Some(index) = self
+            .active_text_input
+            .as_ref()
+            .and_then(|input| input.editing_action_index)
+        {
+            let Some(AnnotationAction::Text { font, .. }) = self.actions.get_mut(index) else {
+                return false;
+            };
+            if font.family == family {
+                return false;
+            }
+            font.family = family;
+            self.redo_actions.clear();
+            return true;
+        }
+
+        let Some(index) = self.selected_action_index else {
+            return false;
+        };
+
+        let Some(action) = self.actions.get_mut(index) else {
+            self.selected_action_index = None;
+            return false;
+        };
+
+        let AnnotationAction::Text { font, .. } = action else {
+            return false;
+        };
+
+        if font.family == family {
+            return false;
+        }
+
+        font.family = family;
+        self.redo_actions.clear();
+        true
+    }
+
+    pub fn selected_text_action_data(
+        &self,
+    ) -> Option<(
+        usize,
+        String,
+        DrawColor,
+        FontSettings,
+        Option<f64>,
+        Point,
+        Option<DrawColor>,
+    )> {
+        let index = self.selected_action_index?;
+        let AnnotationAction::Text {
+            position,
+            text,
+            color,
+            font,
+            max_width,
+            background_color,
+            ..
+        } = self.actions.get(index)?
+        else {
+            return None;
+        };
+
+        Some((
+            index,
+            text.clone(),
+            *color,
+            font.clone(),
+            *max_width,
+            *position,
+            *background_color,
+        ))
+    }
+
+    pub fn commit_active_text_input(&mut self) -> bool {
+        if let Some(action) = self.commit_text_input() {
+            self.push_action(action);
+            return true;
+        }
+        false
+    }
+
+    pub fn begin_editing_selected_text(&mut self) -> bool {
+        let Some((index, text, color, font, max_width, position, background_color)) =
+            self.selected_text_action_data()
+        else {
+            return false;
+        };
+        let Some(width) = max_width else {
+            return false;
+        };
+
+        // Use the stored max_width as the box width directly.
+        // Do NOT recompute from text_action_bounds() — that would shrink the box
+        // to fit the text tightly, then commit_text_input() would write that
+        // smaller width back, permanently changing the action's max_width.
+        let padding_y = 8.0;
+        let bounds_position = Point {
+            x: position.x,
+            y: position.y - font.size - padding_y,
+        };
+        let height = gtk4::cairo::ImageSurface::create(gtk4::cairo::Format::ARgb32, 1, 1)
+            .ok()
+            .and_then(|surface| gtk4::cairo::Context::new(&surface).ok())
+            .map(|context| {
+                let content_width = (width - 20.0).max(font.size * 0.8);
+                let layout = layout_wrapped_text(&context, &text, &font, content_width);
+                let line_height = (font.size * 1.2).max(font.size + 4.0);
+                (layout.lines.len().max(1) as f64 * line_height + font.size * 0.2 + padding_y * 2.0)
+                    .max(44.0)
+            })
+            .unwrap_or_else(|| (font.size * 1.45 + 16.0).max(44.0));
+        let bounds = TextEditBounds::new(bounds_position, width, height);
+        self.active_text_bounds = Some(bounds);
+        self.active_text_input = Some(TextInputState {
+            cursor_position: text.chars().count(),
+            text,
+            cursor_visible: true,
+            cursor_blink_timer: 0,
+            color,
+            background_color,
+            editing_action_index: Some(index),
+        });
+        self.active_text_is_dragging = false;
+        self.active_text_drag_handle = None;
+        self.active_text_drag_start = None;
+        self.text_font_family = font.family.clone();
+        self.text_size = font.size;
+        self.selected_color = color;
+        true
+    }
+
+    #[cfg(test)]
+    pub fn update_text_action(&mut self, index: usize, new_text: String) -> bool {
+        if index >= self.actions.len() {
+            return false;
+        }
+
+        let trimmed = new_text.trim().to_string();
+        if trimmed.is_empty() {
+            let removed = self.actions.remove(index);
+            if !matches!(removed, AnnotationAction::Text { .. }) {
+                self.actions.insert(index, removed);
+                return false;
+            }
+
+            self.selected_action_index = None;
+            self.select_drag_anchor = None;
+            self.select_resize_handle = None;
+            self.redo_actions.clear();
+            return true;
+        }
+
+        let Some(AnnotationAction::Text { text, .. }) = self.actions.get_mut(index) else {
+            return false;
+        };
+
+        if *text == trimmed {
+            return false;
+        }
+
+        *text = trimmed;
+        self.redo_actions.clear();
+        true
+    }
+
+    pub fn cancel_text_edit(&mut self) {
+        self.active_text_edit = None;
+        self.active_text_entry = None;
+        self.active_text_bounds = None;
+        self.active_text_is_dragging = false;
+        self.active_text_drag_handle = None;
+        self.active_text_drag_start = None;
     }
 }

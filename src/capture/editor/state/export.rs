@@ -2,7 +2,8 @@ use super::super::composition::{BackgroundComposition, CompositionLayout};
 use super::super::pen_weight::{HighlighterMode, PenWeight};
 use super::super::render::apply_blur_rect;
 use super::super::types::{AnnotationAction, BackgroundStyle, EditorError, Rect};
-use super::{apply_corner_radius, crop_image, render_shadow_layer, EditorState};
+use super::crop::crop_image;
+use super::{apply_corner_radius, render_shadow_layer, EditorState};
 use image::RgbaImage;
 use std::path::Path;
 

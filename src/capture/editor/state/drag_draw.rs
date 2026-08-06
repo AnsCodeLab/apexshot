@@ -17,48 +17,6 @@ impl EditorState {
         self.pen_weight.pen_stroke_width()
     }
 
-    pub fn draft_crop_rect(&self) -> Option<Rect> {
-        let start = self.drag_start?;
-        let current = self.drag_current?;
-        let image_width = self.working_image.width() as i32;
-        let image_height = self.working_image.height() as i32;
-        let end = if let Some(aspect_ratio) = self.crop_aspect_ratio_value() {
-            let dx = current.x - start.x;
-            let dy = current.y - start.y;
-            if dx.abs() < 0.0001 || dy.abs() < 0.0001 {
-                current
-            } else {
-                let dx_abs = dx.abs();
-                let dy_abs = dy.abs();
-                let width_from_height = dy_abs * aspect_ratio;
-                let height_from_width = dx_abs / aspect_ratio;
-                if width_from_height <= dx_abs {
-                    Point {
-                        x: start.x + dx.signum() * width_from_height,
-                        y: current.y,
-                    }
-                } else {
-                    Point {
-                        x: current.x,
-                        y: start.y + dy.signum() * height_from_width,
-                    }
-                }
-            }
-        } else {
-            current
-        };
-
-        Rect::from_points(start, end).map(|mut rect| {
-            rect.x = rect.x.clamp(0, image_width.saturating_sub(1));
-            rect.y = rect.y.clamp(0, image_height.saturating_sub(1));
-            let max_width = image_width.saturating_sub(rect.x);
-            let max_height = image_height.saturating_sub(rect.y);
-            rect.width = rect.width.clamp(0, max_width);
-            rect.height = rect.height.clamp(0, max_height);
-            rect
-        })
-    }
-
     pub fn begin_drag(&mut self, point: Point) {
         self.selected_action_index = None;
         self.drag_start = Some(point);

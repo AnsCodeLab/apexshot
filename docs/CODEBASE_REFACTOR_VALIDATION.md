@@ -2,6 +2,7 @@
 
 Date: 2026-08-04  
 Corrections applied: 2026-08-05  
+PR 10+ plan added: 2026-08-06
 Validated documents: [`CODEBASE_REFACTOR_AUDIT.md`](./CODEBASE_REFACTOR_AUDIT.md) and [`CODEBASE_REFACTOR_STATUS.md`](./CODEBASE_REFACTOR_STATUS.md)  
 Scope: Current working-tree implementation of the `src/` refactor described as PRs 0-9.
 
@@ -19,6 +20,7 @@ The mechanical cleanup and structural splitting through PR 9 now match the audit
 - [x] PR 0 Clippy `needless_return` and Flatpak Tesseract dead-code warnings cleared.
 - [x] PR 6 implementation tests moved to `backend.rs` and `controls.rs`; test-driven sibling visibility removed.
 - [x] Status-document ownership/API descriptions and `EDITOR_CSS` visibility corrected.
+- [x] PR 10 began after this validation snapshot with initial state, editor-event, editor-inspector, overlay-window, and daemon-dispatch slices.
 - [ ] Manual GTK/D-Bus/portal/capture smoke matrix still unverified.
 - [ ] PR guardrails still cannot be proven from commit history (single dirty working tree).
 
@@ -40,8 +42,367 @@ No source implementation was changed during the original validation pass. Correc
 | PR 7: CLI split | **Confirmed** | Binary-only module split is correct. Contract tests now inspect `src/cli/install.rs`. | [x] |
 | PR 8: hotkeys split | Confirmed | Platform/config ownership and facade are preserved. | n/a |
 | PR 9: daemon split | **Confirmed after fix** | Physical split is coherent; IPC strings and crate-private API restored. | [x] |
-| PR 10+ | Not started | The state and GTK coordinator work remains untouched as documented. | deferred |
+| PR 10+ | **Started after validation** | Initial safe slices are present; the remaining implementation is planned below. | in progress |
 | `capture_overlay.rs` | Deferred | It remains a single 2,431-line file with no child module tree. | deferred |
+
+---
+
+## PR 10+ implementation plan
+
+### Planning baseline (2026-08-06)
+
+This plan supersedes the earlier statements in this validation snapshot that PR 10 had not started. The live tree now matches the newer status document:
+
+- `src/capture/editor/state.rs` is now `state/`, with `text_input.rs`, `history.rs`, `drag_draw.rs`, and `export.rs` extracted.
+- `src/capture/editor/window/events.rs` is now `events/`, with zoom and history-button wiring extracted.
+- `window/inspectors.rs` owns the first concrete `InspectorParts` builder.
+- `src/overlay/window.rs` is now `window/`, with audio primitives and platform policy extracted.
+- `run_daemon_inner` is already a short coordinator after action dispatch moved to `daemon/dispatch.rs`; no further daemon split is required for PR 10.
+
+The remaining logic-bearing coordinators are:
+
+| Coordinator | Current location | Approximate size | Target |
+|-------------|------------------|-----------------:|--------|
+| `wire_editor_events` | `capture/editor/window/events/mod.rs` | 3,160 lines | Ordered dispatcher over behavior-owned event modules |
+| `setup_editor_window_full` | `capture/editor/window/mod.rs` | 2,990 lines | Bootstrap coordinator over concrete builders and services |
+| `overlay::window::setup_window` | `overlay/window/mod.rs` | 1,850 lines | Lifecycle coordinator over shell, result, audio, and input owners |
+
+Line count is a secondary signal. Completion requires real ownership, one-way dependencies, stable facades, and no replacement god-context structs.
+
+### Scope and non-goals
+
+In scope:
+
+- Finish splitting `EditorState` impls by behavior while keeping `EditorState` and its fields in `state/mod.rs`.
+- Extract editor event families only after their state and widget dependencies have stable owners.
+- Extract setup sections only when they return concrete widgets/results or own a complete asynchronous service.
+- Apply the same behavior-slice rule to the overlay window coordinator.
+- Move source-inspection tests with the implementation they assert.
+
+Not in scope for the movement PRs:
+
+- Changing editor, overlay, capture, save, or recording behavior.
+- Moving `EditorState` fields into nested state objects or privatizing fields used directly by GTK code.
+- Introducing a new all-purpose `EditorUiContext`, `OverlayEventContext`, or callback bag.
+- Changing public editor/overlay entry points, crate re-exports, IPC names, D-Bus members, or result variants.
+- Adding dependencies, redesigning asynchronous effects, or combining packaging/recording work with GTK movement.
+- Splitting `capture_overlay.rs` before the GTK coordinator sequence is stable.
+
+### Required PR shape
+
+Every numbered slice below is independently reviewable. If several slices share a branch, retain the same commit discipline:
+
+1. Add characterization tests or fix a known correctness precondition in a focused commit.
+2. Move production code without changing bodies, signatures, callback order, or visibility.
+3. Move/update tests so they inspect the new owner rather than concatenating unrelated source files.
+4. Narrow visibility or simplify dependencies only in a follow-up commit.
+5. Run the affected focused tests and the common PR gate before starting the next slice.
+
+### Track A: finish `EditorState` ownership
+
+Keep `EditorState`, `TextInputState`, `EditorState::new`, `set_tool`, and `set_tool_without_rebuild` in `state/mod.rs`. Tool transitions intentionally coordinate crop, selection, text, arrow, and drag cleanup.
+
+#### PR 10.1: arrow editing state — **Done (2026-08-06)**
+
+Created `state/arrow.rs` and moved the existing-arrow behavior:
+
+- Arrow style getters/setters and selected-arrow style mutation.
+- Arrow reversal.
+- Control-handle hit testing and movement.
+- Arrow control finalization and interaction cleanup.
+
+Kept new-arrow construction in `drag_draw.rs`. Moved the two arrow unit tests into `state/arrow.rs`. Method signatures unchanged.
+
+Exit gate: `cargo test --lib -- capture::editor` (211 passed); fmt/check/clippy/flatpak gates green.
+
+#### PR 10.2: crop state — **Done (2026-08-06)**
+
+Created `state/crop.rs` and moved:
+
+- Crop aspect-ratio and resize geometry helpers.
+- Crop selection initialization, drag, resize, reset, and apply behavior.
+- Crop fill/image helpers and `draft_crop_rect` from `drag_draw.rs`.
+- Crop-specific test `reset_crop_interaction_clears_crop_selection_and_drag_handles`.
+
+`crop_image` is `pub` inside the private `crop` module; `export.rs` imports `super::crop::crop_image`. Freeform/fixed-ratio clamping and post-apply reset unchanged.
+
+Exit gate: `cargo test --lib -- capture::editor` (211 passed); fmt/check/clippy/flatpak gates green.
+
+#### PR 10.3: text-state consolidation — **Done (2026-08-06)**
+
+Moved the remaining text-specific methods from `state/mod.rs` into `state/text_input.rs`:
+
+- Text size and font-family selection/mutation.
+- Selected-text data lookup.
+- Active text commit and selected-text editing startup.
+- Test-only text update and production `cancel_text_edit`.
+
+Kept `TextInputState` in `state/mod.rs`. Preserved `active_text_edit`, `active_text_entry`, and Escape cancellation path.
+
+Exit gate: `cargo test --lib -- capture::editor` (211 passed); fmt/check/clippy/flatpak gates green.
+
+#### PR 10.4: selection state
+
+Create `state/selection.rs` and move:
+
+- Selected-action lookup and removability.
+- Selection hit testing, drag, resize, completion, and deletion.
+- Selected-action color/stroke mutation.
+- `clamp_action_to_image` and the related tests.
+
+Keep `capture/editor/selection.rs` as the geometry/hit-test primitive owner; the new state child owns mutation and may depend on those primitives, never the reverse. Move `clamp_action_to_image` unchanged because it contains special text, path, endpoint, and curved-arrow handling.
+
+Exit gate: topmost selection, zoom-scaled hit padding, all resize handles, movement, deletion, number reuse, arrow hit testing, and effect-dirty behavior pass.
+
+#### PR 10.5: tool-style state
+
+Create `state/tool_style.rs` and move:
+
+- Active color and stroke size.
+- Pen/highlighter weight and mode.
+- Obfuscation method/amount and focus intensity.
+- Active size-control mode/value and selected-action style mutation not already owned by text, crop, or arrow modules.
+
+Do not replace the current fields with a nested style struct; window and preference code still reads several fields directly. Leave numbering in `state/mod.rs` until history/number-sequence ownership can be changed without a cross-module cycle.
+
+Exit gate: clamping, selected-object updates, focus intensity, blur/pixelate/blackout, and pen/highlighter tests pass.
+
+#### PR 10.6: optional effect/export helper cleanup
+
+Only after PRs 10.1-10.5 settle, move effect rebuild/application helpers to `state/effects.rs` and export-only crop/shadow/corner helpers to `export.rs`. Preserve the internal `state` facade used by editor window code, especially `apply_effect_actions` and `render_shadow_layer`.
+
+This slice is optional if it would create broader visibility than the current arrangement. Numbering may likewise remain in `state/mod.rs`.
+
+### Track B: extract low-risk editor event families
+
+Keep `events::wire_editor_events` as the only setup-facing facade and preserve GTK controller installation order. Remove unused `EventContext` fields before adding any new context data; do not replace it with another larger bag.
+
+#### PR 10.7: output lifecycle
+
+Create `events/output.rs` for copy, upload, Done/save, and traffic-close behavior. Preserve:
+
+- Save-before-upload ordering and double-click suppression.
+- Window hide before idle save and re-show on failure.
+- Nonfatal annotation-save failure.
+- Clipboard, preview-daemon fallback, close, and application-quit ordering.
+- Session guards on stale window callbacks.
+
+Move the upload source-contract test to this owner and delimit it by function/module rather than by the next unrelated callback.
+
+#### PR 10.8: crop action buttons
+
+Create `events/crop.rs` for crop apply/reset buttons and their dimension/layout refresh. This is intentionally separate from canvas crop dragging, which remains in the interaction controller until the shared drag state is extracted.
+
+#### PR 10.9: tool mode switches
+
+Create `events/tools.rs` for Select, Crop, Background, Pen, Arrow, Line, Box, Circle, Text, Number, Obfuscate, Focus, and Highlighter activation. Move callback bodies unchanged first; their toggle policies are not identical and must not be prematurely deduplicated.
+
+#### PR 10.10: tool options
+
+Create `events/options.rs` for weight, style, direction, numbering, palette, size-slider, obfuscation, and focus option callbacks. Do this after the matching state modules and concrete inspector parts exist so the function accepts domain-specific parts rather than the full `EventContext`.
+
+### Track C: give editor setup sections concrete owners
+
+Use the existing `ToolbarParts`, `CanvasParts`, `FooterParts`, and `InspectorParts` pattern. A Parts type contains concrete widgets/results only, not state, arbitrary callbacks, or unrelated services.
+
+#### PR 10.11: inspector children
+
+Convert `window/inspectors.rs` to `window/inspectors/mod.rs` only when adding real child owners. Extract crop, stroke/arrow, number, and selection inspector construction one family at a time. Keep the shell builder as the facade and reduce its broad input list rather than creating another 20-field structure.
+
+#### PR 10.12: asynchronous effects service
+
+Create `window/effects.rs` for the effect request/result channels, worker, stale-revision rejection, request coalescing, polling, watchdog, and rebuild callback. Preserve revision fields, timer intervals, and lock lifetimes exactly. GTK widgets remain on the main thread; only owned image/action data crosses the worker channel.
+
+#### PR 10.13: background assets and canvas layout
+
+Use separate slices:
+
+- `window/background_assets.rs` owns gradient/wallpaper loading and cache handles.
+- `window/canvas_layout.rs` owns content sizing, zoom labels, crop overflow, background virtual size, and relayout suppression.
+
+Do not combine these services merely because both are currently in setup. Each should expose a narrow result/callback consumed by the coordinator and renderer.
+
+#### PR 10.14: empty state and chrome
+
+Extract the empty-editor drop zone and concrete window chrome only after their reused widgets and session guards are explicit. Preserve same-window reuse, stale-handler suppression, supported-file checks, controller removal, window dragging, and resize behavior.
+
+### Track D: split high-coupling editor interactions
+
+Start this track only after Tracks A-C provide stable state APIs, widget parts, and service callbacks.
+
+#### PR 10.15: interaction state
+
+Create small cohesive owners such as `SpacePanState` and an eyedropper bundle. Capture and reuse the callback returned by `wire_zoom_controls`; preserve the existing `Ctrl+2` behavior during structural movement.
+
+#### PR 10.16: canvas drag
+
+Create `events/drag.rs` and move the complete begin/update/end gesture family together. Preserve controller attachment order, redraw throttling, crop refresh, effect rebuild flags, arrow controls, selection behavior, and Space-pan interaction.
+
+#### PR 10.17: canvas click
+
+Create `events/click.rs` for click press/release, canvas Escape, text create/re-edit/caret placement, eyedropper completion, number placement, and text-handle release. Do not split these further until shared hit testing has a clear owner.
+
+#### PR 10.18: motion and keyboard
+
+Use separate movement commits/modules:
+
+- `events/motion.rs` owns cursor/loupe/hover and active text-handle resize behavior.
+- `events/keyboard.rs` owns Space capture, text input, undo/redo, zoom, tool shortcuts, deletion, and Escape priority.
+
+Preserve controller propagation phases, text-widget exceptions, Enter-as-newline behavior, and existing shortcut mappings.
+
+#### PR 10.19: canvas renderer and bootstrap last
+
+Extract the `set_draw_func` body only after render inputs have a concrete owner. Introduce rendering-specific cache/snapshot types, release the `EditorState` lock before Cairo drawing, and preserve all cache signatures, transforms, crop dimming, effect skipping, editing overlays, and handles.
+
+Session/bootstrap extraction is last. Preserve the lifetime of `ACTIVE_EDITOR_SESSION`, window reuse, preference persistence, always-on-top behavior, and public `open_image_editor*` / `setup_editor_window` entry points.
+
+### Track E: overlay window coordinator
+
+Overlay work is independent from editor state and should use separate PRs/branches. Preserve all public `overlay` and crate-root exports, `SelectionResult` variants, coordinate-space distinctions, layer-shell policy, and the crate-internal drawing/layout facade used by `recording/stop_overlay.rs`.
+
+#### PR 10.20: correctness preconditions and shared geometry
+
+Before moving callbacks:
+
+- Add a regression test preventing toolbar hit testing from returning an index outside `TOOLBAR_ICONS`; fix the current seven-cell/six-icon mismatch in a focused correctness commit.
+- Characterize/fix the timer badge index separately.
+- Move aspect-ratio behavior to overlay geometry and add freeform, fixed-ratio, center, edge-clamp, and minimum-size tests.
+- Centralize popup/deck/settings rectangles so drawing and hit testing consume the same layouts.
+
+Do not silently remove dormant window-picker state; the public API and `window_picker_ui_contract` still constrain it.
+
+#### PR 10.21: overlay result and shell
+
+Create:
+
+- `overlay/window/result.rs` for recording-request construction and selection result delivery.
+- `overlay/window/shell.rs` for monitor resolution, window/layer-shell setup, drawing area, and screen geometry, returning concrete `OverlayWindowParts`.
+
+Keep realization, focus, and presentation in `window/mod.rs`. Preserve screenshot/background coordinate mapping, recording screen coordinates, OCR conversion, invalid-selection behavior, and Escape returning `Area(None)`.
+
+#### PR 10.22: overlay audio lifecycle
+
+Move meter worker/timer orchestration into the existing `window/audio.rs` without behavior changes. In a separate follow-up, add explicit cancellation so closing an overlay cannot leave a polling thread or GLib source retaining state.
+
+#### PR 10.23: overlay keyboard and countdown
+
+Create `window/input/keyboard.rs` and `window/countdown.rs`. Preserve Escape, Enter variants, Space confirmation, arrow-key nudge, propagation results, timer cancellation, redraw scheduling, and final result delivery.
+
+#### PR 10.24: overlay drag
+
+Create `window/input/drag.rs` after result/aspect helpers are stable. Move the complete drag gesture and preserve offset semantics, fixed-aspect resize behavior, popup/tool-surface suppression, and lock release before result delivery or window closure.
+
+#### PR 10.25: overlay motion
+
+Create `window/input/motion.rs` after shared popup geometry exists. Move motion and leave/reset behavior together, preserving hover priority, cursor selection, crosshair updates, and popup/slider ownership.
+
+#### PR 10.26: overlay click dispatch last
+
+Create `window/input/click/` with menu and toolbar owners. First move the primary/secondary gesture bodies unchanged; then split pure state transitions from GTK, URL, channel, and close side effects. Preserve capture-phase controller ordering and never hold `SelectorState` across those side effects.
+
+At completion, `overlay::window::setup_window` should only build the shell, wire drawing/audio/input, install the X11 realization hook, focus, and present.
+
+### Dependency and visibility rules
+
+Required dependency direction:
+
+```text
+editor/window/mod
+  -> concrete builders and services
+  -> events facade
+  -> event-family modules
+  -> EditorState behavior methods
+  -> editor geometry/render/color primitives
+
+overlay/window/mod
+  -> shell/result/audio/countdown/input
+  -> overlay state/layout/hit-testing/drawing primitives
+```
+
+Rules:
+
+- State primitives must not depend on `window` or `events`.
+- Builders must not call event modules; event modules consume their concrete Parts.
+- Event siblings communicate through parent-owned small types, not sibling cycles.
+- New modules are private by default; use `pub(super)` only for the immediate facade.
+- Preserve existing facade paths where sibling or crate-internal callers require them.
+- Do not add crate-root/capture-level re-exports or broaden downstream API.
+- Keep GTK widgets on the main context and out of `Send` worker payloads.
+- Release state mutexes before GTK calls, Cairo rendering, D-Bus/process/URL work, channel sends, or window closure.
+- Preserve GTK controller attachment order and `PropagationPhase::Capture` where currently used.
+
+### Test ownership
+
+Source-inspection tests must follow semantic ownership:
+
+- State behavior tests move into the owning state child when that permits helper visibility to remain private.
+- Inspector structure tests move under `window/inspectors/`.
+- Layout/render assertions move to `canvas_layout.rs`, `canvas.rs`, or `canvas_render.rs`.
+- Zoom, output, Space-pan, text-key, and upload-order tests move to their event owners.
+- Overlay click contracts inspect the actual click owner after movement; `window_picker_ui_contract` must not keep reading only a facade that no longer contains the behavior.
+
+Only coordinator ordering tests should continue to inspect `mod.rs`. Do not solve path-sensitive tests by concatenating every child source into one large string.
+
+### Automated gates
+
+Run after every slice:
+
+```bash
+cargo fmt --all -- --check
+cargo check --all-targets
+cargo check --all-targets --no-default-features --features flatpak
+cargo clippy --all-targets -- -D warnings
+```
+
+Run focused suites for the affected track:
+
+```bash
+cargo test --lib -- capture::editor
+cargo test --lib -- overlay::
+cargo test --lib -- recording::stop_overlay
+cargo test --test window_picker_ui_contract
+```
+
+Run before each merge-ready milestone:
+
+```bash
+cargo test --all-targets
+git diff --check
+```
+
+For pure movement commits, compare moved function bodies after normalizing indentation and verify that public/crate-internal facade paths have not changed.
+
+### Manual exit matrix
+
+Editor milestone:
+
+- Open an existing image from CLI, preview overlay, and daemon paths; also exercise the empty editor and drag/drop.
+- Exercise every tool, inspector, palette, custom color, eyedropper, zoom/pan path, and keyboard shortcut.
+- Draw/select/move/resize/delete/undo/redo, including curved/double arrows and multiline text re-edit/cancel.
+- Apply/reset freeform and fixed-aspect crops, including out-of-bounds movement.
+- Rapidly change obfuscation/focus and undo/redo while effects rebuilds are in flight.
+- Verify backgrounds, shadows, copy, upload, save failure recovery, preview fallback, close, and preference persistence.
+
+Overlay milestone:
+
+- Test X11, Wayland with layer-shell, and Wayland fallback where available, including multiple monitors.
+- Test new/move/resize/fixed-aspect/fullscreen selection, nudge, crosshair, confirmation keys, Escape, and countdown.
+- Exercise every capture toolbar popup and recording panel/settings/dropdown/volume path.
+- Verify screenshot versus recording coordinate mapping and daemon-present/absent audio meters.
+- Confirm close leaves no PipeWire streams, polling threads, or repeating GLib sources.
+
+Final PR 10+ exit gate:
+
+- Full capture -> editor -> annotate -> undo/redo -> crop -> save.
+- Settings open/save/close.
+- Daemon hotkey and record start/pause/resume/stop.
+- No logic-bearing coordinator remains over 1,000 lines solely because behavior still lacks an owner.
+- No new dependency, downstream public API, IPC string, D-Bus member, or result-contract change.
+
+### Deferred follow-up
+
+After the editor and overlay coordinators settle, plan `capture_overlay.rs` as a separate process-boundary series: worker lifecycle, output parsing, wlroots routing, and recording-request spawn. Do not include that split in the same PR as GTK coordinator movement.
 
 ---
 
@@ -213,16 +574,16 @@ The combined snapshot can be validated, but the proposed per-PR review sequence 
 
 ### Deferred work and metrics
 
-- All 161 current `src/**/*.rs` files are reachable from a crate root; no orphan Rust module was found.
+- All 161 `src/**/*.rs` files in the 2026-08-05 validation snapshot were reachable from a crate root; no orphan Rust module was found.
 - `capture_overlay.rs` is unchanged from the baseline and remains intentionally deferred.
-- PR 10+ is genuinely not started: no `state/` child tree exists, and the large editor/overlay coordinators have not been relocated.
+- PR 10+ started after this validation snapshot. Initial child trees and low-risk slices are present, while the three large GTK coordinators remain and are covered by the implementation plan above.
 - No new Cargo dependency was introduced by the structural splits. The current `Cargo.toml` change is a license-expression change.
 
 ---
 
-## Current inventory
+## Validation-snapshot inventory
 
-Current `src/**/*.rs` inventory:
+`src/**/*.rs` inventory at the end of the 2026-08-05 validation/correction pass, before the current PR 10 slices:
 
 | Tier | Files | Lines |
 |------|------:|------:|
@@ -232,7 +593,7 @@ Current `src/**/*.rs` inventory:
 | S, below 500 | 107 | 22,435 |
 | **Total** | **161** | **83,556** |
 
-Current files at or above 2,000 lines:
+Files at or above 2,000 lines in that snapshot:
 
 | File | Exact lines | Assessment |
 |------|------------:|------------|
@@ -243,7 +604,7 @@ Current files at or above 2,000 lines:
 | `src/capture_overlay.rs` | 2,431 | Explicitly deferred. |
 | `src/capture/editor/tests.rs` | 2,047 | Test payload only. |
 
-The approximate large-file table in the status document is accurate.
+This table is retained as validation evidence, not as the live PR 10 inventory. The planning baseline above records the current coordinator paths and approximate spans.
 
 ---
 
