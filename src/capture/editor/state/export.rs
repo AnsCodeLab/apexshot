@@ -1,9 +1,9 @@
 use super::super::composition::{BackgroundComposition, CompositionLayout};
 use super::super::pen_weight::{HighlighterMode, PenWeight};
-use super::super::render::apply_blur_rect;
+use super::super::render::{apply_blur_rect, cairo_argb_to_rgba_image, rgba_image_to_surface};
 use super::super::types::{AnnotationAction, BackgroundStyle, EditorError, Rect};
 use super::crop::crop_image;
-use super::{apply_corner_radius, render_shadow_layer, EditorState};
+use super::EditorState;
 use image::RgbaImage;
 use std::path::Path;
 
@@ -247,5 +247,171 @@ impl EditorState {
 
     pub fn set_pen_weight(&mut self, weight: PenWeight) {
         self.pen_weight = weight;
+    }
+}
+
+pub(super) fn render_shadow_layer(
+    width: u32,
+    height: u32,
+    blur: f64,
+    opacity: f64,
+    corner_radius: f64,
+) -> Result<RgbaImage, EditorError> {
+    let spread_px = (blur * 1.35).ceil().max(0.0) as i32;
+    let shadow_width = width as i32 + spread_px * 2;
+    let shadow_height = height as i32 + spread_px * 2;
+    let stride = gtk4::cairo::Format::ARgb32
+        .stride_for_width(shadow_width as u32)
+        .map_err(|e| EditorError::ImageSave(e.to_string()))?;
+    let mut surface =
+        gtk4::cairo::ImageSurface::create(gtk4::cairo::Format::ARgb32, shadow_width, shadow_height)
+            .map_err(|e| EditorError::ImageSave(e.to_string()))?;
+    {
+        let context = gtk4::cairo::Context::new(&surface)
+            .map_err(|e| EditorError::ImageSave(e.to_string()))?;
+        context.set_source_rgba(0.0, 0.0, 0.0, opacity.clamp(0.0, 1.0));
+        draw_rounded_rect_path(
+            &context,
+            spread_px as f64,
+            spread_px as f64,
+            width as f64,
+            height as f64,
+            corner_radius,
+        );
+        let _ = context.fill();
+    }
+    surface.flush();
+    let data = surface
+        .data()
+        .map_err(|e| EditorError::ImageSave(e.to_string()))?;
+    Ok(cairo_argb_to_rgba_image(
+        shadow_width as u32,
+        shadow_height as u32,
+        stride as usize,
+        data.as_ref(),
+    ))
+}
+
+fn draw_rounded_rect_path(
+    context: &gtk4::cairo::Context,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    radius: f64,
+) {
+    let radius = radius.min(width / 2.0).min(height / 2.0).max(0.0);
+    if radius <= 0.0 {
+        context.rectangle(x, y, width, height);
+        return;
+    }
+
+    let right = x + width;
+    let bottom = y + height;
+    context.new_sub_path();
+    context.arc(
+        right - radius,
+        y + radius,
+        radius,
+        -std::f64::consts::FRAC_PI_2,
+        0.0,
+    );
+    context.arc(
+        right - radius,
+        bottom - radius,
+        radius,
+        0.0,
+        std::f64::consts::FRAC_PI_2,
+    );
+    context.arc(
+        x + radius,
+        bottom - radius,
+        radius,
+        std::f64::consts::FRAC_PI_2,
+        std::f64::consts::PI,
+    );
+    context.arc(
+        x + radius,
+        y + radius,
+        radius,
+        std::f64::consts::PI,
+        std::f64::consts::PI * 1.5,
+    );
+    context.close_path();
+}
+
+fn apply_corner_radius(image: &mut RgbaImage, radius: f64) {
+    let (width, height) = image.dimensions();
+    if width == 0 || height == 0 || radius <= 0.0 {
+        return;
+    }
+    let radius = radius.min(width as f64 / 2.0).min(height as f64 / 2.0);
+    if radius <= 0.0 {
+        return;
+    }
+    let Some(source_surface) = rgba_image_to_surface(image) else {
+        return;
+    };
+    let stride = match gtk4::cairo::Format::ARgb32.stride_for_width(width) {
+        Ok(stride) => stride,
+        Err(_) => return,
+    };
+    let mut clipped_surface = match gtk4::cairo::ImageSurface::create(
+        gtk4::cairo::Format::ARgb32,
+        width as i32,
+        height as i32,
+    ) {
+        Ok(surface) => surface,
+        Err(_) => return,
+    };
+    {
+        let context = match gtk4::cairo::Context::new(&clipped_surface) {
+            Ok(context) => context,
+            Err(_) => return,
+        };
+        context.set_antialias(gtk4::cairo::Antialias::Best);
+        draw_rounded_rect_path(&context, 0.0, 0.0, width as f64, height as f64, radius);
+        context.clip();
+        if context
+            .set_source_surface(&source_surface, 0.0, 0.0)
+            .is_err()
+        {
+            return;
+        }
+        let _ = context.paint();
+    }
+    clipped_surface.flush();
+    let surface_data = match clipped_surface.data() {
+        Ok(data) => data,
+        Err(_) => return,
+    };
+    *image = cairo_argb_to_rgba_image(width, height, stride as usize, surface_data.as_ref());
+}
+
+#[cfg(test)]
+mod tests {
+    use image::RgbaImage;
+
+    use super::apply_corner_radius;
+
+    #[test]
+    fn corner_radius_antialiases_top_right_edge() {
+        let mut image = RgbaImage::from_pixel(40, 40, image::Rgba([255, 255, 255, 255]));
+
+        apply_corner_radius(&mut image, 12.0);
+
+        let top_right_band_has_partial_alpha = (28..40).any(|x| {
+            (0..12).any(|y| {
+                let alpha = image.get_pixel(x, y)[3];
+                alpha > 0 && alpha < 255
+            })
+        });
+
+        assert!(
+            top_right_band_has_partial_alpha,
+            "expected antialiased pixels along the top-right rounded edge"
+        );
+        assert_eq!(image.get_pixel(39, 0)[3], 0);
+        assert_eq!(image.get_pixel(20, 20)[3], 255);
     }
 }

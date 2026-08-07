@@ -45,13 +45,14 @@ See earlier sections in git history / audit. Short recap:
 
 | File | Role | Approx. lines |
 |------|------|--------------:|
-| `mod.rs` | `EditorState` / `TextInputState` structs, shared free helpers, remaining impls | ~1,330 |
+| `mod.rs` | `EditorState` / `TextInputState` structs, tool transitions, numbering, and stable facades | ~500 |
 | `text_input.rs` | Text input/fit/commit + size/font/re-edit/cancel (**PR 10.3**) | ~850 |
 | `crop.rs` | Crop aspect/geometry/drag/apply/fill helpers + `draft_crop_rect` (**PR 10.2**) | ~485 |
 | `arrow.rs` | Existing-arrow style/reverse/control-handle edit (**PR 10.1**) | ~190 |
 | `history.rs` | Undo/redo/push/history availability | ~130 |
 | `drag_draw.rs` | Begin/update/clear/draft/finalize drag + canvas expand (new-arrow construction stays here) | ~440 |
 | `export.rs` | `to_rendered_image` / `to_final_image` / background compose; uses `crop::crop_image` | ~250 |
+| `effects.rs` | Effect-layer rebuild and action application (**PR 10.6**) | ~40 |
 
 Struct stays in `state/mod.rs` so private field access remains inside the `state` module tree. No new public crate API. `TextInputState` remains in `mod.rs` (sibling event code consumes it).
 
@@ -61,15 +62,20 @@ Struct stays in `state/mod.rs` so private field access remains inside the `state
 
 **PR 10.3 (2026-08-06):** consolidated remaining text methods into `state/text_input.rs` (size/font selection, selected-text lookup, commit/re-edit, test-only update, `cancel_text_edit`). Kept `active_text_edit`/`active_text_entry`/Escape cancel path.
 
+**PRs 10.4-10.6 (2026-08-07):** extracted selection state, tool styles, and the optional effects/export helpers while retaining the existing state facades used by editor window code.
+
 ##### 2. Editor events — first EventContext-owned families
 
 `src/capture/editor/window/events.rs` → `src/capture/editor/window/events/`:
 
 | File | Role | Approx. lines |
 |------|------|--------------:|
-| `mod.rs` | `EventContext`, `wire_editor_events` dispatcher, remaining families | ~3,490 |
+| `mod.rs` | `EventContext`, `wire_editor_events` dispatcher, remaining families | ~3,240 |
 | `zoom.rs` | `wire_zoom_controls` (zoom UI, ctrl+scroll, pan) | ~260 |
 | `history.rs` | `wire_history_buttons` (undo/redo/delete) | ~65 |
+| `output.rs` | Copy, upload, Done/save, and traffic-close lifecycle (**PR 10.7**) | ~180 |
+
+**PR 10.7 (2026-08-07):** moved output lifecycle wiring to `events/output.rs`, preserving save-before-upload, upload suppression, Done/save ordering, preview fallback, and traffic-close behavior. The upload regression contract now inspects this owner.
 
 ##### 3. Editor setup — inspector shell
 
@@ -121,7 +127,7 @@ These are the remaining high-coupling coordinators and oversized files. Prefer *
 | `capture/editor/window/mod.rs` | ~4,050 | Dominated by `setup_editor_window_full` + tests |
 | `capture/editor/window/events/mod.rs` | ~3,490 | Dominated by `wire_editor_events` |
 | `capture_overlay.rs` | ~2,430 | **Deferred** process-boundary split (audit: after daemon/capture) |
-| `capture/editor/state/mod.rs` | ~1,330 | More `EditorState` groups still inline (selection, tool style); arrow/crop/text done |
+| `capture/editor/state/mod.rs` | ~500 | EditorState struct, tool transitions, numbering, and stable state facades |
 | `overlay/window/mod.rs` | ~2,060 | Dominated by `setup_window` |
 | `capture/editor/tests.rs` | ~2,050 | Test payload only |
 | `recording/backend.rs` | ~1,930 | Already split out of recording facade; further internal split optional |
@@ -143,8 +149,10 @@ These are the remaining high-coupling coordinators and oversized files. Prefer *
 3. **More `EditorState` child modules** (Track A in validation plan)
    - [x] PR 10.1 arrow editing (`state/arrow.rs`)
    - [x] PR 10.2 crop (`state/crop.rs`)
-   - [x] PR 10.3 text consolidation (`state/text_input.rs`)
-   - [ ] PR 10.4 selection · PR 10.5 tool-style
+    - [x] PR 10.3 text consolidation (`state/text_input.rs`)
+    - [x] PR 10.4 selection (`state/selection.rs`)
+    - [x] PR 10.5 tool-style (`state/tool_style.rs`)
+    - [x] PR 10.6 effects/export cleanup (`state/effects.rs`, `state/export.rs`)
    - Keep struct in `state/mod.rs`; child `impl EditorState` only inside the `state` tree
 
 4. **Overlay `setup_window`**

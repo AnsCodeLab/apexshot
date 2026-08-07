@@ -431,31 +431,6 @@ fn history_availability_reflects_undo_redo_stack_state() {
 }
 
 #[test]
-fn can_remove_selected_action_requires_valid_selection() {
-    let mut state = EditorState::new(RgbaImage::new(32, 32));
-    state.push_action(AnnotationAction::Box {
-        rect: Rect {
-            x: 4,
-            y: 4,
-            width: 10,
-            height: 10,
-        },
-        color: DRAW_COLORS[DEFAULT_COLOR_INDEX],
-        stroke_size: STROKE_WIDTH,
-        shadow: false,
-    });
-
-    // push_action auto-selects the last action
-    assert!(state.can_remove_selected_action());
-
-    state.selected_action_index = None;
-    assert!(!state.can_remove_selected_action());
-
-    state.selected_action_index = Some(9);
-    assert!(!state.can_remove_selected_action());
-}
-
-#[test]
 fn undo_redo_stack_behaves_correctly() {
     let image = RgbaImage::new(32, 32);
     let mut state = EditorState::new(image);

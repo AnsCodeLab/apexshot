@@ -6,14 +6,11 @@ use gtk4::{
 use image::RgbaImage;
 use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
-use std::process::Command;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use super::super::{
     color::{palette_index_for_color, DRAG_REDRAW_INTERVAL_US, DRAW_COLORS},
-    io_ops::{copy_uri_to_clipboard, save_edited_image},
     numbering_style::{NumberSize, NumberingStyle},
     render::cursor_position_for_text_point,
     state::EditorState,
@@ -27,7 +24,6 @@ use super::super::{
         set_crop_apply_button_state, toolbar_icon_size,
     },
 };
-use crate::annotations::save_annotations;
 
 const MOVE_HANDLE_DRAG_RADIUS: f64 = 10.0;
 const RESIZE_HANDLE_DRAG_SIZE: f64 = 18.0;
@@ -45,9 +41,11 @@ use super::{
 };
 
 mod history;
+mod output;
 mod zoom;
 
 use history::wire_history_buttons;
+use output::wire_output_lifecycle;
 use zoom::{clamp_zoom_level, wire_zoom_controls, ZOOM_STEP};
 
 fn sync_arrow_option_selection(list: &GtkBox, selected_index: usize) {
@@ -184,7 +182,6 @@ pub(super) struct EventContext {
     pub zoom_to_selection_btn: Button,
     pub zoom_level: Rc<Cell<f64>>,
     pub copy_btn: Button,
-    #[allow(dead_code)]
     pub upload_btn: Button,
     pub color_buttons: Vec<Button>,
     pub color_picker_dot: GtkBox,
@@ -549,74 +546,16 @@ pub(super) fn wire_editor_events(ctx: EventContext) {
         &update_canvas_content_size,
     );
 
-    let path_copy = path.clone();
-    copy_btn.connect_clicked(move |_| {
-        if let Err(e) = copy_uri_to_clipboard(&path_copy) {
-            eprintln!("Copy failed: {e}");
-        }
-    });
-
-    let path_upload = path.clone();
-    let state_upload = state.clone();
-    // Prevent concurrent uploads from double-clicks. Worker signals completion
-    // back to the GTK main loop so we can re-enable the button (widgets are !Send).
-    let uploading = Rc::new(Cell::new(false));
-    let (upload_done_tx, upload_done_rx) = std::sync::mpsc::channel::<()>();
-    let upload_btn_poll = upload_btn.clone();
-    let uploading_poll = uploading.clone();
-    glib::timeout_add_local(Duration::from_millis(50), move || {
-        match upload_done_rx.try_recv() {
-            Ok(()) => {
-                uploading_poll.set(false);
-                upload_btn_poll.set_sensitive(true);
-                // Keep listening for subsequent uploads after a failure/retry.
-                glib::ControlFlow::Continue
-            }
-            Err(std::sync::mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => glib::ControlFlow::Break,
-        }
-    });
-    let uploading_click = uploading.clone();
-    let upload_btn_click = upload_btn.clone();
-    upload_btn.connect_clicked(move |_| {
-        if uploading_click.get() {
-            return;
-        }
-
-        let config = crate::config::load_config();
-        if !crate::cloud::upload::is_configured(&config) {
-            let (title, body) = crate::cloud::upload::not_configured_notification(&config);
-            crate::utils::notify::desktop_notification_important(title, body);
-            return;
-        }
-
-        // Persist canvas edits before uploading. Without this, the original
-        // capture file is uploaded and annotations only appear after Done saves.
-        // Same pattern as the video editor: export first, then upload.
-        {
-            let st = state_upload.lock().unwrap();
-            if let Err(e) = save_edited_image(&path_upload, &st) {
-                eprintln!("[editor] Failed to save edits before upload: {e}");
-                crate::utils::notify::desktop_notification_important(
-                    "Upload failed",
-                    &format!("Could not save edits: {e}"),
-                );
-                return;
-            }
-        }
-
-        uploading_click.set(true);
-        upload_btn_click.set_sensitive(false);
-
-        let path = path_upload.clone();
-        let upload_done_tx = upload_done_tx.clone();
-        std::thread::spawn(move || {
-            // Shared path: critical-urgency toasts + share URL in the body
-            // (GNOME/Ubuntu often suppresses normal banners from background work).
-            let _ = crate::cloud::upload::upload_file_with_notifications(&config, &path);
-            let _ = upload_done_tx.send(());
-        });
-    });
+    wire_output_lifecycle(
+        &app,
+        &window,
+        &path,
+        &state,
+        &copy_btn,
+        &upload_btn,
+        &save_btn,
+        &traffic_close,
+    );
 
     let state_box = state.clone();
     let drawing_area_box = drawing_area.downgrade();
@@ -1386,118 +1325,6 @@ pub(super) fn wire_editor_events(ctx: EventContext) {
         &sync_size_control,
         &sync_select_inspector,
     );
-
-    let state_save = state.clone();
-    let path_save = path.clone();
-    let window_save = window.downgrade();
-    let app_save = app.downgrade();
-    save_btn.connect_clicked(move |_| {
-        // Hide the editor window immediately so the user gets instant visual
-        // feedback when they click Done. Without this, GTK can't repaint until
-        // the click handler returns, and the editor stays visible (with the
-        // Done button stuck pressed) for the full duration of the save —
-        // typically a noticeable freeze when a background tool is in use due
-        // to the full-resolution composition + PNG encode that has to run.
-        // The actual save work is deferred to an idle callback so this hide
-        // gets a chance to render before the heavy work begins.
-        if let Some(window) = window_save.upgrade() {
-            window.set_visible(false);
-        }
-
-        let state_save = state_save.clone();
-        let path_save = path_save.clone();
-        let window_save = window_save.clone();
-        let app_save = app_save.clone();
-
-        glib::idle_add_local_once(move || {
-            // Get the state data we need
-            let (image_result, annotation_data) = {
-                let st = state_save.lock().unwrap();
-                let save_result = save_edited_image(&path_save, &st);
-                let annotation_result = save_annotations(
-                    &path_save,
-                    st.base_image.width(),
-                    st.base_image.height(),
-                    &st.actions,
-                    &st.base_image,
-                    &st.background_style,
-                    st.background_padding,
-                    st.background_shadow,
-                    st.background_insert,
-                    st.auto_balance,
-                    st.background_alignment,
-                    st.background_corner_radius,
-                    st.background_aspect_ratio,
-                );
-                (save_result, annotation_result)
-            };
-
-            // Log annotation errors but don't fail the save
-            if let Err(e) = annotation_data {
-                eprintln!("[editor] Warning: Failed to save annotations: {e}");
-            }
-
-            match image_result {
-                Ok(()) => {
-                    let config = crate::config::load_config().sanitized();
-
-                    // Copy the edited image to the clipboard when "copy file to
-                    // clipboard" is enabled in General settings, honoring the
-                    // advanced clipboard mode (image / file path / both).
-                    //
-                    // This runs BEFORE close()/quit(): once app.quit() returns
-                    // the main loop ends and the process exits, which would cut
-                    // the copy off mid-flight. The window is already hidden, so
-                    // the brief synchronous copy is invisible to the user.
-                    crate::daemon::copy_screenshot_to_clipboard(&path_save, &config);
-
-                    // Close editor window
-                    if let Some(window) = window_save.upgrade() {
-                        window.close();
-                    }
-                    if let Some(app) = app_save.upgrade() {
-                        app.quit();
-                    }
-
-                    // Show preview overlay only when the user has "show quick access
-                    // overlay" enabled in General settings.  If disabled, the image
-                    // has already been saved above and we are done.
-                    if config.after_capture_show_quick_access {
-                        // Show preview via daemon for single-instance coordination
-                        // If daemon not running, fall back to spawning directly
-                        if !crate::daemon::show_preview_via_daemon(&path_save) {
-                            let exe = std::env::current_exe()
-                                .unwrap_or_else(|_| PathBuf::from("apexshot"));
-                            if let Err(e) =
-                                Command::new(&exe).arg("preview").arg(&path_save).spawn()
-                            {
-                                eprintln!("[editor] Failed to open preview: {e}");
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Failed to save edited image: {e}");
-                    // Re-show the window so the user can retry, since the file
-                    // was never written.
-                    if let Some(window) = window_save.upgrade() {
-                        window.set_visible(true);
-                    }
-                }
-            }
-        });
-    });
-
-    let window_close = window.downgrade();
-    let app_close = app.downgrade();
-    traffic_close.connect_clicked(move |_| {
-        if let Some(window) = window_close.upgrade() {
-            window.close();
-        }
-        if let Some(app) = app_close.upgrade() {
-            app.quit();
-        }
-    });
 
     let drag = GestureDrag::new();
     let drag_last_redraw = Rc::new(Cell::new(0_i64));
@@ -3464,26 +3291,6 @@ mod tests {
             !production_source.contains("if keyval == gdk::Key::Return || keyval == gdk::Key::KP_Enter {")
                 && production_source.contains("gdk::Key::Return | gdk::Key::KP_Enter => st.add_text_input_char('\\n'),"),
             "Enter should insert a newline character in the text input, not commit or be cancelled by the legacy text-bounds handler",
-        );
-    }
-
-    #[test]
-    fn editor_upload_saves_edits_before_uploading() {
-        // Regression: upload from the image editor used to post the original
-        // capture file; edits only appeared after Done wrote the canvas to disk.
-        let production_source = production_events_source();
-        let upload_start = production_source
-            .find("upload_btn.connect_clicked(move |_| {")
-            .expect("upload button click handler");
-        let after_upload = &production_source[upload_start..];
-        let upload_end = after_upload
-            .find("box_btn.connect_clicked")
-            .expect("handler after upload");
-        let upload_handler = &after_upload[..upload_end];
-        assert!(
-            upload_handler.contains("save_edited_image")
-                && upload_handler.contains("upload_file_with_notifications"),
-            "Image editor Upload must persist canvas edits before uploading the file",
         );
     }
 }

@@ -6,11 +6,6 @@ impl EditorState {
         (!self.actions.is_empty(), !self.redo_actions.is_empty())
     }
 
-    pub fn can_remove_selected_action(&self) -> bool {
-        self.selected_action_index
-            .is_some_and(|index| index < self.actions.len())
-    }
-
     pub fn mark_working_image_dirty(&mut self) {
         self.working_image_revision = self.working_image_revision.wrapping_add(1);
     }
