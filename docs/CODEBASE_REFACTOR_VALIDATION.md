@@ -42,7 +42,7 @@ No source implementation was changed during the original validation pass. Correc
 | PR 7: CLI split | **Confirmed** | Binary-only module split is correct. Contract tests now inspect `src/cli/install.rs`. | [x] |
 | PR 8: hotkeys split | Confirmed | Platform/config ownership and facade are preserved. | n/a |
 | PR 9: daemon split | **Confirmed after fix** | Physical split is coherent; IPC strings and crate-private API restored. | [x] |
-| PR 10+ | **In progress** | Track A, events Track B, and setup Track C (10.11–10.14) done; interaction slices (Track D) and overlay remain. | in progress |
+| PR 10+ | **In progress** | Tracks A–D editor (through 10.19 canvas render) done; Track E overlay remains. | in progress |
 | `capture_overlay.rs` | Deferred | It remains a single 2,431-line file with no child module tree. | deferred |
 
 ---
@@ -288,32 +288,72 @@ Exit gate: `cargo test --lib -- capture::editor` (222 passed); fmt/check/clippy/
 
 Start this track only after Tracks A-C provide stable state APIs, widget parts, and service callbacks.
 
-#### PR 10.15: interaction state
+#### PR 10.15: interaction state — **Done (2026-08-08)**
 
-Create small cohesive owners such as `SpacePanState` and an eyedropper bundle. Capture and reuse the callback returned by `wire_zoom_controls`; preserve the existing `Ctrl+2` behavior during structural movement.
+Created `events/interaction.rs` with cohesive owners:
 
-#### PR 10.16: canvas drag
+- `SpacePanState` — `active` / `dragging` / `origin` cells used across drag, click, motion, and Space capture.
+- `EyedropperBundle` — mode/from-sidebar/point/rendered/ring; setup constructs the bundle and `EventContext` carries it as one field.
 
-Create `events/drag.rs` and move the complete begin/update/end gesture family together. Preserve controller attachment order, redraw throttling, crop refresh, effect rebuild flags, arrow controls, selection behavior, and Space-pan interaction.
+Captured the `apply_zoom_change` callback returned by `wire_zoom_controls` and reused it for keyboard zoom shortcuts. Preserved **Ctrl+2 → 1.5×** (and Ctrl+/−/0) on that shared path; popup still closes after keyboard zoom.
 
-#### PR 10.17: canvas click
+Structure tests: owner test on `interaction.rs`; wiring contract `interaction_state_bundles_and_zoom_callback_are_wired` on the events facade. Drag/click/motion/keyboard body peels remain 10.16–10.18.
 
-Create `events/click.rs` for click press/release, canvas Escape, text create/re-edit/caret placement, eyedropper completion, number placement, and text-handle release. Do not split these further until shared hit testing has a clear owner.
+Exit gate: `cargo test --lib -- capture::editor`; fmt/check/clippy/flatpak gates green.
 
-#### PR 10.18: motion and keyboard
+#### PR 10.16: canvas drag — **Done (2026-08-08)**
 
-Use separate movement commits/modules:
+Created `events/drag.rs` with `wire_canvas_drag` owning the complete `GestureDrag` begin/update/end family:
 
-- `events/motion.rs` owns cursor/loupe/hover and active text-handle resize behavior.
-- `events/keyboard.rs` owns Space capture, text input, undo/redo, zoom, tool shortcuts, deletion, and Escape priority.
+- Space-pan claim/scroll/cursor during drag
+- Select / arrow control+body / text handle-or-move / box-circle resize-or-move / crop / freehand draw
+- `DRAG_REDRAW_INTERVAL_US` throttling, crop field refresh, effect-rebuild on select drag and finalize
+- `drag_start_transform` local to this owner; controller still attached on the drawing area immediately after tool/option wiring
 
-Preserve controller propagation phases, text-widget exceptions, Enter-as-newline behavior, and existing shortcut mappings.
+Shared hit radii (`MOVE_HANDLE_DRAG_RADIUS`, `RESIZE_HANDLE_DRAG_SIZE`) stay `pub(super)` on the events facade for click/motion. `ARROW_CLICK_NOOP_DISTANCE` moved with drag.
 
-#### PR 10.19: canvas renderer and bootstrap last
+Structure tests: owner test on `drag.rs`; facade contract `canvas_drag_family_is_wired_from_facade`. Click/motion/keyboard remain 10.17–10.18.
 
-Extract the `set_draw_func` body only after render inputs have a concrete owner. Introduce rendering-specific cache/snapshot types, release the `EditorState` lock before Cairo drawing, and preserve all cache signatures, transforms, crop dimming, effect skipping, editing overlays, and handles.
+Exit gate: `cargo test --lib -- capture::editor`; fmt/check/clippy/flatpak gates green.
 
-Session/bootstrap extraction is last. Preserve the lifetime of `ACTIVE_EDITOR_SESSION`, window reuse, preference persistence, always-on-top behavior, and public `open_image_editor*` / `setup_editor_window` entry points.
+#### PR 10.17: canvas click — **Done (2026-08-08)**
+
+Created `events/click.rs` with `wire_canvas_click` owning:
+
+- Drawing-area Escape (`cancel_text_edit` when `active_text_bounds` is set)
+- Primary `GestureClick` press/release (Space-pan denial, eyedropper completion, text create/re-edit/caret, number placement, select/arrow/box hit paths)
+- Text-handle release finalize (active edit reflow vs committed bounds write-back)
+- `sync_text_option_selection` + `TEXT_SIZE_OPTIONS` / `TEXT_FONT_FAMILIES` (canvas re-edit sync)
+
+Controller order preserved: Escape key controller, then click, then motion remains next in the facade. Structure tests: owner on `click.rs`; facade `canvas_click_family_is_wired_from_facade`.
+
+Exit gate: `cargo test --lib -- capture::editor`; fmt/check/clippy/flatpak gates green.
+
+#### PR 10.18: motion and keyboard — **Done (2026-08-08)**
+
+Created separate owners:
+
+- `events/motion.rs` — `wire_canvas_motion`: motion/leave, Space-pan cursor while held, eyedropper loupe, tool/hover cursors, active text-handle resize via motion.
+- `events/keyboard.rs` — `wire_window_keyboard`: capture-phase Space pan (with text-widget exceptions), window keys for eyedropper Escape, text input (Enter→newline), undo/redo, zoom via shared `apply_zoom_change` (Ctrl+2 → 1.5×), tool shortcuts, delete.
+
+Facade order: drag → click → motion → keyboard → close_request. Shared handle radii stay on the events facade. Structure tests on each owner + facade contract `canvas_motion_and_window_keyboard_are_wired_from_facade`.
+
+Exit gate: `cargo test --lib -- capture::editor`; fmt/check/clippy/flatpak gates green.
+
+#### PR 10.19: canvas renderer and bootstrap last — **Done (2026-08-08)**
+
+Created `window/canvas_render.rs`:
+
+- `CanvasRenderCaches` — working-image surface/revision, background surface/signature, shadow surface/signature
+- `CanvasDrawInputs` + `install_canvas_draw_func` — full `set_draw_func` body moved unchanged in behavior
+- Snapshot `EditorState` under the lock, then release before Cairo (comment preserved)
+- Preview shadow constants + `draw_rounded_rect_path` live on this owner
+
+Setup creates `CanvasRenderCaches::new()` once and installs the draw func in one call. Public `open_image_editor*` / `setup_editor_window` and `ACTIVE_EDITOR_SESSION` remain on `window/mod.rs` with `setup_editor_window_full` (session reuse and entry facades stay with the setup coordinator rather than a hollow bootstrap file).
+
+Structure tests: owner on `canvas_render.rs`; setup contract `canvas_render_draw_func_is_installed_from_setup`.
+
+Exit gate: `cargo test --lib -- capture::editor`; fmt/check/clippy/flatpak gates green.
 
 ### Track E: overlay window coordinator
 

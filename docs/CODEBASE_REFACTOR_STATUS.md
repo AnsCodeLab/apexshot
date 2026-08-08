@@ -77,6 +77,11 @@ Struct stays in `state/mod.rs` so private field access remains inside the `state
 | `crop.rs` | Crop apply/reset inspector actions (**PR 10.8**) | ~90 |
 | `tools.rs` | Tool-mode button activation and toggle policies (**PR 10.9**) | ~410 |
 | `options.rs` | Weight/style/numbering/palette/size option callbacks (**PR 10.10**) | ~685 |
+| `interaction.rs` | `SpacePanState` + `EyedropperBundle`; zoom callback reuse (**PR 10.15**) | ~80 |
+| `drag.rs` | Canvas `GestureDrag` begin/update/end family (**PR 10.16**) | ~850 |
+| `click.rs` | Canvas Escape + click press/release + text option sync (**PR 10.17**) | ~640 |
+| `motion.rs` | Canvas motion/leave, loupe, hover, text-handle resize (**PR 10.18**) | ~350 |
+| `keyboard.rs` | Space capture + window shortcuts (**PR 10.18**) | ~310 |
 
 **PR 10.7 (2026-08-07):** moved output lifecycle wiring to `events/output.rs`, preserving save-before-upload, upload suppression, Done/save ordering, preview fallback, and traffic-close behavior. The upload regression contract now inspects this owner.
 
@@ -106,6 +111,16 @@ Same setup-facing entry as before (`build_tool_inspectors` + `InspectorContentIn
 **PR 10.13 (2026-08-08):** extracted background asset loading (`window/background_assets.rs`) and canvas layout (`window/canvas_layout.rs`) as separate services. Setup installs each independently; draw still uses returned cache handles + layout callback.
 
 **PR 10.14 (2026-08-08):** extracted window chrome (`window/chrome.rs`) and empty drop zone (`window/empty_state.rs`). Session reuse controller cleanup stays in setup.
+
+**PR 10.15 (2026-08-08):** extracted `events/interaction.rs` with `SpacePanState` and `EyedropperBundle`. Setup builds the eyedropper bundle; `EventContext` carries it as one field. Keyboard zoom reuses `wire_zoom_controls`'s `apply_zoom_change` (Ctrl+2 → 1.5× preserved). Canvas drag/click/motion/keyboard peels remain.
+
+**PR 10.16 (2026-08-08):** extracted `events/drag.rs` (`wire_canvas_drag`) with the full begin/update/end `GestureDrag` family, Space-pan during drag, redraw throttling, crop/effect finalize. Click/motion/keyboard remain in `events/mod.rs`.
+
+**PR 10.17 (2026-08-08):** extracted `events/click.rs` (`wire_canvas_click`) with canvas Escape, primary click press/release, eyedropper/text/number placement, text-handle release, and text option list sync. Motion and window keyboard remain.
+
+**PR 10.18 (2026-08-08):** extracted `events/motion.rs` and `events/keyboard.rs`. Motion owns loupe/hover/text-handle resize; keyboard owns capture-phase Space pan and window shortcuts (text, undo/redo, zoom, tools, delete). `wire_editor_events` is now primarily a dispatcher plus close-request.
+
+**PR 10.19 (2026-08-08):** extracted `window/canvas_render.rs` (`CanvasRenderCaches` + `install_canvas_draw_func`). Draw path snapshots state then draws without holding the mutex. Public editor entry points and session reuse remain in `window/mod.rs`.
 
 ##### 4. Overlay window peel
 
@@ -138,8 +153,8 @@ These are the remaining high-coupling coordinators and oversized files. Prefer *
 
 | Function | Location | Approx. span | Why it is hard |
 |----------|----------|-------------:|----------------|
-| **`wire_editor_events`** | `capture/editor/window/events/mod.rs` | **~2,150 lines** | GTK callbacks share `EventContext`, widgets, and sync closures. Zoom, history, output, crop actions, tool-mode, and options are out; canvas drag/click/motion and keyboard remain. |
-| **`setup_editor_window_full`** | `capture/editor/window/mod.rs` | **~2,990 lines** | Construction order, widget lifetimes, async effects, `set_draw_func`. Inspector shell is out; draw_func + layout chrome remain. |
+| **`wire_editor_events`** | `capture/editor/window/events/mod.rs` | **~350 lines** | Ordered dispatcher over event-family modules + close_request; Track D event peels complete through 10.18. |
+| **`setup_editor_window_full`** | `capture/editor/window/mod.rs` | **~2,200 lines** | Widget construction + session still large; canvas draw is out via `canvas_render`. |
 | **`overlay::window::setup_window`** | `overlay/window/mod.rs` | **~1,850 lines** | Motion hit-test, toolbar clicks, drag gestures, keyboard. Audio/CSS/X11 helpers are out; input surface remains. |
 
 ### Other large files (navigation / deferred)
