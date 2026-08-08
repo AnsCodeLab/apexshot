@@ -1,7 +1,7 @@
 use gtk4::{
     gdk, glib, prelude::*, Application, ApplicationWindow, Box as GtkBox, Button, CheckButton,
-    DrawingArea, EventControllerKey, EventControllerMotion, GestureClick, GestureDrag, Image,
-    Label, Overlay, Popover, Scale, ScrolledWindow,
+    DrawingArea, EventControllerKey, EventControllerMotion, GestureClick, GestureDrag, Label,
+    Overlay, Popover, Scale, ScrolledWindow,
 };
 use image::RgbaImage;
 use std::cell::{Cell, RefCell};
@@ -10,19 +10,14 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use super::super::{
-    color::{palette_index_for_color, DRAG_REDRAW_INTERVAL_US, DRAW_COLORS},
-    numbering_style::{NumberSize, NumberingStyle},
+    color::{palette_index_for_color, DRAG_REDRAW_INTERVAL_US},
     render::cursor_position_for_text_point,
     state::EditorState,
     types::{
-        tool_button_index, tool_shortcut_target, ArrowStyle, BackgroundStyle, DrawColor,
-        FontSettings, FontStyle, MoveHandle, ObfuscateMethod, Point, TextAlignment, TextDecoration,
-        Tool, ViewTransform,
+        tool_shortcut_target, ArrowStyle, DrawColor, FontSettings, FontStyle, MoveHandle, Point,
+        TextAlignment, TextDecoration, Tool, ViewTransform,
     },
-    ui_support::{
-        arrow_style_toolbar_icon, set_active_tool_button, set_button_tool_icon,
-        set_crop_apply_button_state, toolbar_icon_size,
-    },
+    ui_support::{set_active_tool_button, set_crop_apply_button_state},
 };
 
 const MOVE_HANDLE_DRAG_RADIUS: f64 = 10.0;
@@ -30,53 +25,27 @@ const RESIZE_HANDLE_DRAG_SIZE: f64 = 18.0;
 const ARROW_CLICK_NOOP_DISTANCE: f64 = 3.0;
 const TEXT_SIZE_OPTIONS: [i32; 12] = [12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 64, 72];
 const TEXT_FONT_FAMILIES: [&str; 5] = ["Sans", "Serif", "Monospace", "Fantasy", "Cursive"];
-use super::super::pen_weight::{HighlighterMode, PenWeight};
 use super::{
     canvas::{
         eyedropper_loupe_position, sample_editor_color_at_point, sample_rendered_color_at_point,
     },
     color_picker,
     cursor::{cursor_name_for_view_point, set_window_cursor_name},
-    icon_names,
 };
 
+mod crop;
 mod history;
+mod options;
 mod output;
+mod tools;
 mod zoom;
 
+use crop::wire_crop_action_buttons;
 use history::wire_history_buttons;
+use options::{wire_tool_options, ToolOptionsParts};
 use output::wire_output_lifecycle;
+use tools::{wire_tool_mode_switches, ToolModeButtons};
 use zoom::{clamp_zoom_level, wire_zoom_controls, ZOOM_STEP};
-
-fn sync_arrow_option_selection(list: &GtkBox, selected_index: usize) {
-    let mut child_opt = list.first_child();
-    let mut index = 0usize;
-    while let Some(child) = child_opt {
-        child_opt = child.next_sibling();
-
-        let Ok(button) = child.downcast::<Button>() else {
-            continue;
-        };
-
-        if index == selected_index {
-            button.add_css_class("editor-arrow-inspector-option-active");
-        } else {
-            button.remove_css_class("editor-arrow-inspector-option-active");
-        }
-
-        if let Some(content) = button.child() {
-            if let Ok(row) = content.downcast::<GtkBox>() {
-                if let Some(check_icon) = row.last_child() {
-                    if let Ok(widget) = check_icon.downcast::<gtk4::Widget>() {
-                        widget.set_visible(index == selected_index);
-                    }
-                }
-            }
-        }
-
-        index += 1;
-    }
-}
 
 fn sync_text_option_selection(list: &GtkBox, selected_index: Option<usize>) {
     let mut child_opt = list.first_child();
@@ -93,37 +62,6 @@ fn sync_text_option_selection(list: &GtkBox, selected_index: Option<usize>) {
             button.add_css_class("editor-text-inspector-option-active");
         } else {
             button.remove_css_class("editor-text-inspector-option-active");
-        }
-
-        if let Some(content) = button.child() {
-            if let Ok(row) = content.downcast::<GtkBox>() {
-                if let Some(check_icon) = row.last_child() {
-                    if let Ok(widget) = check_icon.downcast::<gtk4::Widget>() {
-                        widget.set_visible(is_active);
-                    }
-                }
-            }
-        }
-
-        index += 1;
-    }
-}
-
-fn sync_number_option_selection(list: &GtkBox, selected_index: usize, active_class: &str) {
-    let mut child_opt = list.first_child();
-    let mut index = 0usize;
-    while let Some(child) = child_opt {
-        child_opt = child.next_sibling();
-
-        let Ok(button) = child.downcast::<Button>() else {
-            continue;
-        };
-
-        let is_active = index == selected_index;
-        if is_active {
-            button.add_css_class(active_class);
-        } else {
-            button.remove_css_class(active_class);
         }
 
         if let Some(content) = button.child() {
@@ -330,32 +268,6 @@ pub(super) fn wire_editor_events(ctx: EventContext) {
     let space_pan_dragging = Rc::new(Cell::new(false));
     let space_pan_origin = Rc::new(Cell::new((0.0, 0.0)));
 
-    let state_select = state.clone();
-    let drawing_area_select = drawing_area.downgrade();
-    let buttons_select = tool_buttons.clone();
-    let apply_crop_btn_select = apply_crop_btn.clone();
-    let update_toolbar_for_tool_select = update_toolbar_for_tool.clone();
-    let sync_size_control_select = sync_size_control.clone();
-    let sync_select_inspector_select = sync_select_inspector.clone();
-    let rebuild_effects_async_select = rebuild_effects_async.clone();
-    select_btn.connect_clicked(move |_| {
-        set_active_tool_button(&buttons_select, tool_button_index(Tool::Select));
-        if state_select
-            .lock()
-            .unwrap()
-            .set_tool_without_rebuild(Tool::Select)
-        {
-            rebuild_effects_async_select();
-        }
-        update_toolbar_for_tool_select(Tool::Select);
-        sync_select_inspector_select();
-        sync_size_control_select();
-        set_crop_apply_button_state(&apply_crop_btn_select, false, false);
-        if let Some(area) = drawing_area_select.upgrade() {
-            area.queue_draw();
-        }
-    });
-
     let window_minimize = window.downgrade();
     traffic_minimize.connect_clicked(move |_| {
         if let Some(window) = window_minimize.upgrade() {
@@ -371,159 +283,6 @@ pub(super) fn wire_editor_events(ctx: EventContext) {
             let next_zoomed = !zoomed_state_btn.get();
             zoomed_state_btn.set(next_zoomed);
             window.set_fullscreened(next_zoomed);
-        }
-    });
-
-    let state_crop = state.clone();
-    let drawing_area_crop = drawing_area.downgrade();
-    let buttons_crop = tool_buttons.clone();
-    let apply_crop_btn_crop = apply_crop_btn.clone();
-    let update_toolbar_for_tool_crop = update_toolbar_for_tool.clone();
-    let update_crop_size_fields_crop = update_crop_size_fields.clone();
-    let sync_picker_for_active_tool_crop = sync_picker_for_active_tool.clone();
-    let sync_size_control_crop = sync_size_control.clone();
-    let rebuild_effects_async_crop = rebuild_effects_async.clone();
-    crop_btn.connect_clicked(move |_| {
-        let (next_tool, has_selection) = {
-            let mut st = state_crop.lock().unwrap();
-            let rebuild = if st.selected_tool == Tool::Crop {
-                let r = st.set_tool_without_rebuild(Tool::Arrow);
-                (Tool::Arrow, false, r)
-            } else {
-                let r = st.set_tool_without_rebuild(Tool::Crop);
-                st.ensure_crop_selection_initialized();
-                (Tool::Crop, st.crop_selection.is_some(), r)
-            };
-            if rebuild.2 {
-                rebuild_effects_async_crop();
-            }
-            (rebuild.0, rebuild.1)
-        };
-
-        set_active_tool_button(&buttons_crop, tool_button_index(next_tool));
-        update_toolbar_for_tool_crop(next_tool);
-        sync_picker_for_active_tool_crop();
-        sync_size_control_crop();
-        set_crop_apply_button_state(
-            &apply_crop_btn_crop,
-            matches!(next_tool, Tool::Crop),
-            has_selection,
-        );
-        update_crop_size_fields_crop();
-        if let Some(area) = drawing_area_crop.upgrade() {
-            area.queue_draw();
-        }
-    });
-
-    let state_background = state.clone();
-    let drawing_area_background = drawing_area.downgrade();
-    let buttons_background = tool_buttons.clone();
-    let apply_crop_btn_background = apply_crop_btn.clone();
-    let update_toolbar_for_tool_background = update_toolbar_for_tool.clone();
-    let sync_picker_for_active_tool_background = sync_picker_for_active_tool.clone();
-    let sync_size_control_background = sync_size_control.clone();
-    let rebuild_effects_async_background = rebuild_effects_async.clone();
-    background_btn.connect_clicked(move |_| {
-        let next_tool = {
-            let mut st = state_background.lock().unwrap();
-            let rebuild = if st.selected_tool == Tool::Background {
-                let r = st.set_tool_without_rebuild(Tool::Arrow);
-                (Tool::Arrow, r)
-            } else {
-                let r = st.set_tool_without_rebuild(Tool::Background);
-                (Tool::Background, r)
-            };
-            if rebuild.1 {
-                rebuild_effects_async_background();
-            }
-            rebuild.0
-        };
-
-        set_active_tool_button(&buttons_background, tool_button_index(next_tool));
-
-        update_toolbar_for_tool_background(next_tool);
-        sync_picker_for_active_tool_background();
-        sync_size_control_background();
-        set_crop_apply_button_state(&apply_crop_btn_background, false, false);
-        if let Some(area) = drawing_area_background.upgrade() {
-            area.queue_draw();
-        }
-    });
-
-    let state_draw_mode = state.clone();
-    let drawing_area_draw_mode = drawing_area.downgrade();
-    let buttons_draw_mode = tool_buttons.clone();
-    let apply_crop_btn_draw_mode = apply_crop_btn.clone();
-    let update_toolbar_for_tool_draw_mode = update_toolbar_for_tool.clone();
-    let sync_size_control_draw = sync_size_control.clone();
-    let rebuild_effects_async_draw = rebuild_effects_async.clone();
-    let window_draw = window.clone();
-    draw_btn.connect_clicked(move |_| {
-        set_active_tool_button(&buttons_draw_mode, tool_button_index(Tool::Pen));
-        if state_draw_mode
-            .lock()
-            .unwrap()
-            .set_tool_without_rebuild(Tool::Pen)
-        {
-            rebuild_effects_async_draw();
-        }
-        update_toolbar_for_tool_draw_mode(Tool::Pen);
-        sync_size_control_draw();
-        set_crop_apply_button_state(&apply_crop_btn_draw_mode, false, false);
-        {
-            let st = state_draw_mode.lock().unwrap();
-            super::cursor::update_pen_cursor(&window_draw, &st);
-        }
-        if let Some(area) = drawing_area_draw_mode.upgrade() {
-            area.queue_draw();
-        }
-    });
-
-    let state_arrow = state.clone();
-    let drawing_area_arrow = drawing_area.downgrade();
-    let buttons_arrow = tool_buttons.clone();
-    let apply_crop_btn_arrow = apply_crop_btn.clone();
-    let update_toolbar_for_tool_arrow = update_toolbar_for_tool.clone();
-    let sync_size_control_arrow = sync_size_control.clone();
-    let rebuild_effects_async_arrow = rebuild_effects_async.clone();
-    arrow_btn.connect_clicked(move |_| {
-        set_active_tool_button(&buttons_arrow, tool_button_index(Tool::Arrow));
-        if state_arrow
-            .lock()
-            .unwrap()
-            .set_tool_without_rebuild(Tool::Arrow)
-        {
-            rebuild_effects_async_arrow();
-        }
-        update_toolbar_for_tool_arrow(Tool::Arrow);
-        sync_size_control_arrow();
-        set_crop_apply_button_state(&apply_crop_btn_arrow, false, false);
-        if let Some(area) = drawing_area_arrow.upgrade() {
-            area.queue_draw();
-        }
-    });
-
-    let state_line = state.clone();
-    let drawing_area_line = drawing_area.downgrade();
-    let buttons_line = tool_buttons.clone();
-    let apply_crop_btn_line = apply_crop_btn.clone();
-    let update_toolbar_for_tool_line = update_toolbar_for_tool.clone();
-    let sync_size_control_line = sync_size_control.clone();
-    let rebuild_effects_async_line = rebuild_effects_async.clone();
-    line_btn.connect_clicked(move |_| {
-        set_active_tool_button(&buttons_line, tool_button_index(Tool::Line));
-        if state_line
-            .lock()
-            .unwrap()
-            .set_tool_without_rebuild(Tool::Line)
-        {
-            rebuild_effects_async_line();
-        }
-        update_toolbar_for_tool_line(Tool::Line);
-        sync_size_control_line();
-        set_crop_apply_button_state(&apply_crop_btn_line, false, false);
-        if let Some(area) = drawing_area_line.upgrade() {
-            area.queue_draw();
         }
     });
 
@@ -557,763 +316,81 @@ pub(super) fn wire_editor_events(ctx: EventContext) {
         &traffic_close,
     );
 
-    let state_box = state.clone();
-    let drawing_area_box = drawing_area.downgrade();
-    let buttons_box = tool_buttons.clone();
-    let apply_crop_btn_box = apply_crop_btn.clone();
-    let update_toolbar_for_tool_box = update_toolbar_for_tool.clone();
-    let sync_size_control_box = sync_size_control.clone();
-    let rebuild_effects_async_box = rebuild_effects_async.clone();
-    box_btn.connect_clicked(move |_| {
-        set_active_tool_button(&buttons_box, tool_button_index(Tool::Box));
-        if state_box
-            .lock()
-            .unwrap()
-            .set_tool_without_rebuild(Tool::Box)
-        {
-            rebuild_effects_async_box();
-        }
-        update_toolbar_for_tool_box(Tool::Box);
-        sync_size_control_box();
-        set_crop_apply_button_state(&apply_crop_btn_box, false, false);
-        if let Some(area) = drawing_area_box.upgrade() {
-            area.queue_draw();
-        }
-    });
-
-    let state_circle = state.clone();
-    let drawing_area_circle = drawing_area.downgrade();
-    let buttons_circle = tool_buttons.clone();
-    let apply_crop_btn_circle = apply_crop_btn.clone();
-    let update_toolbar_for_tool_circle = update_toolbar_for_tool.clone();
-    let sync_size_control_circle = sync_size_control.clone();
-    let rebuild_effects_async_circle = rebuild_effects_async.clone();
-    circle_btn.connect_clicked(move |_| {
-        set_active_tool_button(&buttons_circle, tool_button_index(Tool::Circle));
-        if state_circle
-            .lock()
-            .unwrap()
-            .set_tool_without_rebuild(Tool::Circle)
-        {
-            rebuild_effects_async_circle();
-        }
-        update_toolbar_for_tool_circle(Tool::Circle);
-        sync_size_control_circle();
-        set_crop_apply_button_state(&apply_crop_btn_circle, false, false);
-        if let Some(area) = drawing_area_circle.upgrade() {
-            area.queue_draw();
-        }
-    });
-
-    let state_text = state.clone();
-    let drawing_area_text = drawing_area.downgrade();
-    let buttons_text = tool_buttons.clone();
-    let apply_crop_btn_text = apply_crop_btn.clone();
-    let update_toolbar_for_tool_text = update_toolbar_for_tool.clone();
-    let sync_size_control_text = sync_size_control.clone();
-    let rebuild_effects_async_text = rebuild_effects_async.clone();
-    text_btn.connect_clicked(move |_| {
-        set_active_tool_button(&buttons_text, tool_button_index(Tool::Text));
-        if state_text
-            .lock()
-            .unwrap()
-            .set_tool_without_rebuild(Tool::Text)
-        {
-            rebuild_effects_async_text();
-        }
-        update_toolbar_for_tool_text(Tool::Text);
-        sync_size_control_text();
-        set_crop_apply_button_state(&apply_crop_btn_text, false, false);
-        if let Some(area) = drawing_area_text.upgrade() {
-            area.queue_draw();
-        }
-    });
-
-    let state_obfuscate = state.clone();
-    let drawing_area_obfuscate = drawing_area.downgrade();
-    let buttons_obfuscate = tool_buttons.clone();
-    let apply_crop_btn_obfuscate = apply_crop_btn.clone();
-    let update_toolbar_for_tool_obfuscate = update_toolbar_for_tool.clone();
-    let sync_size_control_obfuscate = sync_size_control.clone();
-    let rebuild_effects_async_obfuscate = rebuild_effects_async.clone();
-    obfuscate_btn.connect_clicked(move |_| {
-        set_active_tool_button(&buttons_obfuscate, tool_button_index(Tool::Obfuscate));
-        {
-            let mut st = state_obfuscate.lock().unwrap();
-            let changed = st.set_tool_without_rebuild(Tool::Obfuscate);
-
-            // If the app was backgrounded while an effects rebuild was in-flight, we can end up
-            // with the pending flag stuck and no further rebuilds scheduled. Clear it on tool
-            // activation and trigger a rebuild if we have any effect actions.
-            st.select_effect_rebuild_pending = false;
-
-            // If we changed tool or we have any effect actions, refresh the effect layer.
-            let has_effect_actions = st
-                .actions
-                .iter()
-                .any(EditorState::action_requires_effect_rebuild);
-            drop(st);
-
-            if changed || has_effect_actions {
-                rebuild_effects_async_obfuscate();
-            }
-        }
-        update_toolbar_for_tool_obfuscate(Tool::Obfuscate);
-        sync_size_control_obfuscate();
-        set_crop_apply_button_state(&apply_crop_btn_obfuscate, false, false);
-        if let Some(area) = drawing_area_obfuscate.upgrade() {
-            area.queue_draw();
-        }
-    });
-
-    let state_focus = state.clone();
-    let drawing_area_focus = drawing_area.downgrade();
-    let buttons_focus = tool_buttons.clone();
-    let apply_crop_btn_focus = apply_crop_btn.clone();
-    let update_toolbar_for_tool_focus = update_toolbar_for_tool.clone();
-    let sync_size_control_focus = sync_size_control.clone();
-    let rebuild_effects_async_focus = rebuild_effects_async.clone();
-    focus_btn.connect_clicked(move |_| {
-        set_active_tool_button(&buttons_focus, tool_button_index(Tool::Focus));
-        if state_focus
-            .lock()
-            .unwrap()
-            .set_tool_without_rebuild(Tool::Focus)
-        {
-            rebuild_effects_async_focus();
-        }
-        update_toolbar_for_tool_focus(Tool::Focus);
-        sync_size_control_focus();
-        set_crop_apply_button_state(&apply_crop_btn_focus, false, false);
-        if let Some(area) = drawing_area_focus.upgrade() {
-            area.queue_draw();
-        }
-    });
-
-    let state_number = state.clone();
-    let drawing_area_number = drawing_area.downgrade();
-    let buttons_number = tool_buttons.clone();
-    let apply_crop_btn_number = apply_crop_btn.clone();
-    let update_toolbar_for_tool_number = update_toolbar_for_tool.clone();
-    let sync_size_control_number = sync_size_control.clone();
-    let rebuild_effects_async_number = rebuild_effects_async.clone();
-    number_btn.connect_clicked(move |_| {
-        let next_tool = {
-            let mut st = state_number.lock().unwrap();
-            if st.selected_tool == Tool::Number {
-                let r = st.set_tool_without_rebuild(Tool::Arrow);
-                (Tool::Arrow, r)
-            } else {
-                let r = st.set_tool_without_rebuild(Tool::Number);
-                (Tool::Number, r)
-            }
-        };
-        if next_tool.1 {
-            rebuild_effects_async_number();
-        }
-
-        set_active_tool_button(&buttons_number, tool_button_index(next_tool.0));
-
-        update_toolbar_for_tool_number(next_tool.0);
-        sync_size_control_number();
-        set_crop_apply_button_state(&apply_crop_btn_number, false, false);
-        if let Some(area) = drawing_area_number.upgrade() {
-            area.queue_draw();
-        }
-    });
-
-    let state_highlighter = state.clone();
-    let drawing_area_highlighter = drawing_area.downgrade();
-    let buttons_highlighter = tool_buttons.clone();
-    let apply_crop_btn_highlighter = apply_crop_btn.clone();
-    let update_toolbar_for_tool_highlighter = update_toolbar_for_tool.clone();
-    let sync_size_control_highlighter = sync_size_control.clone();
-    let window_highlighter = window.clone();
-    let rebuild_effects_async_highlighter = rebuild_effects_async.clone();
-    highlighter_btn.connect_clicked(move |_| {
-        let next_tool = {
-            let mut st = state_highlighter.lock().unwrap();
-            let rebuild = if st.selected_tool == Tool::Highlighter {
-                let r = st.set_tool_without_rebuild(Tool::Arrow);
-                (Tool::Arrow, r)
-            } else {
-                let r = st.set_tool_without_rebuild(Tool::Highlighter);
-                (Tool::Highlighter, r)
-            };
-            if rebuild.1 {
-                rebuild_effects_async_highlighter();
-            }
-            rebuild.0
-        };
-
-        set_active_tool_button(&buttons_highlighter, tool_button_index(next_tool));
-        if !matches!(next_tool, Tool::Highlighter) {
-            set_window_cursor_name(&window_highlighter, Some("default"));
-        }
-
-        update_toolbar_for_tool_highlighter(next_tool);
-        sync_size_control_highlighter();
-        set_crop_apply_button_state(&apply_crop_btn_highlighter, false, false);
-
-        if let Some(area) = drawing_area_highlighter.upgrade() {
-            area.queue_draw();
-        }
-    });
-
-    // Wire up pen weight list items for highlighter freehand mode
-    // NOTE: Do not remove children here; that would empty the popover and nothing would display.
-    let weights = [
-        PenWeight::Small,
-        PenWeight::Medium,
-        PenWeight::Large,
-        PenWeight::ExtraLarge,
-    ];
-
-    let pen_weight_button_for_closure = pen_weight_button.clone();
-    let drawing_area_for_weight = drawing_area.downgrade();
-    let window_pen_weight = window.clone();
-
-    for weight_list in [pen_weight_list.clone(), highlighter_weight_list.clone()] {
-        let mut weight_idx = 0usize;
-        let mut child_opt = weight_list.first_child();
-        while let Some(child) = child_opt {
-            // Grab next sibling before we do anything else
-            child_opt = child.next_sibling();
-
-            let Ok(button) = child.clone().downcast::<Button>() else {
-                continue;
-            };
-
-            let Some(&weight) = weights.get(weight_idx) else {
-                break;
-            };
-            weight_idx += 1;
-
-            let selected_index = weight_idx - 1;
-            let state_for_weight = state.clone();
-            let drawing_area_weight = drawing_area_for_weight.clone();
-            let pen_weight_button_clone = pen_weight_button_for_closure.clone();
-            let window_for_weight = window_pen_weight.clone();
-            let weight_list_for_sync = weight_list.clone();
-
-            button.connect_clicked(move |b| {
-                {
-                    let mut st = state_for_weight.lock().unwrap();
-                    st.set_pen_weight(weight);
-                    let is_highlighter = st.selected_tool == Tool::Highlighter;
-                    let is_pen = st.selected_tool == Tool::Pen;
-                    if is_highlighter {
-                        st.set_highlighter_mode(HighlighterMode::Freehand);
-                    }
-                    drop(st);
-
-                    if is_pen || is_highlighter {
-                        let st = state_for_weight.lock().unwrap();
-                        super::cursor::update_pen_cursor(&window_for_weight, &st);
-                    }
-                }
-
-                let icon = gtk4::Image::from_icon_name(weight.icon_name());
-                icon.set_pixel_size(weight.icon_pixel_size());
-                pen_weight_button_clone.set_child(Some(&icon));
-                sync_arrow_option_selection(&weight_list_for_sync, selected_index);
-
-                // Close the popover
-                if let Some(popover) = b.ancestor(Popover::static_type()) {
-                    popover.downcast::<Popover>().unwrap().popdown();
-                }
-
-                if let Some(area) = drawing_area_weight.upgrade() {
-                    area.queue_draw();
-                }
-            });
-        }
-    }
-
-    // Wire up obfuscate method list items
-    // NOTE: Do not remove children here; that would empty the popover and nothing would display.
-    let methods = [
-        ObfuscateMethod::Pixelate,
-        ObfuscateMethod::Blur,
-        ObfuscateMethod::Blackout,
-    ];
-
-    let obfuscate_method_button = obfuscate_method_button.clone();
-    let rebuild_effects_async_obfuscate_method = rebuild_effects_async.clone();
-    let sync_size_control_obfuscate_method = sync_size_control.clone();
-
-    let mut method_idx = 0usize;
-    let mut child_opt = obfuscate_method_list.first_child();
-    while let Some(child) = child_opt {
-        // Grab next sibling before we do anything else
-        child_opt = child.next_sibling();
-
-        let Ok(button) = child.clone().downcast::<Button>() else {
-            continue;
-        };
-
-        let Some(&method) = methods.get(method_idx) else {
-            break;
-        };
-        method_idx += 1;
-
-        let state_obfuscate_method = state.clone();
-        let drawing_area_obfuscate_method = drawing_area.downgrade();
-        let obfuscate_method_button = obfuscate_method_button.clone();
-        let rebuild_effects_async_obfuscate_method = rebuild_effects_async_obfuscate_method.clone();
-        let sync_size_control_obfuscate_method = sync_size_control_obfuscate_method.clone();
-
-        button.connect_clicked(move |b| {
-            {
-                let mut st = state_obfuscate_method.lock().unwrap();
-                st.set_obfuscate_method(method);
-            }
-
-            // Update the method button icon to reflect current selection.
-            if let Some(child) = obfuscate_method_button.child() {
-                if let Ok(img) = child.downcast::<Image>() {
-                    let icon_name = match method {
-                        ObfuscateMethod::Pixelate => icon_names::VIEW_GRID,
-                        ObfuscateMethod::Blur => icon_names::BLUR,
-                        ObfuscateMethod::Blackout => icon_names::MEDIA_PLAYBACK_STOP,
-                    };
-                    img.set_icon_name(Some(icon_name));
-                }
-            }
-
-            // Rebuild effects so existing obfuscate annotations update immediately.
-            rebuild_effects_async_obfuscate_method();
-
-            // Sync toolbar sizing / slider state.
-            sync_size_control_obfuscate_method();
-
-            if let Some(popover) = b.ancestor(Popover::static_type()) {
-                popover.downcast::<Popover>().unwrap().popdown();
-            }
-            if let Some(area) = drawing_area_obfuscate_method.upgrade() {
-                area.queue_draw();
-            }
-        });
-    }
-
-    // Wire up arrow style list items
-    let styles = ArrowStyle::ALL;
-
-    let arrow_style_button = arrow_style_button.clone();
-    let arrow_style_list_for_sync = arrow_style_list.clone();
-
-    let mut style_idx = 0usize;
-    let mut child_opt = arrow_style_list.first_child();
-    while let Some(child) = child_opt {
-        child_opt = child.next_sibling();
-
-        let Ok(button) = child.clone().downcast::<Button>() else {
-            continue;
-        };
-
-        let Some(&style) = styles.get(style_idx) else {
-            break;
-        };
-        let selected_index = style_idx;
-        style_idx += 1;
-
-        let state_arrow_style = state.clone();
-        let drawing_area_arrow_style = drawing_area.downgrade();
-        let arrow_style_button = arrow_style_button.clone();
-        let arrow_style_list = arrow_style_list_for_sync.clone();
-
-        button.connect_clicked(move |b| {
-            {
-                let mut st = state_arrow_style.lock().unwrap();
-                st.set_arrow_style(style);
-                let _ = st.set_selected_arrow_style(style);
-            }
-
-            let icon = arrow_style_toolbar_icon(style);
-            set_button_tool_icon(&arrow_style_button, icon.clone(), toolbar_icon_size(&icon));
-            sync_arrow_option_selection(&arrow_style_list, selected_index);
-
-            if let Some(popover) = b.ancestor(Popover::static_type()) {
-                popover.downcast::<Popover>().unwrap().popdown();
-            }
-            if let Some(area) = drawing_area_arrow_style.upgrade() {
-                area.queue_draw();
-            }
-        });
-    }
-
-    // Wire up stroke size list items for arrow/line tools
-    let stroke_sizes: [(f64, PenWeight); 4] = [
-        (2.0, PenWeight::Small),
-        (4.0, PenWeight::Medium),
-        (7.0, PenWeight::Large),
-        (12.0, PenWeight::ExtraLarge),
-    ];
-
-    let arrow_thickness_list_for_sync = arrow_thickness_list.clone();
-
-    let stroke_size_button_for_closure = stroke_size_button.clone();
-    let drawing_area_for_stroke = drawing_area.downgrade();
-
-    let mut stroke_idx = 0usize;
-    let mut child_opt = stroke_size_list.first_child();
-    while let Some(child) = child_opt {
-        child_opt = child.next_sibling();
-
-        let Ok(button) = child.clone().downcast::<Button>() else {
-            continue;
-        };
-
-        let Some(&(size, weight)) = stroke_sizes.get(stroke_idx) else {
-            break;
-        };
-        stroke_idx += 1;
-
-        let selected_index = stroke_idx - 1;
-        let state_stroke = state.clone();
-        let drawing_area_stroke = drawing_area_for_stroke.clone();
-        let stroke_size_button_clone = stroke_size_button_for_closure.clone();
-        let stroke_size_list_for_sync = stroke_size_list.clone();
-
-        button.connect_clicked(move |b| {
-            {
-                let mut st = state_stroke.lock().unwrap();
-                st.set_stroke_size(size);
-            }
-
-            // Update the trigger button icon to reflect selected size
-            let icon = gtk4::Image::from_icon_name(weight.icon_name());
-            icon.set_pixel_size(weight.icon_pixel_size());
-            stroke_size_button_clone.set_child(Some(&icon));
-            sync_arrow_option_selection(&stroke_size_list_for_sync, selected_index);
-
-            if let Some(popover) = b.ancestor(Popover::static_type()) {
-                popover.downcast::<Popover>().unwrap().popdown();
-            }
-            if let Some(area) = drawing_area_stroke.upgrade() {
-                area.queue_draw();
-            }
-        });
-    }
-
-    let arrow_thickness_sizes: [(f64, PenWeight); 4] = [
-        (2.0, PenWeight::Small),
-        (4.0, PenWeight::Medium),
-        (7.0, PenWeight::Large),
-        (12.0, PenWeight::ExtraLarge),
-    ];
-
-    let mut thickness_idx = 0usize;
-    let mut child_opt = arrow_thickness_list.first_child();
-    while let Some(child) = child_opt {
-        child_opt = child.next_sibling();
-
-        let Ok(button) = child.clone().downcast::<Button>() else {
-            continue;
-        };
-
-        let Some(&(size, weight)) = arrow_thickness_sizes.get(thickness_idx) else {
-            break;
-        };
-        let selected_index = thickness_idx;
-        thickness_idx += 1;
-
-        let state_stroke = state.clone();
-        let drawing_area_stroke = drawing_area.downgrade();
-        let stroke_size_button_clone = stroke_size_button.clone();
-        let arrow_thickness_list = arrow_thickness_list_for_sync.clone();
-
-        button.connect_clicked(move |_| {
-            {
-                let mut st = state_stroke.lock().unwrap();
-                st.set_stroke_size(size);
-            }
-
-            let icon = gtk4::Image::from_icon_name(weight.icon_name());
-            icon.set_pixel_size(weight.icon_pixel_size());
-            stroke_size_button_clone.set_child(Some(&icon));
-            sync_arrow_option_selection(&arrow_thickness_list, selected_index);
-
-            if let Some(area) = drawing_area_stroke.upgrade() {
-                area.queue_draw();
-            }
-        });
-    }
-
-    inverse_direction_toggle.connect_toggled({
-        let state = state.clone();
-        let drawing_area = drawing_area.downgrade();
-        move |toggle| {
-            {
-                let mut st = state.lock().unwrap();
-                let next = toggle.is_active();
-                if st.inverse_arrow_direction != next {
-                    st.inverse_arrow_direction = next;
-                    let _ = st.reverse_selected_arrow_action();
-                }
-            }
-
-            if let Some(area) = drawing_area.upgrade() {
-                area.queue_draw();
-            }
-        }
-    });
-
-    let refresh_number_start_display: Rc<dyn Fn()> = Rc::new({
-        let state = state.clone();
-        let number_start_entry = number_start_entry.clone();
-        move || {
-            let st = state.lock().unwrap();
-            number_start_entry.set_text(&st.numbering_style.format(st.numbering_start));
-        }
-    });
-
-    // Wire up number style options
-    let styles = NumberingStyle::ALL;
-    let state_number_style = state.clone();
-    let drawing_area_number_style = drawing_area.downgrade();
-    let refresh_number_start_display_style = refresh_number_start_display.clone();
-
-    let mut style_idx = 0usize;
-    let mut child_opt = number_options_list.first_child();
-    while let Some(child) = child_opt {
-        child_opt = child.next_sibling();
-
-        let Ok(button) = child.clone().downcast::<Button>() else {
-            continue;
-        };
-
-        if !button
-            .css_classes()
-            .iter()
-            .any(|c| c == "editor-number-style-option")
-        {
-            continue;
-        }
-
-        let Some(&style) = styles.get(style_idx) else {
-            break;
-        };
-        style_idx += 1;
-
-        let state_style = state_number_style.clone();
-        let drawing_area_style = drawing_area_number_style.clone();
-        let refresh_display = refresh_number_start_display_style.clone();
-        let number_options_list_sync = number_options_list.clone();
-
-        button.connect_clicked(move |_| {
-            {
-                let mut st = state_style.lock().unwrap();
-                st.numbering_style = style;
-                st.next_number = st.numbering_start;
-            }
-            sync_number_option_selection(
-                &number_options_list_sync,
-                style_idx - 1,
-                "editor-number-style-option-active",
-            );
-            refresh_display();
-
-            if let Some(area) = drawing_area_style.upgrade() {
-                area.queue_draw();
-            }
-        });
-    }
-
-    // Wire up start +/- controls
-    let refresh_number_start_display_inc = refresh_number_start_display.clone();
-    number_inc_btn.connect_clicked({
-        let state = state.clone();
-        move |_| {
-            {
-                let mut st = state.lock().unwrap();
-                st.numbering_start = st.numbering_start.saturating_add(1);
-                st.next_number = st.numbering_start;
-            }
-            refresh_number_start_display_inc();
-        }
-    });
-
-    let refresh_number_start_display_dec = refresh_number_start_display.clone();
-    number_dec_btn.connect_clicked({
-        let state = state.clone();
-        move |_| {
-            {
-                let mut st = state.lock().unwrap();
-                if st.numbering_start > 1 {
-                    st.numbering_start -= 1;
-                    st.next_number = st.numbering_start;
-                }
-            }
-            refresh_number_start_display_dec();
-        }
-    });
-
-    refresh_number_start_display();
-
-    // Wire up number size options
-    let sizes = NumberSize::ALL;
-
-    let state_number_size = state.clone();
-    let drawing_area_number_size = drawing_area.downgrade();
-
-    let mut size_idx = 0usize;
-    let mut child_opt = number_size_list.first_child();
-    while let Some(child) = child_opt {
-        child_opt = child.next_sibling();
-
-        let Ok(button) = child.clone().downcast::<Button>() else {
-            continue;
-        };
-
-        let Some(&size) = sizes.get(size_idx) else {
-            break;
-        };
-        size_idx += 1;
-
-        let state_size = state_number_size.clone();
-        let drawing_area_size = drawing_area_number_size.clone();
-        let number_size_btn = number_size_button.clone();
-        let number_size_list_sync = number_size_list.clone();
-
-        button.connect_clicked(move |b| {
-            {
-                let mut st = state_size.lock().unwrap();
-                st.number_size = size;
-            }
-
-            sync_number_option_selection(
-                &number_size_list_sync,
-                size_idx - 1,
-                "editor-number-size-option-active",
-            );
-
-            // Close the size popover
-            if let Some(popover) = b.ancestor(Popover::static_type()) {
-                popover.downcast::<Popover>().unwrap().popdown();
-            }
-
-            // Also close the main number options popover
-            if let Some(parent) = number_size_btn.parent() {
-                if let Some(popover) = parent.ancestor(Popover::static_type()) {
-                    popover.downcast::<Popover>().unwrap().popdown();
-                }
-            }
-
-            if let Some(area) = drawing_area_size.upgrade() {
-                area.queue_draw();
-            }
-        });
-    }
-
-    for (index, button) in color_buttons.iter().enumerate() {
-        let state_color = state.clone();
-        let drawing_area_color = drawing_area.downgrade();
-        let color_buttons_group = color_buttons.clone();
-        let color_picker_dot_group = color_picker_dot.clone();
-        let color_class_names_group = color_class_names.clone();
-        let color_popover_group = color_popover.clone();
-        let sync_picker_from_color_group = sync_picker_from_color.clone();
-        let sync_picker_for_active_tool_group = sync_picker_for_active_tool.clone();
-        button.connect_clicked(move |_| {
-            let (has_active_text, switched_background) = {
-                let mut st = state_color.lock().unwrap();
-                let has_active_text = st.active_text_input.is_some();
-                let mut switched_background = false;
-                if st.selected_tool == Tool::Crop {
-                    st.set_crop_background_color(DRAW_COLORS[index]);
-                } else if st.selected_tool == Tool::Background {
-                    st.background_style = BackgroundStyle::PlainColor(DRAW_COLORS[index]);
-                    switched_background = true;
-                } else {
-                    st.set_color_index(index);
-                }
-                (has_active_text, switched_background)
-            };
-
-            sync_picker_from_color_group(DRAW_COLORS[index]);
-            if switched_background {
-                sync_picker_for_active_tool_group();
-            }
-
-            color_picker::set_active_color_picker_state(
-                &color_buttons_group,
-                &color_picker_dot_group,
-                &color_class_names_group,
-                index,
-            );
-            color_popover_group.popdown();
-            if let Some(area) = drawing_area_color.upgrade() {
-                if has_active_text {
-                    area.grab_focus();
-                }
-                area.queue_draw();
-            }
-        });
-    }
-
-    let state_size = state.clone();
-    let drawing_area_size = drawing_area.downgrade();
-    let rebuild_effects_async_size = rebuild_effects_async.clone();
-    size_slider.connect_value_changed(move |slider| {
-        let value = slider.value();
-        if state_size
-            .lock()
-            .unwrap()
-            .set_active_size_without_rebuild(value)
-        {
-            rebuild_effects_async_size();
-            if let Some(area) = drawing_area_size.upgrade() {
-                area.queue_draw();
-            }
-        }
-    });
-
-    let state_apply_crop = state.clone();
-    let drawing_area_apply_crop = drawing_area.downgrade();
-    let apply_crop_btn_click = apply_crop_btn.clone();
-    let update_canvas_content_size_apply = update_canvas_content_size.clone();
-    let update_crop_size_fields_apply_crop = update_crop_size_fields.clone();
-    apply_crop_btn.connect_clicked(move |_| {
-        let apply_result = {
-            let mut st = state_apply_crop.lock().unwrap();
-            st.apply_crop_selection()
-        };
-
-        match apply_result {
-            Ok(true) => {
-                update_canvas_content_size_apply();
-                set_crop_apply_button_state(&apply_crop_btn_click, true, false);
-                update_crop_size_fields_apply_crop();
-                if let Some(area) = drawing_area_apply_crop.upgrade() {
-                    area.queue_draw();
-                }
-            }
-            Ok(false) => {
-                set_crop_apply_button_state(&apply_crop_btn_click, true, false);
-                update_crop_size_fields_apply_crop();
-            }
-            Err(e) => {
-                eprintln!("Failed to apply crop: {e}");
-            }
-        }
-    });
-
-    let state_reset_crop = state.clone();
-    let drawing_area_reset_crop = drawing_area.downgrade();
-    let update_crop_size_fields_reset_crop = update_crop_size_fields.clone();
-    let apply_crop_btn_reset = apply_crop_btn.clone();
-    crop_reset_btn.connect_clicked(move |_| {
-        {
-            let mut st = state_reset_crop.lock().unwrap();
-            st.reset_crop_interaction();
-        }
-        set_crop_apply_button_state(&apply_crop_btn_reset, true, false);
-        update_crop_size_fields_reset_crop();
-        if let Some(area) = drawing_area_reset_crop.upgrade() {
-            area.queue_draw();
-        }
-    });
+    // Tool-mode activation (Select/Crop/Background/Pen/.../Focus). Distinct toggle
+    // policies stay in tools.rs and must not be collapsed into one handler.
+    wire_tool_mode_switches(
+        ToolModeButtons {
+            tool_buttons: &tool_buttons,
+            select: &select_btn,
+            crop: &crop_btn,
+            background: &background_btn,
+            pen: &draw_btn,
+            arrow: &arrow_btn,
+            line: &line_btn,
+            boxed: &box_btn,
+            circle: &circle_btn,
+            text: &text_btn,
+            number: &number_btn,
+            highlighter: &highlighter_btn,
+            obfuscate: &obfuscate_btn,
+            focus: &focus_btn,
+            apply_crop: &apply_crop_btn,
+        },
+        &window,
+        &state,
+        &drawing_area,
+        &update_toolbar_for_tool,
+        &update_crop_size_fields,
+        &sync_picker_for_active_tool,
+        &sync_select_inspector,
+        &sync_size_control,
+        &rebuild_effects_async,
+    );
+
+    // Crop apply/reset inspector actions (not canvas crop drag).
+    wire_crop_action_buttons(
+        &apply_crop_btn,
+        &crop_reset_btn,
+        &state,
+        &drawing_area,
+        &update_canvas_content_size,
+        &update_crop_size_fields,
+    );
+
+    // Inspector/toolbar tool options (weight, style, numbering, palette, size).
+    wire_tool_options(
+        ToolOptionsParts {
+            pen_weight_button: &pen_weight_button,
+            pen_weight_list: &pen_weight_list,
+            highlighter_weight_list: &highlighter_weight_list,
+            obfuscate_method_button: &obfuscate_method_button,
+            obfuscate_method_list: &obfuscate_method_list,
+            arrow_style_button: &arrow_style_button,
+            arrow_style_list: &arrow_style_list,
+            arrow_thickness_list: &arrow_thickness_list,
+            stroke_size_button: &stroke_size_button,
+            stroke_size_list: &stroke_size_list,
+            inverse_direction_toggle: &inverse_direction_toggle,
+            number_options_list: &number_options_list,
+            number_start_entry: &number_start_entry,
+            number_inc_btn: &number_inc_btn,
+            number_dec_btn: &number_dec_btn,
+            number_size_button: &number_size_button,
+            number_size_list: &number_size_list,
+            color_buttons: &color_buttons,
+            color_picker_dot: &color_picker_dot,
+            color_class_names: &color_class_names,
+            color_popover: &color_popover,
+            size_slider: &size_slider,
+        },
+        &window,
+        &state,
+        &drawing_area,
+        &sync_picker_from_color,
+        &sync_picker_for_active_tool,
+        &sync_size_control,
+        &rebuild_effects_async,
+    );
 
     wire_history_buttons(
         &undo_btn,
@@ -3230,8 +2307,24 @@ mod tests {
         let mod_src = include_str!("mod.rs");
         let zoom_src = include_str!("zoom.rs");
         let history_src = include_str!("history.rs");
+        let output_src = include_str!("output.rs");
+        let tools_src = include_str!("tools.rs");
+        let crop_src = include_str!("crop.rs");
+        let options_src = include_str!("options.rs");
         let mod_prod = mod_src.split("#[cfg(test)]").next().unwrap_or(mod_src);
-        format!("{mod_prod}\n{zoom_src}\n{history_src}")
+        let output_prod = output_src
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap_or(output_src);
+        let tools_prod = tools_src.split("#[cfg(test)]").next().unwrap_or(tools_src);
+        let crop_prod = crop_src.split("#[cfg(test)]").next().unwrap_or(crop_src);
+        let options_prod = options_src
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap_or(options_src);
+        format!(
+            "{mod_prod}\n{zoom_src}\n{history_src}\n{output_prod}\n{tools_prod}\n{crop_prod}\n{options_prod}"
+        )
     }
 
     #[test]

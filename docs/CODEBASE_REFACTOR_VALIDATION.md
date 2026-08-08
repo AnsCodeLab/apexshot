@@ -42,7 +42,7 @@ No source implementation was changed during the original validation pass. Correc
 | PR 7: CLI split | **Confirmed** | Binary-only module split is correct. Contract tests now inspect `src/cli/install.rs`. | [x] |
 | PR 8: hotkeys split | Confirmed | Platform/config ownership and facade are preserved. | n/a |
 | PR 9: daemon split | **Confirmed after fix** | Physical split is coherent; IPC strings and crate-private API restored. | [x] |
-| PR 10+ | **Started after validation** | Initial safe slices are present; the remaining implementation is planned below. | in progress |
+| PR 10+ | **In progress** | Track A, events Track B, and setup Track C (10.11–10.14) done; interaction slices (Track D) and overlay remain. | in progress |
 | `capture_overlay.rs` | Deferred | It remains a single 2,431-line file with no child module tree. | deferred |
 
 ---
@@ -55,7 +55,7 @@ This plan supersedes the earlier statements in this validation snapshot that PR 
 
 - `src/capture/editor/state.rs` is now `state/`, with `text_input.rs`, `history.rs`, `drag_draw.rs`, and `export.rs` extracted.
 - `src/capture/editor/window/events.rs` is now `events/`, with zoom and history-button wiring extracted.
-- `window/inspectors.rs` owns the first concrete `InspectorParts` builder.
+- `window/inspectors/` owns `InspectorParts` plus family panel builders (`select`, `crop`, `stroke`, `text`, `number`, `obfuscate`).
 - `src/overlay/window.rs` is now `window/`, with audio primitives and platform policy extracted.
 - `run_daemon_inner` is already a short coordinator after action dispatch moved to `daemon/dispatch.rs`; no further daemon split is required for PR 10.
 
@@ -63,7 +63,7 @@ The remaining logic-bearing coordinators are:
 
 | Coordinator | Current location | Approximate size | Target |
 |-------------|------------------|-----------------:|--------|
-| `wire_editor_events` | `capture/editor/window/events/mod.rs` | 3,160 lines | Ordered dispatcher over behavior-owned event modules |
+| `wire_editor_events` | `capture/editor/window/events/mod.rs` | ~2,150 lines | Ordered dispatcher over behavior-owned event modules |
 | `setup_editor_window_full` | `capture/editor/window/mod.rs` | 2,990 lines | Bootstrap coordinator over concrete builders and services |
 | `overlay::window::setup_window` | `overlay/window/mod.rs` | 1,850 lines | Lifecycle coordinator over shell, result, audio, and input owners |
 
@@ -141,45 +141,42 @@ Kept `TextInputState` in `state/mod.rs`. Preserved `active_text_edit`, `active_t
 
 Exit gate: `cargo test --lib -- capture::editor` (211 passed); fmt/check/clippy/flatpak gates green.
 
-#### PR 10.4: selection state
+#### PR 10.4: selection state — **Done (2026-08-07)**
 
-Create `state/selection.rs` and move:
+Created `state/selection.rs` and moved:
 
 - Selected-action lookup and removability.
 - Selection hit testing, drag, resize, completion, and deletion.
 - Selected-action color/stroke mutation.
 - `clamp_action_to_image` and the related tests.
 
-Keep `capture/editor/selection.rs` as the geometry/hit-test primitive owner; the new state child owns mutation and may depend on those primitives, never the reverse. Move `clamp_action_to_image` unchanged because it contains special text, path, endpoint, and curved-arrow handling.
+Kept `capture/editor/selection.rs` as the geometry/hit-test primitive owner; state mutation may depend on those primitives, never the reverse.
 
-Exit gate: topmost selection, zoom-scaled hit padding, all resize handles, movement, deletion, number reuse, arrow hit testing, and effect-dirty behavior pass.
+Exit gate: topmost selection, zoom-scaled hit padding, all resize handles, movement, deletion, number reuse, arrow hit testing, and effect-dirty behavior pass under `cargo test --lib -- capture::editor`.
 
-#### PR 10.5: tool-style state
+#### PR 10.5: tool-style state — **Done (2026-08-07)**
 
-Create `state/tool_style.rs` and move:
+Created `state/tool_style.rs` and moved:
 
 - Active color and stroke size.
-- Pen/highlighter weight and mode.
 - Obfuscation method/amount and focus intensity.
 - Active size-control mode/value and selected-action style mutation not already owned by text, crop, or arrow modules.
 
-Do not replace the current fields with a nested style struct; window and preference code still reads several fields directly. Leave numbering in `state/mod.rs` until history/number-sequence ownership can be changed without a cross-module cycle.
+Did not nest style fields into a new struct. Numbering remains in `state/mod.rs`. Pen/highlighter weight setters currently live on `export.rs` (co-located with render helpers); no nested style object was introduced.
 
-Exit gate: clamping, selected-object updates, focus intensity, blur/pixelate/blackout, and pen/highlighter tests pass.
+Exit gate: clamping, selected-object updates, focus intensity, blur/pixelate/blackout, and pen/highlighter tests pass under `cargo test --lib -- capture::editor`.
 
-#### PR 10.6: optional effect/export helper cleanup
+#### PR 10.6: optional effect/export helper cleanup — **Done (2026-08-07)**
 
-Only after PRs 10.1-10.5 settle, move effect rebuild/application helpers to `state/effects.rs` and export-only crop/shadow/corner helpers to `export.rs`. Preserve the internal `state` facade used by editor window code, especially `apply_effect_actions` and `render_shadow_layer`.
-
-This slice is optional if it would create broader visibility than the current arrangement. Numbering may likewise remain in `state/mod.rs`.
+Moved effect rebuild/application helpers to `state/effects.rs` and kept export-only crop/shadow/corner helpers in `export.rs`. Preserved the internal `state` facade used by editor window code (`apply_effect_actions`, `render_shadow_layer`).
 
 ### Track B: extract low-risk editor event families
 
 Keep `events::wire_editor_events` as the only setup-facing facade and preserve GTK controller installation order. Remove unused `EventContext` fields before adding any new context data; do not replace it with another larger bag.
 
-#### PR 10.7: output lifecycle
+#### PR 10.7: output lifecycle — **Done (2026-08-07)**
 
-Create `events/output.rs` for copy, upload, Done/save, and traffic-close behavior. Preserve:
+Created `events/output.rs` for copy, upload, Done/save, and traffic-close behavior. Preserved:
 
 - Save-before-upload ordering and double-click suppression.
 - Window hide before idle save and re-show on failure.
@@ -187,44 +184,105 @@ Create `events/output.rs` for copy, upload, Done/save, and traffic-close behavio
 - Clipboard, preview-daemon fallback, close, and application-quit ordering.
 - Session guards on stale window callbacks.
 
-Move the upload source-contract test to this owner and delimit it by function/module rather than by the next unrelated callback.
+Moved the upload source-contract test to this owner.
 
-#### PR 10.8: crop action buttons
+#### PR 10.8: crop action buttons — **Done (2026-08-08)**
 
-Create `events/crop.rs` for crop apply/reset buttons and their dimension/layout refresh. This is intentionally separate from canvas crop dragging, which remains in the interaction controller until the shared drag state is extracted.
+Created `events/crop.rs` with `wire_crop_action_buttons` for crop apply/reset buttons and their dimension/layout refresh. Bodies moved unchanged:
 
-#### PR 10.9: tool mode switches
+- Apply calls `apply_crop_selection`, refreshes canvas content size on success, clears apply-button enabled selection state, and updates crop size fields.
+- Reset calls `reset_crop_interaction` and performs the same button/field/redraw refresh.
 
-Create `events/tools.rs` for Select, Crop, Background, Pen, Arrow, Line, Box, Circle, Text, Number, Obfuscate, Focus, and Highlighter activation. Move callback bodies unchanged first; their toggle policies are not identical and must not be prematurely deduplicated.
+Canvas crop dragging remains in the interaction controller. Structure test `crop_action_buttons_refresh_layout_and_fields` lives on this owner.
 
-#### PR 10.10: tool options
+Exit gate: `cargo test --lib -- capture::editor` (215 passed); fmt/check/clippy/flatpak gates green.
 
-Create `events/options.rs` for weight, style, direction, numbering, palette, size-slider, obfuscation, and focus option callbacks. Do this after the matching state modules and concrete inspector parts exist so the function accepts domain-specific parts rather than the full `EventContext`.
+#### PR 10.9: tool mode switches — **Done (2026-08-08)**
+
+Created `events/tools.rs` with `wire_tool_mode_switches` + `ToolModeButtons` for Select, Crop, Background, Pen, Arrow, Line, Box, Circle, Text, Number, Obfuscate, Focus, and Highlighter activation. Distinct toggle policies retained:
+
+- Crop toggles off to Arrow and calls `ensure_crop_selection_initialized`.
+- Background / Number / Highlighter toggle-off policies.
+- Obfuscate clears `select_effect_rebuild_pending` and may rebuild when effect actions exist.
+- Pen updates the pen cursor.
+
+Identical non-toggling tools (Arrow/Line/Box/Circle/Text/Focus) share a private `wire_standard_tool` helper with the same callback body. Structure test `tool_mode_switches_preserve_special_toggle_policies` lives on this owner. `production_events_source` in `events/mod.rs` now also includes `output.rs` and `tools.rs`.
+
+Exit gate: `cargo test --lib -- capture::editor` (214 passed); fmt/check/clippy/flatpak gates green.
+
+#### PR 10.10: tool options — **Done (2026-08-08)**
+
+Created `events/options.rs` with `wire_tool_options` + `ToolOptionsParts` for:
+
+- Pen/highlighter weight lists (including freehand mode + pen cursor update)
+- Obfuscate method list (icon update, effect rebuild, size-control sync)
+- Arrow style, stroke size, and arrow thickness lists
+- Inverse-direction toggle
+- Number style, start +/- controls, and number size
+- Color palette (crop background / plain background / tool color)
+- Size slider (`set_active_size_without_rebuild` + effect rebuild)
+
+Moved `sync_arrow_option_selection` and `sync_number_option_selection` with the handlers. Left text size/font list *sync* in `mod.rs` for canvas click re-edit. Structure test `tool_options_cover_weight_style_numbering_palette_and_size` lives on this owner.
+
+Exit gate: `cargo test --lib -- capture::editor` (216 passed); fmt/check/clippy/flatpak gates green.
 
 ### Track C: give editor setup sections concrete owners
 
 Use the existing `ToolbarParts`, `CanvasParts`, `FooterParts`, and `InspectorParts` pattern. A Parts type contains concrete widgets/results only, not state, arbitrary callbacks, or unrelated services.
 
-#### PR 10.11: inspector children
+#### PR 10.11: inspector children — **Done (2026-08-08)**
 
-Convert `window/inspectors.rs` to `window/inspectors/mod.rs` only when adding real child owners. Extract crop, stroke/arrow, number, and selection inspector construction one family at a time. Keep the shell builder as the facade and reduce its broad input list rather than creating another 20-field structure.
+Converted `window/inspectors.rs` → `window/inspectors/` with family-owned panel builders:
 
-#### PR 10.12: asynchronous effects service
+- `shell.rs` — shared `build_tool_inspector` / `append_inspector_section`
+- `select.rs` — selection inspector
+- `crop.rs` — crop dimensions/aspect/actions
+- `stroke.rs` — pen, arrow, line, highlighter thickness/style panels
+- `text.rs` — size/font
+- `number.rs` — style/start/size
+- `obfuscate.rs` — method
+- `mod.rs` — shell facade (`build_tool_inspectors` → `InspectorParts`), stack/tabs/sidebar actions
 
-Create `window/effects.rs` for the effect request/result channels, worker, stale-revision rejection, request coalescing, polling, watchdog, and rebuild callback. Preserve revision fields, timer intervals, and lock lifetimes exactly. GTK widgets remain on the main thread; only owned image/action data crosses the worker channel.
+Setup still calls the same `inspectors::build_tool_inspectors(InspectorContentInputs { ... })` entry. Child builders take narrower domain input structs internally. Source-inspection helper concatenates the inspector child tree.
 
-#### PR 10.13: background assets and canvas layout
+Exit gate: `cargo test --lib -- capture::editor` (217 passed); fmt/check/clippy/flatpak gates green.
 
-Use separate slices:
+#### PR 10.12: asynchronous effects service — **Done (2026-08-08)**
 
-- `window/background_assets.rs` owns gradient/wallpaper loading and cache handles.
-- `window/canvas_layout.rs` owns content sizing, zoom labels, crop overflow, background virtual size, and relayout suppression.
+Created `window/effects.rs` with `install_async_effects_pipeline(state, drawing_area) -> Rc<dyn Fn()>` owning:
 
-Do not combine these services merely because both are currently in setup. Each should expose a narrow result/callback consumed by the coordinator and renderer.
+- Request/result `mpsc` channels
+- 16ms UI-thread result poll with stale-revision rejection
+- Dirty-flag coalescing when a rebuild is already pending
+- Single worker thread that drains to the latest request and runs `apply_effect_actions`
+- 500ms watchdog recovering stuck `select_effect_rebuild_pending` after 2s
+- The `rebuild_effects_async` callback returned to setup/events
 
-#### PR 10.14: empty state and chrome
+Revision fields, timer intervals, and lock lifetimes preserved. GTK widgets stay on the main thread. Setup now installs the service in one call.
 
-Extract the empty-editor drop zone and concrete window chrome only after their reused widgets and session guards are explicit. Preserve same-window reuse, stale-handler suppression, supported-file checks, controller removal, window dragging, and resize behavior.
+Exit gate: `cargo test --lib -- capture::editor` (218 passed); fmt/check/clippy/flatpak gates green.
+
+#### PR 10.13: background assets and canvas layout — **Done (2026-08-08)**
+
+Created two separate owners (not combined):
+
+- `window/background_assets.rs` — `install_background_asset_loading` → `BackgroundAssetCaches` (gradient slots, wallpaper cache, loader sender). Preloads system wallpaper + gradient assets on a worker; 100ms UI poll inserts surfaces and redraws.
+- `window/canvas_layout.rs` — `install_canvas_layout` → `update_canvas_content_size`. Owns fit/scale math, background virtual size via `BackgroundComposition`, crop overflow, zoom label updates, and the scroller tick with capped-overflow signature to suppress relayout churn.
+
+Setup installs each service independently. Draw path still consumes the asset cache handles.
+
+Exit gate: `cargo test --lib -- capture::editor` (220 passed); fmt/check/clippy/flatpak gates green.
+
+#### PR 10.14: empty state and chrome — **Done (2026-08-08)**
+
+Created:
+
+- `window/chrome.rs` — `install_window_chrome`: top drag strip hosting toolbar, floating zoom/history overlays, window drag + edge resize installation.
+- `window/empty_state.rs` — `install_empty_drop_zone` plus supported-file checks, open dialog, async same-window load, drop target, and loading banner.
+
+Session reuse / stale controller removal remains in setup. `setup_editor_window_full` stays the reload target for empty→loaded transitions.
+
+Exit gate: `cargo test --lib -- capture::editor` (222 passed); fmt/check/clippy/flatpak gates green.
 
 ### Track D: split high-coupling editor interactions
 

@@ -70,20 +70,42 @@ Struct stays in `state/mod.rs` so private field access remains inside the `state
 
 | File | Role | Approx. lines |
 |------|------|--------------:|
-| `mod.rs` | `EventContext`, `wire_editor_events` dispatcher, remaining families | ~3,240 |
+| `mod.rs` | `EventContext`, `wire_editor_events` dispatcher, remaining families | ~2,390 |
 | `zoom.rs` | `wire_zoom_controls` (zoom UI, ctrl+scroll, pan) | ~260 |
 | `history.rs` | `wire_history_buttons` (undo/redo/delete) | ~65 |
-| `output.rs` | Copy, upload, Done/save, and traffic-close lifecycle (**PR 10.7**) | ~180 |
+| `output.rs` | Copy, upload, Done/save, and traffic-close lifecycle (**PR 10.7**) | ~190 |
+| `crop.rs` | Crop apply/reset inspector actions (**PR 10.8**) | ~90 |
+| `tools.rs` | Tool-mode button activation and toggle policies (**PR 10.9**) | ~410 |
+| `options.rs` | Weight/style/numbering/palette/size option callbacks (**PR 10.10**) | ~685 |
 
 **PR 10.7 (2026-08-07):** moved output lifecycle wiring to `events/output.rs`, preserving save-before-upload, upload suppression, Done/save ordering, preview fallback, and traffic-close behavior. The upload regression contract now inspects this owner.
 
-##### 3. Editor setup — inspector shell
+**PR 10.8 (2026-08-08):** moved crop apply/reset button handlers to `events/crop.rs`. Apply still refreshes canvas content size on success; both actions clear apply-button selection state and update crop size fields. Canvas crop drag remains in `wire_editor_events`.
+
+**PR 10.9 (2026-08-08):** moved Select, Crop, Background, Pen, Arrow, Line, Box, Circle, Text, Number, Obfuscate, Focus, and Highlighter activation to `events/tools.rs`. Crop initialization, effect-rebuild recovery, and toggle policies remain distinct. Identical non-toggling tools share private `wire_standard_tool`.
+
+**PR 10.10 (2026-08-08):** moved weight, style, direction, numbering, palette, size-slider, and obfuscation option callbacks to `events/options.rs` via `ToolOptionsParts`. Text size/font list sync for canvas re-edit remains with click handlers in `mod.rs`.
+
+##### 3. Editor setup — inspector shell + children (**PR 10.11**)
 
 | File | Role | Approx. lines |
 |------|------|--------------:|
-| `window/inspectors.rs` | `build_tool_inspectors` → `InspectorParts` | ~280 |
+| `window/inspectors/mod.rs` | Shell facade: tabs, stack, sidebar actions → `InspectorParts` | ~230 |
+| `window/inspectors/shell.rs` | Shared panel/section helpers | ~50 |
+| `window/inspectors/select.rs` | Select inspector panel | ~40 |
+| `window/inspectors/crop.rs` | Crop inspector panel | ~35 |
+| `window/inspectors/stroke.rs` | Pen/arrow/line/highlighter panels | ~90 |
+| `window/inspectors/text.rs` | Text inspector panel | ~30 |
+| `window/inspectors/number.rs` | Number inspector panel | ~40 |
+| `window/inspectors/obfuscate.rs` | Obfuscate inspector panel | ~25 |
 
-Same pattern as `footer.rs` / `canvas.rs` / `toolbar.rs` (Parts struct + `pub(super)` builder).
+Same setup-facing entry as before (`build_tool_inspectors` + `InspectorContentInputs`). Child modules own panel assembly with narrower input structs.
+
+**PR 10.12 (2026-08-08):** extracted the async effects pipeline to `window/effects.rs` (`install_async_effects_pipeline` → `rebuild_effects_async`). Channels, worker drain/coalesce, 16ms poll, stale-revision reject, and 500ms/2s watchdog preserved.
+
+**PR 10.13 (2026-08-08):** extracted background asset loading (`window/background_assets.rs`) and canvas layout (`window/canvas_layout.rs`) as separate services. Setup installs each independently; draw still uses returned cache handles + layout callback.
+
+**PR 10.14 (2026-08-08):** extracted window chrome (`window/chrome.rs`) and empty drop zone (`window/empty_state.rs`). Session reuse controller cleanup stays in setup.
 
 ##### 4. Overlay window peel
 
@@ -104,7 +126,7 @@ Same pattern as `footer.rs` / `canvas.rs` / `toolbar.rs` (Parts struct + `pub(su
 
 `run_daemon_inner` is now a real coordinator (handlers already out in PR 9; action match out in PR 10).
 
-Structure tests that `include_str!` production sources were updated to follow moved modules (`inspectors.rs`, `events/{mod,zoom,history}.rs`, `overlay/window/mod.rs`).
+Structure tests that `include_str!` production sources were updated to follow moved modules (`inspectors/*`, `events/{mod,zoom,history,output,tools,crop,options}.rs`, `overlay/window/mod.rs`).
 
 ---
 
@@ -116,7 +138,7 @@ These are the remaining high-coupling coordinators and oversized files. Prefer *
 
 | Function | Location | Approx. span | Why it is hard |
 |----------|----------|-------------:|----------------|
-| **`wire_editor_events`** | `capture/editor/window/events/mod.rs` | **~3,160 lines** | GTK callbacks share `EventContext`, widgets, and sync closures. Zoom + history are out; canvas drag/click/motion and keyboard remain. |
+| **`wire_editor_events`** | `capture/editor/window/events/mod.rs` | **~2,150 lines** | GTK callbacks share `EventContext`, widgets, and sync closures. Zoom, history, output, crop actions, tool-mode, and options are out; canvas drag/click/motion and keyboard remain. |
 | **`setup_editor_window_full`** | `capture/editor/window/mod.rs` | **~2,990 lines** | Construction order, widget lifetimes, async effects, `set_draw_func`. Inspector shell is out; draw_func + layout chrome remain. |
 | **`overlay::window::setup_window`** | `overlay/window/mod.rs` | **~1,850 lines** | Motion hit-test, toolbar clicks, drag gestures, keyboard. Audio/CSS/X11 helpers are out; input surface remains. |
 
@@ -124,8 +146,8 @@ These are the remaining high-coupling coordinators and oversized files. Prefer *
 
 | File | Approx. lines | Notes |
 |------|--------------:|-------|
-| `capture/editor/window/mod.rs` | ~4,050 | Dominated by `setup_editor_window_full` + tests |
-| `capture/editor/window/events/mod.rs` | ~3,490 | Dominated by `wire_editor_events` |
+| `capture/editor/window/mod.rs` | ~3,690 | Setup coordinator + tests; effects/assets/layout extracted |
+| `capture/editor/window/events/mod.rs` | ~2,390 | Dominated by `wire_editor_events` (drag/click/keyboard remain) |
 | `capture_overlay.rs` | ~2,430 | **Deferred** process-boundary split (audit: after daemon/capture) |
 | `capture/editor/state/mod.rs` | ~500 | EditorState struct, tool transitions, numbering, and stable state facades |
 | `overlay/window/mod.rs` | ~2,060 | Dominated by `setup_window` |
@@ -135,16 +157,20 @@ These are the remaining high-coupling coordinators and oversized files. Prefer *
 
 ### Recommended next extractions (ordered by safety)
 
-1. **Editor events**
-   - Save / Done / copy / upload button families (all deps on `EventContext`)
-   - Crop apply/reset buttons
-   - Tool-button mode switches (repetitive)
+1. **Editor events** (validation numbering)
+   - [x] PR 10.7 Save / Done / copy / upload button families
+   - [x] PR 10.8 Crop apply/reset buttons (`events/crop.rs`)
+   - [x] PR 10.9 Tool-button mode switches (`events/tools.rs`)
+   - [x] PR 10.10 Tool options (`events/options.rs`)
    - **Defer** canvas drag (~800 lines), canvas click/motion (~770), full keyboard until shared helpers exist
 
 2. **Editor setup**
-   - Crop dim fields + option-list construction (returns widgets)
-   - Async effects pipeline only if closures already have a clear owner
-   - **Defer** `set_draw_func` body and large layout/chrome until Parts ownership is clear
+   - [x] PR 10.11 Inspector children (`window/inspectors/`)
+   - [x] PR 10.12 Async effects pipeline (`window/effects.rs`)
+   - [x] PR 10.13 Background assets + canvas layout (`background_assets.rs`, `canvas_layout.rs`)
+   - [x] PR 10.14 Empty state + chrome (`empty_state.rs`, `chrome.rs`)
+   - Crop dim fields + option-list construction (returns widgets) — still in setup
+   - **Defer** `set_draw_func` body until Parts ownership is clear (Track D / later)
 
 3. **More `EditorState` child modules** (Track A in validation plan)
    - [x] PR 10.1 arrow editing (`state/arrow.rs`)
