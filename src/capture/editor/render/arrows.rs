@@ -83,6 +83,13 @@ fn bezier_tangent(p0: Point, p1: Point, p2: Point, t: f64) -> (f64, f64) {
         (dx / len, dy / len)
     }
 }
+
+fn curved_outline_steps(curve_length: f64) -> usize {
+    // The arrow body is a filled polygon around the Bezier centerline. Keep
+    // its segments short enough that the fill edge does not look faceted.
+    ((curve_length / 3.0).ceil() as usize).clamp(48, 256)
+}
+
 fn build_thorn_arrow_path(
     context: &gtk4::cairo::Context,
     start: Point,
@@ -207,7 +214,7 @@ pub fn thorn_arrow_outline_points(
     let mut outline = Vec::new();
 
     if is_curved {
-        let steps = 20;
+        let steps = curved_outline_steps(line_length);
         let mut left_body = Vec::new();
         let mut right_body = Vec::new();
 
@@ -491,7 +498,11 @@ pub fn double_arrow_outline_points(
     };
 
     let mut outline = Vec::new();
-    let steps = 20;
+    let steps = if is_curved {
+        curved_outline_steps(line_length)
+    } else {
+        20
+    };
 
     for i in 0..=steps {
         let t = t_neck_start + (i as f64 / steps as f64) * (t_neck_end - t_neck_start);
@@ -861,5 +872,34 @@ pub fn draw_arrow_control_handles(
             let _ = context.fill();
         }
         let _ = context.restore();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn curved_arrow_outline_uses_dense_length_adaptive_sampling() {
+        assert_eq!(curved_outline_steps(60.0), 48);
+        assert_eq!(curved_outline_steps(300.0), 100);
+        assert_eq!(curved_outline_steps(3_000.0), 256);
+
+        let outline = thorn_arrow_outline_points(
+            Point { x: 10.0, y: 100.0 },
+            Point { x: 310.0, y: 100.0 },
+            4.0,
+            false,
+            &Some(vec![
+                Point { x: 10.0, y: 100.0 },
+                Point { x: 160.0, y: 0.0 },
+                Point { x: 310.0, y: 100.0 },
+            ]),
+        );
+
+        assert!(
+            outline.len() > 100,
+            "curved fill edges need substantially more than the old 20 segments"
+        );
     }
 }

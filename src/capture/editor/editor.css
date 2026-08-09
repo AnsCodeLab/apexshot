@@ -1796,16 +1796,17 @@
                 background: alpha(#111827, 0.08);
             }
             .editor-root.editor-theme-light button.editor-number-start-stepper {
-                background: alpha(#111827, 0.04);
-                border: 1px solid alpha(#111827, 0.10);
-                color: alpha(#1d2129, 0.86);
+                background: alpha(#111827, 0.08);
+                border: 1px solid alpha(#111827, 0.18);
+                color: #1d2129;
             }
             .editor-root.editor-theme-light button.editor-number-start-stepper:hover {
-                background: alpha(#111827, 0.08);
+                background: alpha(#111827, 0.13);
+                border-color: alpha(#111827, 0.26);
                 color: #1d2129;
             }
             .editor-root.editor-theme-light button.editor-number-start-stepper:active {
-                background: alpha(#111827, 0.12);
+                background: alpha(#111827, 0.18);
             }
 
             /* Window controls (traffic buttons) */
@@ -2111,26 +2112,27 @@
             }
 
             button.editor-number-start-stepper {
-                min-width: 28px;
-                min-height: 30px;
+                min-width: 32px;
+                min-height: 32px;
                 padding: 0;
                 border-radius: 6px;
-                border: 1px solid alpha(white, 0.08);
-                background: alpha(white, 0.04);
-                color: rgba(255, 255, 255, 0.86);
-                font-size: 13px;
-                font-weight: 600;
+                border: 1px solid alpha(white, 0.16);
+                background: alpha(white, 0.10);
+                color: #ffffff;
+                font-size: 16px;
+                font-weight: 700;
                 box-shadow: none;
-                transition: background-color 120ms ease, color 120ms ease;
+                transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
             }
 
             button.editor-number-start-stepper:hover {
-                background: alpha(white, 0.08);
+                background: alpha(white, 0.16);
+                border-color: alpha(white, 0.26);
                 color: #ffffff;
             }
 
             button.editor-number-start-stepper:active {
-                background: alpha(white, 0.12);
+                background: alpha(white, 0.22);
             }
 
             .editor-background-sidebar {
@@ -2834,5 +2836,3 @@
             button.editor-text-modal-confirm:disabled {
                 opacity: 0.45;
             }
-            
-            

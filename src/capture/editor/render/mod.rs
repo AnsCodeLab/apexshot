@@ -293,33 +293,24 @@ pub fn draw_draft_action(context: &gtk4::cairo::Context, action: &AnnotationActi
                 *shadow,
             );
         }
-        AnnotationAction::Obfuscate { rect, .. } => {
-            context.set_source_rgba(0.18, 0.48, 0.94, 0.18);
-            context.rectangle(
-                rect.x as f64,
-                rect.y as f64,
-                rect.width as f64,
-                rect.height as f64,
-            );
-            let _ = context.fill_preserve();
-            context.set_source_rgba(0.20, 0.56, 0.98, 0.95);
-            context.set_line_width(2.0);
-            let _ = context.stroke();
-        }
-        AnnotationAction::Focus { rect, .. } => {
-            context.set_source_rgba(0.18, 0.48, 0.94, 0.18);
-            context.rectangle(
-                rect.x as f64,
-                rect.y as f64,
-                rect.width as f64,
-                rect.height as f64,
-            );
-            let _ = context.fill_preserve();
-            context.set_source_rgba(0.20, 0.56, 0.98, 0.95);
-            context.set_line_width(2.0);
-            let _ = context.stroke();
+        AnnotationAction::Obfuscate { rect, .. } | AnnotationAction::Focus { rect, .. } => {
+            draw_effect_draft_rect(context, *rect);
         }
     }
+}
+
+fn draw_effect_draft_rect(context: &gtk4::cairo::Context, rect: Rect) {
+    context.set_source_rgba(0.18, 0.48, 0.94, 0.18);
+    context.rectangle(
+        rect.x as f64,
+        rect.y as f64,
+        rect.width as f64,
+        rect.height as f64,
+    );
+    let _ = context.fill_preserve();
+    context.set_source_rgba(0.20, 0.56, 0.98, 0.95);
+    context.set_line_width(2.0);
+    let _ = context.stroke();
 }
 pub fn draw_crop_overlay(
     context: &gtk4::cairo::Context,

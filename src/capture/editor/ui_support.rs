@@ -796,8 +796,11 @@ mod tests {
         assert!(
             production_source.contains(".editor-number-start-label {")
                 && production_source.contains(".editor-number-start-entry {")
-                && production_source.contains("button.editor-number-start-stepper {"),
-            "Number inspector start controls should be styled as inspector-native sidebar fields",
+                && production_source.contains("button.editor-number-start-stepper {")
+                && production_source.contains("min-width: 32px;")
+                && production_source.contains("font-size: 16px;")
+                && production_source.contains("border: 1px solid alpha(white, 0.16);"),
+            "Number inspector start controls should be visible inspector-native sidebar fields",
         );
     }
 

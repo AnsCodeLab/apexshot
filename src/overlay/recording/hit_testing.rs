@@ -3,8 +3,8 @@
 use super::layout::{compute_recording_deck_layout, RecordPanelTile, REC_ACTION_WIDTH};
 use super::state::SettingsTab;
 use crate::overlay::layout::{
-    compute_aspect_menu_rects, RectF, ACTION_CARD_GAP, CROP_CARD_WIDTH, FEATURE_PANEL_HEIGHT,
-    SIZE_CARD_WIDTH,
+    compute_aspect_menu_rects, compute_settings_menu_layout, RectF, ACTION_CARD_GAP,
+    CROP_CARD_WIDTH, FEATURE_PANEL_HEIGHT, SIZE_CARD_WIDTH,
 };
 
 pub(crate) fn recording_crop_menu_hit_item(
@@ -208,9 +208,16 @@ pub(crate) fn settings_menu_hit_item(
     y: f64,
     tab: SettingsTab,
 ) -> Option<i32> {
-    let menu_w = 440.0;
-    let menu_x = (selection_x + (selection_width - 440.0) / 2.0).clamp(10.0, screen_width - 450.0);
-    let menu_y = (selection_y + 24.0).clamp(10.0, screen_height - 570.0);
+    let settings = compute_settings_menu_layout(
+        selection_x,
+        selection_y,
+        selection_width,
+        screen_width,
+        screen_height,
+    );
+    let menu_w = settings.panel.width;
+    let menu_x = settings.panel.x;
+    let menu_y = settings.panel.y;
 
     // Tab rects (always check, any tab)
     let tab_w = 78.0;
@@ -355,14 +362,12 @@ pub(crate) fn settings_menu_contains(
     x: f64,
     y: f64,
 ) -> bool {
-    let menu_w = 440.0;
-    let menu_x = (selection_x + (selection_width - menu_w) / 2.0).clamp(10.0, screen_width - 450.0);
-    let menu_y = (selection_y + 24.0).clamp(10.0, screen_height - 570.0);
-    RectF {
-        x: menu_x,
-        y: menu_y,
-        width: menu_w,
-        height: 560.0,
-    }
-    .contains(x, y)
+    let settings = compute_settings_menu_layout(
+        selection_x,
+        selection_y,
+        selection_width,
+        screen_width,
+        screen_height,
+    );
+    settings.panel.contains(x, y)
 }

@@ -250,7 +250,7 @@ pub(crate) fn draw_feature_toolbar(
             let _ = context.show_text(label);
         }
 
-        if index == 4 && timer_tool_active {
+        if index == super::icons::TOOLBAR_TIMER_INDEX && timer_tool_active {
             let badge_text = format!("{}s", capture_delay_seconds);
             context.select_font_face(
                 "Sans",
@@ -882,13 +882,18 @@ pub(crate) fn draw_overlay(
             );
             // Volume popup menus (positioned top-centre of selection like other menus)
             {
-                let popup_x = (x + (sel_w - 280.0) / 2.0).clamp(10.0, screen_width - 290.0);
-                let popup_y = (y + 24.0).clamp(10.0, screen_height - 140.0);
+                let vol = crate::overlay::layout::compute_volume_popup_layout(
+                    x,
+                    y,
+                    sel_w,
+                    screen_width,
+                    screen_height,
+                );
                 if st.recording.mic_volume_popup_open {
                     recording_ui::draw_volume_popup(
                         context,
-                        popup_x,
-                        popup_y,
+                        vol.panel.x,
+                        vol.panel.y,
                         screen_width,
                         screen_height,
                         background,
@@ -900,8 +905,8 @@ pub(crate) fn draw_overlay(
                 if st.recording.speaker_volume_popup_open {
                     recording_ui::draw_volume_popup(
                         context,
-                        popup_x,
-                        popup_y,
+                        vol.panel.x,
+                        vol.panel.y,
                         screen_width,
                         screen_height,
                         background,
@@ -1000,6 +1005,28 @@ pub(crate) fn draw_overlay(
             background,
             st.hovered_scroll_popup_close,
             st.hovered_scroll_download,
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// Regression: timer delay badge must key off TOOLBAR_TIMER_INDEX (3),
+    /// not a hard-coded OCR index (4). The seven-cell era left this mismatch.
+    #[test]
+    fn timer_badge_uses_toolbar_timer_index_not_ocr_slot() {
+        let source = include_str!("mod.rs");
+        let production = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production drawing source");
+        assert!(
+            production.contains("index == super::icons::TOOLBAR_TIMER_INDEX && timer_tool_active"),
+            "timer badge must use TOOLBAR_TIMER_INDEX"
+        );
+        assert!(
+            !production.contains("index == 4 && timer_tool_active"),
+            "timer badge must not hard-code OCR index 4"
         );
     }
 }

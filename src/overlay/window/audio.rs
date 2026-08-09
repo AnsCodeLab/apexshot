@@ -309,3 +309,135 @@ pub(super) fn set_speaker_volume(vol: f64) {
             .output();
     });
 }
+
+/// Install overlay recording-panel meter orchestration:
+/// - background worker: daemon D-Bus poll, else local PipeWire streams while
+///   the recording panel is open (never holds the mic for plain area-select)
+/// - 100ms UI-thread timer: copy levels into `SelectorState` and redraw on change
+///
+/// Behavior is unchanged from the prior inline setup path. Explicit cancellation
+/// of the worker / GLib source on overlay close is a separate follow-up (10.22+).
+pub(super) fn install_overlay_audio_meters(
+    state: &std::sync::Arc<std::sync::Mutex<super::super::state::SelectorState>>,
+    drawing_area: &gtk4::DrawingArea,
+) {
+    use gtk4::prelude::*;
+    use std::sync::{Arc, Mutex};
+
+    let audio_levels = Arc::new(Mutex::new((0.0_f64, 0.0_f64)));
+    {
+        let audio_levels = audio_levels.clone();
+        let state_for_audio = state.clone();
+        std::thread::spawn(move || {
+            // Try daemon D-Bus first. If the daemon is not running (standalone
+            // capture mode on Hyprland), fall back to local PipeWire monitoring.
+            // Only open capture streams while the recording panel is open so a
+            // plain area-select (or tray-only daemon) never holds the mic
+            // (Bluetooth HSP/HFP / issue #41).
+            let mut try_daemon = true;
+            loop {
+                let panel_open = state_for_audio
+                    .lock()
+                    .map(|st| st.recording.panel_open)
+                    .unwrap_or(false);
+
+                if !panel_open {
+                    stop_local_audio_monitoring();
+                    if let Ok(mut guard) = audio_levels.lock() {
+                        *guard = (0.0, 0.0);
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    continue;
+                }
+
+                if try_daemon {
+                    if let Some(levels) = poll_daemon_audio_levels() {
+                        if let Ok(mut guard) = audio_levels.lock() {
+                            *guard = levels;
+                        }
+                    } else {
+                        try_daemon = false;
+                        start_local_audio_monitoring();
+                    }
+                } else {
+                    start_local_audio_monitoring();
+                    let mic = f64::from_bits(OVERLAY_MIC_LEVEL.load(Ordering::Relaxed));
+                    let speaker = f64::from_bits(OVERLAY_SPEAKER_LEVEL.load(Ordering::Relaxed));
+                    if let Ok(mut guard) = audio_levels.lock() {
+                        *guard = (mic.clamp(0.0, 1.0), speaker.clamp(0.0, 1.0));
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        });
+    }
+
+    let state_audio_tick = state.clone();
+    let drawing_area_weak_audio = drawing_area.downgrade();
+    gtk4::glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
+        let (mic_level, speaker_level) = audio_levels
+            .lock()
+            .map(|guard| *guard)
+            .unwrap_or((0.0, 0.0));
+        if let Ok(mut st) = state_audio_tick.lock() {
+            if !st.recording.panel_open {
+                return gtk4::glib::ControlFlow::Continue;
+            }
+            let old_mic = st.recording.mic_level;
+            let old_speaker = st.recording.speaker_level;
+            st.recording.mic_level = if st.recording.mic_toggle {
+                mic_level
+            } else {
+                0.0
+            };
+            st.recording.speaker_level = if st.recording.speaker_toggle {
+                speaker_level
+            } else {
+                0.0
+            };
+            if (old_mic - st.recording.mic_level).abs() > 0.01
+                || (old_speaker - st.recording.speaker_level).abs() > 0.01
+            {
+                if let Some(area) = drawing_area_weak_audio.upgrade() {
+                    area.queue_draw();
+                }
+            }
+        }
+        gtk4::glib::ControlFlow::Continue
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    /// Owner contract: meter worker + UI timer live on audio, not setup.
+    #[test]
+    fn audio_owner_covers_meter_worker_and_ui_timer() {
+        let source = include_str!("audio.rs");
+        let production = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production audio source");
+        assert!(
+            production.contains("fn install_overlay_audio_meters"),
+            "audio must own install_overlay_audio_meters"
+        );
+        assert!(
+            production.contains("poll_daemon_audio_levels")
+                && production.contains("start_local_audio_monitoring")
+                && production.contains("stop_local_audio_monitoring"),
+            "audio install must orchestrate daemon + local PW paths"
+        );
+        assert!(
+            production.contains("from_millis(100)") && production.contains("timeout_add_local"),
+            "audio must keep the 100ms UI meter timer"
+        );
+        assert!(
+            production.contains("recording.panel_open") && production.contains("issue #41"),
+            "audio must only open streams while recording panel is open (#41)"
+        );
+        assert!(
+            production.contains("mic_toggle") && production.contains("speaker_toggle"),
+            "UI tick must respect mic/speaker toggles when writing levels"
+        );
+    }
+}

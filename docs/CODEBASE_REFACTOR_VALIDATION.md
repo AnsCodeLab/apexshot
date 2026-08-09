@@ -42,7 +42,7 @@ No source implementation was changed during the original validation pass. Correc
 | PR 7: CLI split | **Confirmed** | Binary-only module split is correct. Contract tests now inspect `src/cli/install.rs`. | [x] |
 | PR 8: hotkeys split | Confirmed | Platform/config ownership and facade are preserved. | n/a |
 | PR 9: daemon split | **Confirmed after fix** | Physical split is coherent; IPC strings and crate-private API restored. | [x] |
-| PR 10+ | **In progress** | Tracks A–D editor (through 10.19 canvas render) done; Track E overlay remains. | in progress |
+| PR 10+ | **In progress** | Tracks A–D editor done; Track E overlay coordinator complete through 10.26. | in progress |
 | `capture_overlay.rs` | Deferred | It remains a single 2,431-line file with no child module tree. | deferred |
 
 ---
@@ -65,7 +65,7 @@ The remaining logic-bearing coordinators are:
 |-------------|------------------|-----------------:|--------|
 | `wire_editor_events` | `capture/editor/window/events/mod.rs` | ~2,150 lines | Ordered dispatcher over behavior-owned event modules |
 | `setup_editor_window_full` | `capture/editor/window/mod.rs` | 2,990 lines | Bootstrap coordinator over concrete builders and services |
-| `overlay::window::setup_window` | `overlay/window/mod.rs` | 1,850 lines | Lifecycle coordinator over shell, result, audio, and input owners |
+| `overlay::window::setup_window` | `overlay/window/mod.rs` | 198-line file | **Done:** lifecycle coordinator over shell, result, audio, and input owners |
 
 Line count is a secondary signal. Completion requires real ownership, one-way dependencies, stable facades, and no replacement god-context structs.
 
@@ -359,47 +359,88 @@ Exit gate: `cargo test --lib -- capture::editor`; fmt/check/clippy/flatpak gates
 
 Overlay work is independent from editor state and should use separate PRs/branches. Preserve all public `overlay` and crate-root exports, `SelectionResult` variants, coordinate-space distinctions, layer-shell policy, and the crate-internal drawing/layout facade used by `recording/stop_overlay.rs`.
 
-#### PR 10.20: correctness preconditions and shared geometry
+#### PR 10.20: correctness preconditions and shared geometry — **Done (2026-08-09)**
 
 Before moving callbacks:
 
-- Add a regression test preventing toolbar hit testing from returning an index outside `TOOLBAR_ICONS`; fix the current seven-cell/six-icon mismatch in a focused correctness commit.
-- Characterize/fix the timer badge index separately.
-- Move aspect-ratio behavior to overlay geometry and add freeform, fixed-ratio, center, edge-clamp, and minimum-size tests.
-- Centralize popup/deck/settings rectangles so drawing and hit testing consume the same layouts.
+- [x] Regression tests prevent toolbar hit testing from returning an index outside `TOOLBAR_ICONS`; fixed the seven-cell/six-icon mismatch (`item_cells: [RectF; TOOLBAR_TOOL_COUNT]` aligned to `TOOLBAR_ICONS.len()`).
+- [x] Timer badge index fixed separately: draw path uses `TOOLBAR_TIMER_INDEX` (was hard-coded `index == 4` / OCR). Owner structure test on `drawing/mod.rs`.
+- [x] Aspect-ratio behavior moved to `overlay/geometry.rs` (`aspect_ratio_for_index`, `active_aspect_ratio`, `apply_aspect_to_selection`) with freeform, fixed-ratio, center, edge-clamp, and minimum-size tests.
+- [x] Centralized popup/deck/settings rectangles in `overlay/layout.rs` so drawing and hit testing share:
+  - `compute_scroll_popup_layout`
+  - `compute_window_picker_layout`
+  - `compute_volume_popup_layout`
+  - `compute_settings_menu_layout`
+  - (recording deck already shared via `recording/layout::compute_recording_deck_layout`)
 
-Do not silently remove dormant window-picker state; the public API and `window_picker_ui_contract` still constrain it.
+Dormant window-picker state and `window_picker_ui_contract` preserved.
 
-#### PR 10.21: overlay result and shell
+Exit gate: `cargo test --lib -- overlay::` (53 passed); `cargo test --lib -- capture::editor` (233 passed); `cargo test --test window_picker_ui_contract`; `cargo test --lib -- recording::stop_overlay`; fmt/check/clippy/flatpak gates green.
 
-Create:
+#### PR 10.21: overlay result and shell — **Done (2026-08-09)**
 
-- `overlay/window/result.rs` for recording-request construction and selection result delivery.
-- `overlay/window/shell.rs` for monitor resolution, window/layer-shell setup, drawing area, and screen geometry, returning concrete `OverlayWindowParts`.
+Created:
 
-Keep realization, focus, and presentation in `window/mod.rs`. Preserve screenshot/background coordinate mapping, recording screen coordinates, OCR conversion, invalid-selection behavior, and Escape returning `Area(None)`.
+- `overlay/window/result.rs` — `recording_request_from_state` + `send_selection_result` (intent → `OverlaySelection`, invalid → `Area(None)`, closes window). Facade re-exports `send_selection_result`.
+- `overlay/window/shell.rs` — `build_overlay_shell` → `OverlayWindowParts { window, drawing_area, screen_width, screen_height }`: CSS install, monitor resolution, layer-shell / fullscreen policy, crosshair cursor, drawing area + draw func.
 
-#### PR 10.22: overlay audio lifecycle
+Kept in `window/mod.rs`: initial selection seed, audio, input controllers, X11 `connect_realize`, focus, and `present`. Preserved screenshot/background mapping, recording screen coords, OCR/area/recording intent mapping, and Escape `Area(None)` path.
 
-Move meter worker/timer orchestration into the existing `window/audio.rs` without behavior changes. In a separate follow-up, add explicit cancellation so closing an overlay cannot leave a polling thread or GLib source retaining state.
+Exit gate: `cargo test --lib -- overlay::` (56 passed); owner tests on result/shell + setup wiring; fmt/check/clippy/flatpak green.
 
-#### PR 10.23: overlay keyboard and countdown
+#### PR 10.22: overlay audio lifecycle — **Done (2026-08-09)**
 
-Create `window/input/keyboard.rs` and `window/countdown.rs`. Preserve Escape, Enter variants, Space confirmation, arrow-key nudge, propagation results, timer cancellation, redraw scheduling, and final result delivery.
+Moved meter worker/timer orchestration into existing `window/audio.rs` as `install_overlay_audio_meters(state, drawing_area)` with no behavior changes:
 
-#### PR 10.24: overlay drag
+- Background worker: daemon D-Bus poll first; fall back to local PipeWire streams only while `recording.panel_open` (issue #41 mic hold).
+- 100ms UI-thread timer copies levels into `SelectorState` (respecting mic/speaker toggles) and redraws on change.
 
-Create `window/input/drag.rs` after result/aspect helpers are stable. Move the complete drag gesture and preserve offset semantics, fixed-aspect resize behavior, popup/tool-surface suppression, and lock release before result delivery or window closure.
+Setup is one install call. Volume setters (`set_mic_volume` / `set_speaker_volume`) stay on audio for click handlers. Explicit cancellation of the polling thread / GLib source on overlay close is still a separate follow-up.
 
-#### PR 10.25: overlay motion
+Exit gate: `cargo test --lib -- overlay::` (57 passed); owner test on audio + setup wiring; fmt/check/clippy/flatpak green.
 
-Create `window/input/motion.rs` after shared popup geometry exists. Move motion and leave/reset behavior together, preserving hover priority, cursor selection, crosshair updates, and popup/slider ownership.
+#### PR 10.23: overlay keyboard and countdown — **Done (2026-08-09)**
 
-#### PR 10.26: overlay click dispatch last
+Created:
 
-Create `window/input/click/` with menu and toolbar owners. First move the primary/secondary gesture bodies unchanged; then split pure state transitions from GTK, URL, channel, and close side effects. Preserve capture-phase controller ordering and never hold `SelectorState` across those side effects.
+- `overlay/window/countdown.rs` — `try_start_capture_countdown`: arms delay countdown, 1s tick, cancel/redraw, final `send_selection_result`.
+- `overlay/window/input/keyboard.rs` (+ `input/mod.rs`) — `wire_window_keyboard`: capture-phase Escape → `Area(None)` + close; Enter/KP_Enter/ISO_Enter/Space confirm (countdown or immediate delivery); arrow-key nudge; Stop/Proceed.
 
-At completion, `overlay::window::setup_window` should only build the shell, wire drawing/audio/input, install the X11 realization hook, focus, and present.
+Setup wires keyboard after drag. Click-path bubble cancel still sets `countdown_cancel_requested` only. Propagation phase and delivery ordering preserved.
+
+Exit gate: `cargo test --lib -- overlay::` (59 passed); owner tests on keyboard/countdown + setup wiring; fmt/check/clippy/flatpak green.
+
+#### PR 10.24: overlay drag — **Done (2026-08-09)**
+
+Created `overlay/window/input/drag.rs` with `wire_selection_drag`: full capture-phase `GestureDrag` begin/update/end. Preserved offset semantics, fixed-aspect resize (non-move), toolbar/tile/menu surface suppression, slider-drag pass-through, lock release before crosshair result delivery, and `drawing_area.add_controller`.
+
+Setup order: right-click → `wire_selection_drag` → `wire_window_keyboard`.
+
+Exit gate: `cargo test --lib -- overlay::` (60 passed); drag owner + setup wiring tests; fmt/check/clippy/flatpak green.
+
+#### PR 10.25: overlay motion — **Done (2026-08-09)**
+
+Created `overlay/window/input/motion.rs` with `wire_selection_motion`: motion + leave together. Preserved hover priority (menus/popups → tiles/toolbar → selection), cursor selection (crosshair/fleur/handle), GIF/volume slider ownership while dragging, leave/reset of hover state + crosshair restore.
+
+Setup installs motion after audio, before click. Shared popup layouts already from 10.20.
+
+Exit gate: `cargo test --lib -- overlay::` (61 passed); motion owner + setup wiring; fmt/check/clippy/flatpak green.
+
+#### PR 10.26: overlay click dispatch last — **Done (2026-08-09)**
+
+Created `overlay/window/input/click/` with:
+
+- `mod.rs` — `wire_window_click` facade; installs primary before secondary.
+- `primary.rs` — capture-phase button-one gesture and post-state side effects.
+- `secondary.rs` — capture-phase right-click mic/speaker popup toggles.
+- `menu.rs` — countdown, crop/settings/scroll/window-picker/volume popup state transitions.
+- `toolbar.rs` — capture toolbar, recording tiles, and double-click confirmation transitions.
+
+Pure handlers return a small `ClickEffect`; URL opening, audio volume calls, channel sends, result delivery, redraw, and window closure execute after the `SelectorState` guard leaves scope. Controller order remains motion → primary/secondary click → drag → keyboard. `window_picker_ui_contract` now inspects the toolbar owner.
+
+`overlay::window::setup_window` is now a 198-line file that builds the shell, seeds selection, installs audio/input owners, installs the X11 realization hook, focuses, and presents.
+
+Exit gate: `cargo test --lib -- overlay::` (66 passed); recording stop-overlay + window-picker contracts; fmt/default/Flatpak check; Clippy `-D warnings`; `cargo test --all-targets` (637 library tests plus all binary/integration targets); `git diff --check` green.
 
 ### Dependency and visibility rules
 

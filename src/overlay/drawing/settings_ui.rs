@@ -109,8 +109,8 @@ pub(crate) fn draw_settings_menu(
     _accent_b: f64,
     _accent_rim: (f64, f64, f64),
 ) {
-    let menu_w = 440.0;
-    let menu_h = 560.0;
+    let menu_w = crate::overlay::layout::SETTINGS_MENU_WIDTH;
+    let menu_h = crate::overlay::layout::SETTINGS_MENU_HEIGHT;
     let menu_x = panel_x.clamp(10.0, screen_width - menu_w - 10.0);
     let menu_y = panel_y.clamp(10.0, screen_height - menu_h - 10.0);
 

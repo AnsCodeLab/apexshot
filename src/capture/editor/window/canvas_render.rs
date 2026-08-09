@@ -129,7 +129,6 @@ pub(super) fn install_canvas_draw_func(input: CanvasDrawInputs<'_>) {
             background_corner_radius,
             selected_tool,
             selected_action,
-            select_drag_anchor,
             select_resize_handle,
             active_text_bounds,
             active_text_input,
@@ -166,7 +165,6 @@ pub(super) fn install_canvas_draw_func(input: CanvasDrawInputs<'_>) {
                 st.background_corner_radius,
                 st.selected_tool,
                 st.selected_action().cloned(),
-                st.select_drag_anchor,
                 st.select_resize_handle,
                 st.active_text_bounds.clone(),
                 st.active_text_input.clone(),
@@ -600,16 +598,6 @@ pub(super) fn install_canvas_draw_func(input: CanvasDrawInputs<'_>) {
         }
 
         if let Some(selected_action) = selected_action.as_ref() {
-            if selected_tool == Tool::Select
-                && select_drag_anchor.is_some()
-                && matches!(
-                    selected_action,
-                    AnnotationAction::Obfuscate { .. } | AnnotationAction::Focus { .. }
-                )
-            {
-                draw_draft_action(context, selected_action);
-            }
-
             // Draw border + handles for a selected Text action in both
             // Select tool mode and Text tool mode (e.g. during drag-to-move).
             let show_text_handles = (selected_tool == Tool::Select || selected_tool == Tool::Text)
@@ -674,7 +662,14 @@ pub(super) fn install_canvas_draw_func(input: CanvasDrawInputs<'_>) {
                 } else if matches!(selected_action, AnnotationAction::Line { .. }) {
                     // Intentionally show no crop-like selection outline or handles for lines.
                 } else {
-                    let selection_padding = selection_hit_padding_for_scale(t.scale);
+                    let selection_padding = if matches!(
+                        selected_action,
+                        AnnotationAction::Obfuscate { .. } | AnnotationAction::Focus { .. }
+                    ) {
+                        0.0
+                    } else {
+                        selection_hit_padding_for_scale(t.scale)
+                    };
                     if let Some(bounds) =
                         action_bounds_with_padding(selected_action, selection_padding)
                     {
@@ -803,6 +798,8 @@ mod tests {
                 && production.contains("draw_annotation_action")
                 && production.contains("draw_crop_overlay")
                 && production.contains("draw_arrow_control_handles")
+                && production.contains("AnnotationAction::Obfuscate { .. } | AnnotationAction::Focus { .. }")
+                && production.contains("0.0")
                 && production.contains("MAX_PREVIEW_SHADOW_DIM")
                 && production.contains("fn draw_rounded_rect_path"),
             "canvas_render.rs must own render caches, set_draw_func, lock-release snapshot, and rounded-rect helper"

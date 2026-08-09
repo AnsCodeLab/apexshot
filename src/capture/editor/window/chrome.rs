@@ -52,7 +52,8 @@ pub(super) fn install_window_chrome(input: WindowChromeInputs<'_>) {
     top_chrome_right.set_hexpand(true);
 
     toolbar.set_halign(Align::Center);
-    toolbar.set_valign(Align::Center);
+    toolbar.set_valign(Align::Start);
+    toolbar.set_margin_top(8);
     toolbar.set_hexpand(false);
     top_chrome.append(&top_chrome_left);
     top_chrome.append(toolbar);
@@ -99,8 +100,11 @@ mod tests {
                 && production.contains("install_edge_resize(root_overlay, window);")
                 && production.contains("editor-floating-zoom")
                 && production.contains("editor-floating-history")
+                && production.contains("toolbar.set_halign(Align::Center);")
+                && production.contains("toolbar.set_valign(Align::Start);")
+                && production.contains("toolbar.set_margin_top(8);")
                 && !production.contains("install_window_drag(&toolbar"),
-            "chrome must host toolbar on top strip and install drag/resize without toolbar-only drag"
+            "chrome must host the centered toolbar with an 8px top gap and install drag/resize without toolbar-only drag"
         );
     }
 }

@@ -168,10 +168,11 @@ pub(super) fn draw_scroll_popup(
 ) -> RectF {
     let _ = context.save();
 
-    let popup_w = 360.0;
-    let popup_h = 170.0;
-    let popup_x = center_x - popup_w / 2.0;
-    let popup_y = center_y - popup_h / 2.0;
+    let layout = crate::overlay::layout::compute_scroll_popup_layout(center_x, center_y);
+    let popup_x = layout.panel.x;
+    let popup_y = layout.panel.y;
+    let popup_w = layout.panel.width;
+    let popup_h = layout.panel.height;
 
     draw_popup_panel(
         context,
@@ -186,9 +187,9 @@ pub(super) fn draw_scroll_popup(
     );
 
     // Close button
-    let close_size = 22.0;
-    let close_x = popup_x + popup_w - close_size - 10.0;
-    let close_y = popup_y + 10.0;
+    let close_x = layout.close.x;
+    let close_y = layout.close.y;
+    let close_size = layout.close.width;
     if hovered_close {
         context.set_source_rgba(0.8, 0.25, 0.15, 1.0);
     } else {
@@ -230,10 +231,10 @@ pub(super) fn draw_scroll_popup(
     let _ = context.show_text("browser extension.");
 
     // CTA button — match the glass/orange accent style instead of a flat block.
-    let btn_w = 182.0;
-    let btn_h = 34.0;
-    let btn_x = popup_x + (popup_w - btn_w) / 2.0;
-    let btn_y = popup_y + 102.0;
+    let btn_w = layout.download.width;
+    let btn_h = layout.download.height;
+    let btn_x = layout.download.x;
+    let btn_y = layout.download.y;
 
     let btn_rect = RectF {
         x: btn_x,
@@ -362,22 +363,24 @@ pub(super) fn draw_window_picker(
     }
 
     let _ = context.save();
-    const MENU_W: f64 = 320.0;
-    const ITEM_H: f64 = 28.0;
-    const HEADER_H: f64 = 30.0;
-    const PAD: f64 = 8.0;
-
-    let n = windows.len();
-    let total_h = PAD * 2.0 + HEADER_H + n as f64 * ITEM_H;
-    let popup_x = (center_x - MENU_W / 2.0).clamp(10.0, (screen_width - MENU_W - 10.0).max(10.0));
-    let popup_y =
-        (center_y - total_h / 2.0).clamp(10.0, (screen_height - total_h - 10.0).max(10.0));
+    let picker = crate::overlay::layout::compute_window_picker_layout(
+        center_x,
+        center_y,
+        screen_width,
+        screen_height,
+        windows.len(),
+    );
+    let menu_w = picker.panel.width;
+    let item_h = picker.item_h;
+    let popup_x = picker.panel.x;
+    let popup_y = picker.panel.y;
+    let total_h = picker.panel.height;
 
     draw_popup_panel(
         context,
         popup_x,
         popup_y,
-        MENU_W,
+        menu_w,
         total_h,
         12.0,
         screen_width,
@@ -393,17 +396,20 @@ pub(super) fn draw_window_picker(
     );
     context.set_font_size(11.0);
     context.set_source_rgba(1.0, 1.0, 1.0, 110.0 / 255.0);
-    context.move_to(popup_x + 18.0, popup_y + PAD + 14.0);
+    context.move_to(
+        popup_x + 18.0,
+        popup_y + crate::overlay::layout::WINDOW_PICKER_PAD + 14.0,
+    );
     let _ = context.show_text("Select a Window");
 
-    let mut curr_y = popup_y + PAD + HEADER_H;
+    let mut curr_y = picker.list_y;
 
     for (i, win) in windows.iter().enumerate() {
         let item_rect = RectF {
             x: popup_x + 4.0,
             y: curr_y + 1.0,
-            width: MENU_W - 8.0,
-            height: ITEM_H - 2.0,
+            width: menu_w - 8.0,
+            height: item_h - 2.0,
         };
         let hovered = i as i32 == hovered_entry;
 
@@ -440,7 +446,7 @@ pub(super) fn draw_window_picker(
         context.set_font_size(13.0);
         context.set_source_rgba(text_color.0, text_color.1, text_color.2, text_color.3);
         if let Ok(_ext) = context.text_extents(class_label) {
-            context.move_to(popup_x + 18.0, curr_y + ITEM_H / 2.0 + 4.5);
+            context.move_to(popup_x + 18.0, curr_y + item_h / 2.0 + 4.5);
             let _ = context.show_text(class_label);
         }
 
@@ -450,7 +456,7 @@ pub(super) fn draw_window_picker(
         } else {
             win.title.clone()
         };
-        let max_title_w = MENU_W - 200.0;
+        let max_title_w = menu_w - 200.0;
         let mut display_str = title;
         if let Ok(ext) = context.text_extents(&display_str) {
             if ext.width() > max_title_w {
@@ -480,11 +486,11 @@ pub(super) fn draw_window_picker(
         context.set_font_size(12.0);
         context.set_source_rgba(text_color.0, text_color.1, text_color.2, 0.7);
         if context.text_extents(&display_str).is_ok() {
-            context.move_to(popup_x + 190.0, curr_y + ITEM_H / 2.0 + 4.0);
+            context.move_to(popup_x + 190.0, curr_y + item_h / 2.0 + 4.0);
             let _ = context.show_text(&display_str);
         }
 
-        curr_y += ITEM_H;
+        curr_y += item_h;
     }
 
     let _ = context.restore();

@@ -379,9 +379,15 @@ pub(crate) fn draw_recording_panel(
     // contextualX = clamp(selX + (selW - 440) / 2, 10, screenW - 450)
     // contextualY = clamp(selY + 24, 10, screenH - 570)
     if settings_menu_open {
-        let panel_x =
-            (selection_x + (selection_width - 440.0) / 2.0).clamp(10.0, screen_width - 450.0);
-        let panel_y = (selection_y + 24.0).clamp(10.0, screen_height - 570.0);
+        let settings_layout = crate::overlay::layout::compute_settings_menu_layout(
+            selection_x,
+            selection_y,
+            selection_width,
+            screen_width,
+            screen_height,
+        );
+        let panel_x = settings_layout.panel.x;
+        let panel_y = settings_layout.panel.y;
         super::settings_ui::draw_settings_menu(
             context,
             panel_x,
@@ -488,8 +494,10 @@ pub(crate) fn draw_volume_popup(
     title: &str,
     dragging: bool,
 ) {
-    let menu_w = 280.0;
-    let menu_h = 130.0;
+    let menu_w = crate::overlay::layout::VOLUME_POPUP_WIDTH;
+    let menu_h = crate::overlay::layout::VOLUME_POPUP_HEIGHT;
+    // Callers pass coordinates from `compute_volume_popup_layout`; keep a
+    // defensive clamp so direct callers stay in-bounds.
     let menu_x = panel_x.clamp(10.0, screen_width - menu_w - 10.0);
     let menu_y = panel_y.clamp(10.0, screen_height - menu_h - 10.0);
 
@@ -583,9 +591,9 @@ pub(crate) fn draw_volume_popup(
     }
 
     // Slider between label and percentage badge
-    let slider_x = menu_x + 83.0;
-    let slider_w = 140.0;
-    let slider_track_h = 6.0;
+    let slider_x = menu_x + crate::overlay::layout::VOLUME_SLIDER_OFFSET_X;
+    let slider_w = crate::overlay::layout::VOLUME_SLIDER_WIDTH;
+    let slider_track_h = crate::overlay::layout::VOLUME_SLIDER_TRACK_H;
     let track_y = row_y + (row_h - slider_track_h) / 2.0;
 
     // Track background

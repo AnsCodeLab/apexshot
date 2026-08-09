@@ -12,7 +12,7 @@ Scope: `src/` Rust refactor PRs from that audit.
 |------|--------|
 | **PR 0** (clean merge gates) | **Done** |
 | **PRs 1–9** (structural splits) | **Done** |
-| **PR 10+** (EditorState / GTK coordinators) | **Started** — first safe slices landed; large coordinators remain |
+| **PR 10+** (EditorState / GTK coordinators) | **In progress** — editor tracks A–D and overlay Track E complete; editor setup remains |
 | **`capture_overlay.rs` split** | **Deferred** (still ~2.4k lines) |
 
 PR 10+ follows the audit rule: extract complete behavior slices with clear owners. Do **not** relocate whole multi-thousand-line functions only to improve line-count metrics.
@@ -70,7 +70,7 @@ Struct stays in `state/mod.rs` so private field access remains inside the `state
 
 | File | Role | Approx. lines |
 |------|------|--------------:|
-| `mod.rs` | `EventContext`, `wire_editor_events` dispatcher, remaining families | ~2,390 |
+| `mod.rs` | `EventContext`, `wire_editor_events` dispatcher, close request, ordering tests | ~640 |
 | `zoom.rs` | `wire_zoom_controls` (zoom UI, ctrl+scroll, pan) | ~260 |
 | `history.rs` | `wire_history_buttons` (undo/redo/delete) | ~65 |
 | `output.rs` | Copy, upload, Done/save, and traffic-close lifecycle (**PR 10.7**) | ~190 |
@@ -128,9 +128,39 @@ Same setup-facing entry as before (`build_tool_inspectors` + `InspectorContentIn
 
 | File | Role | Approx. lines |
 |------|------|--------------:|
-| `mod.rs` | `setup_window` + selection result + aspect helpers | ~2,060 |
-| `audio.rs` | Local PW audio meters / daemon poll | ~310 |
+| `mod.rs` | `setup_window` lifecycle coordinator: shell, selection seed, owner wiring, realize/present | 198 |
+| `result.rs` | Recording request + selection result delivery (**PR 10.21**) | ~145 |
+| `shell.rs` | Monitor/window/layer-shell/drawing-area → `OverlayWindowParts` (**PR 10.21**) | ~220 |
+| `audio.rs` | PW streams + daemon poll + meter worker/UI timer install (**PR 10.22**) | ~440 |
+| `countdown.rs` | Capture-delay countdown tick + delivery (**PR 10.23**) | ~120 |
+| `input/keyboard.rs` | Escape/confirm/nudge keyboard controller (**PR 10.23**) | ~185 |
+| `input/drag.rs` | Selection GestureDrag begin/update/end (**PR 10.24**) | ~350 |
+| `input/motion.rs` | Motion + leave hover/cursors/sliders (**PR 10.25**) | ~460 |
+| `input/click/primary.rs` | Primary gesture + post-lock effects (**PR 10.26**) | ~135 |
+| `input/click/menu.rs` | Menu/popup state transitions (**PR 10.26**) | ~405 |
+| `input/click/toolbar.rs` | Toolbar/recording-tile state transitions (**PR 10.26**) | ~265 |
+| `input/click/secondary.rs` | Right-click volume popup gesture (**PR 10.26**) | ~95 |
 | `platform.rs` | Overlay CSS + X11 compositor animation suppress | ~120 |
+
+**PR 10.20 (2026-08-09):** correctness preconditions + shared geometry (no callback moves yet):
+
+- Toolbar `item_cells` length aligned to `TOOLBAR_ICONS` (`TOOLBAR_TOOL_COUNT`); hit-test cannot return out-of-range tool indices.
+- Timer delay badge draws on `TOOLBAR_TIMER_INDEX` (was hard-coded OCR index 4).
+- Aspect-ratio helpers live in `overlay/geometry.rs` with freeform/fixed/center/edge/min tests.
+- Shared popup layouts in `overlay/layout.rs`: scroll, window-picker, volume, settings — consumed by drawing + window/recording hit paths.
+- Window-picker dormant state + `window_picker_ui_contract` preserved.
+
+**PR 10.21 (2026-08-09):** extracted result delivery (`result.rs`) and window shell (`shell.rs` → `OverlayWindowParts`). `setup_window` builds shell, seeds selection, wires audio/input, then realize/focus/present.
+
+**PR 10.22 (2026-08-09):** moved meter worker + 100ms UI timer into `audio::install_overlay_audio_meters`. Setup is one install line; volume setters stay on audio for click handlers. Explicit close-time cancellation deferred.
+
+**PR 10.23 (2026-08-09):** extracted `countdown::try_start_capture_countdown` and `input::wire_window_keyboard`. Escape/confirm/nudge + 1s countdown tick leave setup; click still sets countdown cancel flag only.
+
+**PR 10.24 (2026-08-09):** extracted `input::wire_selection_drag` (full GestureDrag family, aspect resize, surface suppression, crosshair finalize).
+
+**PR 10.25 (2026-08-09):** extracted `input::wire_selection_motion` (motion+leave, hover priority, cursors, popup/slider ownership).
+
+**PR 10.26 (2026-08-09):** extracted `input::wire_window_click` with primary/secondary gesture owners plus pure menu and toolbar transition owners. External, channel, audio, and GTK effects run after the state lock scope. Controller order remains motion → click → drag → keyboard; `setup_window` is now lifecycle-only.
 
 ##### 5. Daemon coordinator thin-out
 
@@ -153,19 +183,16 @@ These are the remaining high-coupling coordinators and oversized files. Prefer *
 
 | Function | Location | Approx. span | Why it is hard |
 |----------|----------|-------------:|----------------|
-| **`wire_editor_events`** | `capture/editor/window/events/mod.rs` | **~350 lines** | Ordered dispatcher over event-family modules + close_request; Track D event peels complete through 10.18. |
 | **`setup_editor_window_full`** | `capture/editor/window/mod.rs` | **~2,200 lines** | Widget construction + session still large; canvas draw is out via `canvas_render`. |
-| **`overlay::window::setup_window`** | `overlay/window/mod.rs` | **~1,850 lines** | Motion hit-test, toolbar clicks, drag gestures, keyboard. Audio/CSS/X11 helpers are out; input surface remains. |
 
 ### Other large files (navigation / deferred)
 
 | File | Approx. lines | Notes |
 |------|--------------:|-------|
-| `capture/editor/window/mod.rs` | ~3,690 | Setup coordinator + tests; effects/assets/layout extracted |
-| `capture/editor/window/events/mod.rs` | ~2,390 | Dominated by `wire_editor_events` (drag/click/keyboard remain) |
+| `capture/editor/window/mod.rs` | ~2,756 | Setup coordinator + tests; effects/assets/layout/render extracted |
+| `capture/editor/window/events/mod.rs` | ~644 | Ordered event dispatcher + close request + tests |
 | `capture_overlay.rs` | ~2,430 | **Deferred** process-boundary split (audit: after daemon/capture) |
 | `capture/editor/state/mod.rs` | ~500 | EditorState struct, tool transitions, numbering, and stable state facades |
-| `overlay/window/mod.rs` | ~2,060 | Dominated by `setup_window` |
 | `capture/editor/tests.rs` | ~2,050 | Test payload only |
 | `recording/backend.rs` | ~1,930 | Already split out of recording facade; further internal split optional |
 | `recording/stop_overlay.rs` | ~1,710 | Separate from main overlay window |
@@ -196,9 +223,15 @@ These are the remaining high-coupling coordinators and oversized files. Prefer *
     - [x] PR 10.6 effects/export cleanup (`state/effects.rs`, `state/export.rs`)
    - Keep struct in `state/mod.rs`; child `impl EditorState` only inside the `state` tree
 
-4. **Overlay `setup_window`**
-   - Window shell construction (window + drawing area + geometry) → `OverlayWindowParts`
-   - **Defer** toolbar-click and motion blocks without shared hit-test ownership
+4. **Overlay `setup_window`** (Track E)
+   - [x] PR 10.20 Correctness preconditions + shared geometry (toolbar cells, timer badge, aspect → geometry, popup layouts)
+   - [x] PR 10.21 Result delivery + shell → `OverlayWindowParts` (`result.rs`, `shell.rs`)
+   - [x] PR 10.22 Audio lifecycle (`install_overlay_audio_meters` in `audio.rs`)
+   - [x] PR 10.23 Keyboard + countdown (`input/keyboard.rs`, `countdown.rs`)
+   - [x] PR 10.24 Drag (`input/drag.rs` → `wire_selection_drag`)
+   - [x] PR 10.25 Motion (`input/motion.rs` → `wire_selection_motion`)
+   - [x] PR 10.26 Click dispatch (`input/click/` → primary/secondary + menu/toolbar owners)
+   - `setup_window` is lifecycle-only; Track E is complete.
 
 5. **`capture_overlay.rs`**
    - Worker lifecycle, output parsing, wlroots routing, recording request spawn — separate PR after coordinator work settles
@@ -218,7 +251,7 @@ These are the remaining high-coupling coordinators and oversized files. Prefer *
 | Unreachable Rust modules | 1 | 0 | **0** |
 | Confirmed caller-free internal functions | 17 | 0 | **Addressed (PR 1)** |
 | Flatpak dead-code warnings | 10 | 0 | **0** |
-| Logic-bearing coordinators over 1,000 lines | 3 | 0 after GTK work | **3 remain** (`wire_editor_events`, `setup_editor_window_full`, `setup_window`) |
+| Logic-bearing coordinators over 1,000 lines | 3 | 0 after GTK work | **1 remains** (`setup_editor_window_full`) |
 | `run_daemon_inner` as thin coordinator | large match inline | handlers + dispatch out | **Done** (~170 lines) |
 | New public API from splits | 0 | 0 | **Held** |
 
