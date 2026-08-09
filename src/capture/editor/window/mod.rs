@@ -1,38 +1,25 @@
 use gdk4x11::X11Surface;
 use gtk4::gdk;
-use gtk4::gio;
 use gtk4::{
-    glib, prelude::*, Align, Application, ApplicationWindow, Box as GtkBox, Button, CheckButton,
-    DrawingArea, DropTarget, Entry, FileChooserAction, FileChooserNative, FileFilter, Image, Label,
-    Orientation, Overlay, Popover, ResponseType, Revealer, Spinner, Stack,
+    glib, prelude::*, Application, ApplicationWindow, Box as GtkBox, Button, CheckButton,
+    DrawingArea, DropTarget, Entry, Label, Orientation, Overlay, Popover,
 };
-use image::RgbaImage;
 use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::{mpsc, Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 use x11rb::{connection::Connection, protocol::xproto, protocol::xproto::ConnectionExt};
 
 use self::background_panel::BACKGROUND_SIDEBAR_WIDTH;
-use super::color::{draw_color_to_hex, draw_color_to_rgba_u8, selection_hit_padding_for_scale};
-use super::composition::BackgroundComposition;
+use super::color::{draw_color_to_hex, draw_color_to_rgba_u8};
 use super::pen_weight::PenWeight;
-use super::render::{
-    draw_active_text_input, draw_annotation_action, draw_arrow_control_handles,
-    draw_arrow_selection_outline, draw_canvas_checkerboard_background, draw_crop_overlay,
-    draw_draft_action, draw_rgba_to_context, draw_selection_handles, draw_selection_outline,
-    draw_text_edit_border, draw_text_edit_handles, rgba_image_to_surface, text_action_bounds,
-};
-use super::selection::{action_bounds_with_padding, action_resize_handles};
-use super::state::{apply_effect_actions, render_shadow_layer, EditorState};
+use super::selection::action_bounds_with_padding;
+use super::state::EditorState;
 use super::types::{
-    tool_button_index, AnnotationAction, ArrowStyle, BackgroundAlignment, BackgroundStyle,
-    CropAspectRatio, DrawColor, EditorError, Point, Rect, Tool, ViewTransform,
+    tool_button_index, AnnotationAction, ArrowStyle, BackgroundStyle, CropAspectRatio, DrawColor,
+    EditorError, Tool, ViewTransform,
 };
-
-const MAX_PREVIEW_SHADOW_DIM: u32 = 1200;
-const PREVIEW_SHADOW_BLUR_PASSES: usize = 2;
 
 #[derive(Debug, Clone, Copy)]
 pub struct AnnotateRuntimeConfig {
@@ -204,10 +191,9 @@ fn selected_action_geometry(action: &AnnotationAction) -> String {
 }
 
 use super::ui_support::{
-    arrow_style_toolbar_icon, install_edge_resize, install_editor_css, install_top_bar_window_drag,
-    install_window_drag, prefers_dark_glass_theme, prefers_reduced_transparency,
-    recommended_window_size_with_extra_width, set_active_tool_button, tool_icon_widget,
-    toolbar_icon_size, EDITOR_MIN_WINDOW_WIDTH, EDITOR_TOP_CHROME_HEIGHT,
+    arrow_style_toolbar_icon, install_editor_css, prefers_dark_glass_theme,
+    prefers_reduced_transparency, recommended_window_size_with_extra_width, set_active_tool_button,
+    tool_icon_widget, toolbar_icon_size, EDITOR_MIN_WINDOW_WIDTH,
 };
 
 const TEXT_SIZE_OPTIONS: [i32; 12] = [12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 64, 72];
@@ -335,15 +321,25 @@ fn sync_obfuscate_option_selection(list: &GtkBox, selected_index: usize) {
     }
 }
 
+mod background_assets;
 pub mod background_panel;
 mod canvas;
+mod canvas_layout;
+mod canvas_render;
+mod chrome;
 pub mod color_picker;
 pub mod colors_panel;
 #[allow(dead_code)]
 mod cursor;
+mod effects;
+mod empty_state;
 mod events;
 mod footer;
+mod inspectors;
 mod toolbar;
+
+use background_assets::BackgroundAssetCaches;
+use inspectors::InspectorParts;
 
 #[allow(dead_code)]
 pub mod icon_names {
@@ -383,138 +379,6 @@ pub fn open_image_editor_empty() -> Result<(), EditorError> {
 
     let _ = app.run_with_args::<String>(&[]);
     Ok(())
-}
-
-fn is_supported_image_path(path: &std::path::Path) -> bool {
-    matches!(
-        path.extension()
-            .and_then(|e| e.to_str())
-            .map(|e| e.to_lowercase())
-            .as_deref(),
-        Some("png") | Some("jpg") | Some("jpeg") | Some("webp")
-    )
-}
-
-/// Validate + decode the image on a background thread (showing the loading
-/// banner, like the video editor's async video load), then rebuild the
-/// editor in the SAME window with the file loaded.
-#[allow(clippy::too_many_arguments)]
-fn load_image_into_editor(
-    app: &Application,
-    window: &ApplicationWindow,
-    path: PathBuf,
-    loading_revealer: &Revealer,
-    loading_spinner: &Spinner,
-    loading: Rc<Cell<bool>>,
-    open_button: &Button,
-) {
-    if loading.get() {
-        return;
-    }
-    loading.set(true);
-    loading_revealer.set_reveal_child(true);
-    loading_spinner.set_visible(true);
-    loading_spinner.start();
-    open_button.set_sensitive(false);
-
-    let (sender, receiver) = mpsc::channel::<Result<(), String>>();
-    let path_thread = path.clone();
-    std::thread::spawn(move || {
-        let result = image::open(&path_thread)
-            .map(|_| ())
-            .map_err(|e| e.to_string());
-        let _ = sender.send(result);
-    });
-
-    let app = app.clone();
-    let window = window.clone();
-    let loading_revealer = loading_revealer.clone();
-    let loading_spinner = loading_spinner.clone();
-    let open_button = open_button.clone();
-    glib::timeout_add_local(Duration::from_millis(100), move || {
-        let stop_loading = || {
-            loading.set(false);
-            loading_revealer.set_reveal_child(false);
-            loading_spinner.stop();
-            loading_spinner.set_visible(false);
-            open_button.set_sensitive(true);
-        };
-        match receiver.try_recv() {
-            Ok(Ok(())) => {
-                stop_loading();
-                // Rebuild the editor UI with the image, reusing this window.
-                setup_editor_window_full(&app, path.clone(), false, Some(window.clone()));
-                glib::ControlFlow::Break
-            }
-            Ok(Err(err)) => {
-                stop_loading();
-                eprintln!("[editor] Failed to load image: {err}");
-                glib::ControlFlow::Break
-            }
-            Err(mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
-            Err(mpsc::TryRecvError::Disconnected) => {
-                stop_loading();
-                glib::ControlFlow::Break
-            }
-        }
-    });
-}
-
-#[allow(clippy::too_many_arguments)]
-fn show_open_image_dialog(
-    app: &Application,
-    parent: &ApplicationWindow,
-    loading_revealer: &Revealer,
-    loading_spinner: &Spinner,
-    loading: Rc<Cell<bool>>,
-    open_button: &Button,
-) {
-    let chooser = FileChooserNative::new(
-        Some("Open image"),
-        Some(parent),
-        FileChooserAction::Open,
-        Some("Open"),
-        Some("Cancel"),
-    );
-
-    let filter = FileFilter::new();
-    filter.set_name(Some("Image files"));
-    filter.add_mime_type("image/png");
-    filter.add_mime_type("image/jpeg");
-    filter.add_mime_type("image/webp");
-    filter.add_pattern("*.png");
-    filter.add_pattern("*.jpg");
-    filter.add_pattern("*.jpeg");
-    filter.add_pattern("*.webp");
-    chooser.add_filter(&filter);
-
-    let app_ref = app.clone();
-    let parent_ref = parent.clone();
-    let revealer_ref = loading_revealer.clone();
-    let spinner_ref = loading_spinner.clone();
-    let open_button_ref = open_button.clone();
-    chooser.connect_response(move |dialog, response| {
-        if response == ResponseType::Accept {
-            if let Some(file) = dialog.file() {
-                if let Some(path) = file.path() {
-                    if is_supported_image_path(&path) {
-                        // Load into the same window, like the video editor.
-                        load_image_into_editor(
-                            &app_ref,
-                            &parent_ref,
-                            path.to_path_buf(),
-                            &revealer_ref,
-                            &spinner_ref,
-                            loading.clone(),
-                            &open_button_ref,
-                        );
-                    }
-                }
-            }
-        }
-        dialog.hide();
-    });
-    chooser.show();
 }
 
 #[allow(unused_imports)]
@@ -1385,222 +1249,16 @@ fn setup_editor_window_full(
     // The zoom controls are added to the canvas pane later so they remain fixed
     // while the image scrolls and scales.
 
-    // Background style cache
-    let cached_background_surface =
-        Rc::new(std::cell::RefCell::new(None::<gtk4::cairo::ImageSurface>));
-    let cached_background_signature = Rc::new(std::cell::RefCell::new(
-        None::<(BackgroundStyle, Option<u64>)>,
-    ));
-    let cached_shadow_surface = Rc::new(std::cell::RefCell::new(None::<gtk4::cairo::ImageSurface>));
-    let cached_shadow_signature = Rc::new(Cell::new(None::<(u32, u32, u64, u64, u64)>));
+    let render_caches = canvas_render::CanvasRenderCaches::new();
 
-    let gradient_surfaces = Rc::new(RefCell::new(vec![
-            None::<gtk4::cairo::ImageSurface>;
-            background_panel::BACKGROUND_GRADIENT_PREVIEW_FILES.len()
-        ]));
-    let wallpaper_cache = Rc::new(RefCell::new(std::collections::HashMap::<
-        PathBuf,
-        gtk4::cairo::ImageSurface,
-    >::new()));
+    let BackgroundAssetCaches {
+        gradient_surfaces,
+        wallpaper_cache,
+        wallpaper_loader_sender,
+    } = background_assets::install_background_asset_loading(&drawing_area);
 
-    let (wallpaper_loader_sender, receiver) =
-        std::sync::mpsc::channel::<(Option<usize>, PathBuf, RgbaImage)>();
-
-    // Pre-load gradients and system wallpaper in background
-    {
-        let sender = wallpaper_loader_sender.clone();
-        // Background loader thread
-        std::thread::spawn({
-            move || {
-                // 1. System wallpaper (High Priority)
-                if let Some(path) = background_panel::detect_system_wallpaper_path() {
-                    println!("[DEBUG] Detected system wallpaper: {:?}", path);
-                    if let Some(rgba) = background_panel::load_background_image_optimized(&path) {
-                        let _ = sender.send((None, path, rgba));
-                    }
-                } else {
-                    println!("[DEBUG] No system wallpaper detected.");
-                    // Also load the fallback wallpaper into cache
-                    let fallback_path = background_panel::background_gradient_asset_path(
-                        background_panel::BACKGROUND_GRADIENT_PREVIEW_FILES[0],
-                    );
-                    if let Some(rgba) =
-                        background_panel::load_background_image_optimized(&fallback_path)
-                    {
-                        let _ = sender.send((None, fallback_path, rgba));
-                    }
-                }
-
-                // 2. Gradients
-                for (idx, file_name) in background_panel::BACKGROUND_GRADIENT_PREVIEW_FILES
-                    .iter()
-                    .enumerate()
-                {
-                    let path = background_panel::background_gradient_asset_path(file_name);
-                    if let Some(rgba) = background_panel::load_background_image_optimized(&path) {
-                        if sender.send((Some(idx), path, rgba)).is_err() {
-                            break;
-                        }
-                    }
-                }
-            }
-        });
-
-        let gradient_surfaces_main = gradient_surfaces.clone();
-        let wallpaper_cache_main = wallpaper_cache.clone();
-        let drawing_area_main = drawing_area.downgrade();
-        glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
-            while let Ok((idx_opt, path, rgba)) = receiver.try_recv() {
-                if let Some(surface) = rgba_image_to_surface(&rgba) {
-                    if let Some(idx) = idx_opt {
-                        gradient_surfaces_main.borrow_mut()[idx] = Some(surface);
-                    } else {
-                        wallpaper_cache_main.borrow_mut().insert(path, surface);
-                    }
-                    if let Some(area) = drawing_area_main.upgrade() {
-                        area.queue_draw();
-                    }
-                }
-            }
-            glib::ControlFlow::Continue
-        });
-    }
-
-    // Async Effects Pipeline
-    let (effects_sender, effects_receiver) = std::sync::mpsc::channel::<(RgbaImage, u64)>();
-    let (request_sender, request_receiver) =
-        std::sync::mpsc::channel::<(Arc<RgbaImage>, Vec<AnnotationAction>, u64)>();
-
-    // Used by the UI thread to coalesce effect rebuild requests.
-    let effects_request_sender = request_sender.clone();
-
-    let state_effects = state.clone();
-    let drawing_area_effects = drawing_area.downgrade();
-    {
-        glib::timeout_add_local(std::time::Duration::from_millis(16), move || {
-            while let Ok((new_image, revision)) = effects_receiver.try_recv() {
-                // Apply results, then if another rebuild was requested while pending,
-                // schedule one more rebuild.
-                let (should_schedule_next, base_image, actions, next_revision) = {
-                    let mut st = state_effects.lock().unwrap();
-                    if revision <= st.last_applied_effect_revision {
-                        (false, None, None, 0)
-                    } else {
-                        st.working_image = Arc::new(new_image);
-                        st.last_applied_effect_revision = revision;
-                        st.select_effect_rebuild_pending = false;
-                        st.mark_working_image_dirty();
-
-                        let should = st.select_effect_rebuild_dirty;
-                        if should {
-                            st.select_effect_rebuild_dirty = false;
-                            st.select_effect_rebuild_pending = true;
-                            st.pending_effect_revision += 1;
-                            (
-                                true,
-                                Some(Arc::clone(&st.base_image)),
-                                Some(st.actions.clone()),
-                                st.pending_effect_revision,
-                            )
-                        } else {
-                            (false, None, None, 0)
-                        }
-                    }
-                };
-
-                if let Some(area) = drawing_area_effects.upgrade() {
-                    area.queue_draw();
-                }
-
-                if should_schedule_next {
-                    if let (Some(base_image), Some(actions)) = (base_image, actions) {
-                        let _ = effects_request_sender.send((base_image, actions, next_revision));
-                    }
-                }
-            }
-            glib::ControlFlow::Continue
-        });
-    }
-
-    // Single background worker thread
-    std::thread::spawn(move || {
-        while let Ok(mut request) = request_receiver.recv() {
-            // Drain the channel to get only the latest request
-            while let Ok(newer) = request_receiver.try_recv() {
-                request = newer;
-            }
-
-            let (base_image, actions, revision) = request;
-            let mut working_image = (*base_image).clone();
-
-            // EXPENSIVE: This blocks the worker thread
-            apply_effect_actions(&mut working_image, &actions);
-
-            let _ = effects_sender.send((working_image, revision));
-        }
-    });
-
-    let rebuild_effects_async: Rc<dyn Fn()> = Rc::new({
-        let state = state.clone();
-        let sender = request_sender;
-        move || {
-            let maybe_payload = {
-                let mut st = state.lock().unwrap();
-
-                // Avoid flooding the worker with rebuild requests while one is already pending.
-                // This helps prevent UI stalls when many effect-triggering actions happen quickly.
-                if st.select_effect_rebuild_pending {
-                    // A rebuild is already in-flight; remember that we need another pass.
-                    st.select_effect_rebuild_dirty = true;
-                    return;
-                }
-                st.select_effect_rebuild_pending = true;
-                st.select_effect_rebuild_dirty = false;
-                st.last_effect_request_time_us = glib::monotonic_time();
-
-                st.pending_effect_revision += 1;
-                Some((
-                    Arc::clone(&st.base_image),
-                    st.actions.clone(),
-                    st.pending_effect_revision,
-                ))
-            };
-
-            if let Some((base_image, actions, revision)) = maybe_payload {
-                let _ = sender.send((base_image, actions, revision));
-            }
-        }
-    });
-
-    // Effects rebuild watchdog: if we ever get stuck with `select_effect_rebuild_pending=true`
-    // (e.g., app was backgrounded / main loop paused), recover by clearing pending and
-    // scheduling a fresh rebuild.
-    {
-        let state = state.clone();
-        let rebuild_effects_async = rebuild_effects_async.clone();
-        glib::timeout_add_local(std::time::Duration::from_millis(500), move || {
-            let should_recover = {
-                let st = state.lock().unwrap();
-                if !st.select_effect_rebuild_pending {
-                    false
-                } else {
-                    let elapsed = glib::monotonic_time() - st.last_effect_request_time_us;
-                    // 2 seconds without a result is considered stuck.
-                    elapsed > 2_000_000
-                }
-            };
-
-            if should_recover {
-                {
-                    let mut st = state.lock().unwrap();
-                    st.select_effect_rebuild_pending = false;
-                }
-                rebuild_effects_async();
-            }
-
-            glib::ControlFlow::Continue
-        });
-    }
+    // Async Effects Pipeline (channels, worker, polling, watchdog, rebuild callback).
+    let rebuild_effects_async = effects::install_async_effects_pipeline(&state, &drawing_area);
 
     let background_panel_parts = background_panel::build_background_panel(
         &window,
@@ -1785,234 +1443,40 @@ fn setup_editor_window_full(
     number_options_group.set_visible(false);
     arrow_style_group.set_visible(false);
 
-    let build_tool_inspector = || {
-        let root = GtkBox::new(Orientation::Vertical, 12);
-        root.set_width_request(BACKGROUND_SIDEBAR_WIDTH);
-        root.set_hexpand(false);
-        root.set_halign(gtk4::Align::Fill);
-        root.set_vexpand(true);
-
-        let content = GtkBox::new(Orientation::Vertical, 10);
-        content.set_margin_top(4);
-        content.set_margin_bottom(12);
-        content.set_margin_start(12);
-        content.set_margin_end(12);
-        content.set_hexpand(false);
-        content.set_halign(gtk4::Align::Fill);
-
-        root.append(&content);
-        (root, content)
-    };
-
-    let append_inspector_section = |content: &GtkBox, title: &str, widget: &gtk4::Widget| {
-        let section = GtkBox::new(Orientation::Vertical, 8);
-        section.add_css_class("editor-inspector-section");
-        section.set_hexpand(false);
-        section.set_halign(gtk4::Align::Fill);
-
-        let section_title = Label::new(Some(title));
-        section_title.add_css_class("editor-background-section-title");
-        section_title.set_xalign(0.0);
-        section_title.set_hexpand(false);
-        section_title.set_halign(gtk4::Align::Fill);
-
-        let section_body = GtkBox::new(Orientation::Vertical, 0);
-        section_body.set_hexpand(false);
-        section_body.set_halign(gtk4::Align::Fill);
-        section_body.append(widget);
-
-        section.append(&section_title);
-        section.append(&section_body);
-        content.append(&section);
-    };
-
-    let (select_inspector, select_inspector_content) = build_tool_inspector();
-    append_inspector_section(
-        &select_inspector_content,
-        "Selection",
-        select_status_label.upcast_ref(),
-    );
-    append_inspector_section(
-        &select_inspector_content,
-        "Details",
-        select_detail_label.upcast_ref(),
-    );
-    append_inspector_section(
-        &select_inspector_content,
-        "Geometry",
-        select_geometry_label.upcast_ref(),
-    );
-    append_inspector_section(
-        &select_inspector_content,
-        "Actions",
-        select_hint_label.upcast_ref(),
-    );
-
-    let (crop_inspector, crop_inspector_content) = build_tool_inspector();
-    crop_ratio_list.add_css_class("editor-inspector-option-list");
-    append_inspector_section(
-        &crop_inspector_content,
-        "Dimensions",
-        crop_dimensions_group.upcast_ref(),
-    );
-    append_inspector_section(
-        &crop_inspector_content,
-        "Aspect Ratio",
-        crop_ratio_list.upcast_ref(),
-    );
-    append_inspector_section(
-        &crop_inspector_content,
-        "Actions",
-        crop_actions_group.upcast_ref(),
-    );
-
-    let (pen_inspector, pen_inspector_content) = build_tool_inspector();
-    pen_inspector_list.add_css_class("editor-inspector-option-list");
-    append_inspector_section(
-        &pen_inspector_content,
-        "Thickness",
-        pen_inspector_list.upcast_ref(),
-    );
-
-    let (arrow_inspector, arrow_inspector_content) = build_tool_inspector();
-    arrow_style_list.add_css_class("editor-inspector-option-list");
-    arrow_thickness_list.add_css_class("editor-inspector-option-list");
-    append_inspector_section(
-        &arrow_inspector_content,
-        "Style",
-        arrow_style_list.upcast_ref(),
-    );
-    append_inspector_section(
-        &arrow_inspector_content,
-        "Thickness",
-        arrow_thickness_list.upcast_ref(),
-    );
-    append_inspector_section(
-        &arrow_inspector_content,
-        "Behavior",
-        arrow_behavior_group.upcast_ref(),
-    );
-
-    let (line_inspector, line_inspector_content) = build_tool_inspector();
-    line_inspector_list.add_css_class("editor-inspector-option-list");
-    append_inspector_section(
-        &line_inspector_content,
-        "Thickness",
-        line_inspector_list.upcast_ref(),
-    );
-
-    let (text_inspector, text_inspector_content) = build_tool_inspector();
-    text_size_list.add_css_class("editor-inspector-option-list");
-    font_family_list.add_css_class("editor-inspector-option-list");
-    append_inspector_section(&text_inspector_content, "Size", text_size_list.upcast_ref());
-    append_inspector_section(
-        &text_inspector_content,
-        "Font",
-        font_family_list.upcast_ref(),
-    );
-
-    let (obfuscate_inspector, obfuscate_inspector_content) = build_tool_inspector();
-    obfuscate_method_list.add_css_class("editor-inspector-option-list");
-    append_inspector_section(
-        &obfuscate_inspector_content,
-        "Method",
-        obfuscate_method_list.upcast_ref(),
-    );
-
-    let (number_inspector, number_inspector_content) = build_tool_inspector();
-    number_options_list.add_css_class("editor-inspector-option-list");
-    number_size_list.add_css_class("editor-inspector-option-list");
-    append_inspector_section(
-        &number_inspector_content,
-        "Style",
-        number_options_list.upcast_ref(),
-    );
-    append_inspector_section(
-        &number_inspector_content,
-        "Start",
-        number_start_row.upcast_ref(),
-    );
-    append_inspector_section(
-        &number_inspector_content,
-        "Size",
-        number_size_list.upcast_ref(),
-    );
-
-    let (highlighter_inspector, highlighter_inspector_content) = build_tool_inspector();
-    highlighter_inspector_list.add_css_class("editor-inspector-option-list");
-    append_inspector_section(
-        &highlighter_inspector_content,
-        "Thickness",
-        highlighter_inspector_list.upcast_ref(),
-    );
-
-    let inspector_tabs = GtkBox::new(Orientation::Horizontal, 8);
-    inspector_tabs.add_css_class("editor-inspector-tabs");
-    inspector_tabs.set_width_request(BACKGROUND_SIDEBAR_WIDTH);
-    inspector_tabs.set_hexpand(false);
-    inspector_tabs.set_halign(gtk4::Align::Fill);
-
-    let background_tab_btn = Button::with_label("Background");
-    background_tab_btn.set_has_frame(false);
-    background_tab_btn.add_css_class("editor-inspector-tab-button");
-
-    let colors_tab_btn = Button::with_label("Colors");
-    colors_tab_btn.set_has_frame(false);
-    colors_tab_btn.add_css_class("editor-inspector-tab-button");
-
-    inspector_tabs.append(&background_tab_btn);
-    inspector_tabs.append(&colors_tab_btn);
-
-    let inspector = GtkBox::new(Orientation::Vertical, 0);
-    inspector.add_css_class("editor-right-inspector");
-    inspector.set_width_request(BACKGROUND_SIDEBAR_WIDTH);
-    inspector.set_hexpand(false);
-    inspector.set_vexpand(true);
-    inspector.append(&sidebar_utility_controls);
-    inspector.append(&inspector_tabs);
-
-    let inspector_stack = Stack::new();
-    inspector_stack.set_hhomogeneous(true);
-    inspector_stack.set_vhomogeneous(false);
-    inspector_stack.set_width_request(BACKGROUND_SIDEBAR_WIDTH);
-    inspector_stack.set_hexpand(false);
-    inspector_stack.set_vexpand(true);
-    background_inspector.set_visible(true);
-    crop_inspector.set_visible(true);
-    pen_inspector.set_visible(true);
-    arrow_inspector.set_visible(true);
-    line_inspector.set_visible(true);
-    text_inspector.set_visible(true);
-    highlighter_inspector.set_visible(true);
-    obfuscate_inspector.set_visible(true);
-    number_inspector.set_visible(true);
-    colors_inspector.set_visible(true);
-    placeholder_inspector.set_visible(true);
-    select_inspector.set_visible(true);
-    inspector_stack.add_named(&background_inspector, Some("background"));
-    inspector_stack.add_named(&select_inspector, Some("select"));
-    inspector_stack.add_named(&crop_inspector, Some("crop"));
-    inspector_stack.add_named(&pen_inspector, Some("pen"));
-    inspector_stack.add_named(&arrow_inspector, Some("arrow"));
-    inspector_stack.add_named(&line_inspector, Some("line"));
-    inspector_stack.add_named(&text_inspector, Some("text"));
-    inspector_stack.add_named(&highlighter_inspector, Some("highlighter"));
-    inspector_stack.add_named(&obfuscate_inspector, Some("obfuscate"));
-    inspector_stack.add_named(&number_inspector, Some("number"));
-    inspector_stack.add_named(&colors_inspector, Some("colors"));
-    inspector_stack.add_named(&placeholder_inspector, Some("placeholder"));
-    inspector_stack.set_visible_child_name("placeholder");
-    inspector.append(&inspector_stack);
-
-    let sidebar_actions = GtkBox::new(Orientation::Horizontal, 8);
-    sidebar_actions.add_css_class("editor-sidebar-actions");
-    let sidebar_action_spacer = GtkBox::new(Orientation::Horizontal, 0);
-    sidebar_action_spacer.set_hexpand(true);
-    sidebar_actions.append(&copy_btn);
-    sidebar_actions.append(&upload_btn);
-    sidebar_actions.append(&sidebar_action_spacer);
-    sidebar_actions.append(&save_btn);
-    inspector.append(&sidebar_actions);
+    let InspectorParts {
+        inspector_tabs,
+        background_tab_btn,
+        colors_tab_btn,
+        inspector,
+        inspector_stack,
+    } = inspectors::build_tool_inspectors(inspectors::InspectorContentInputs {
+        select_status_label: &select_status_label,
+        select_detail_label: &select_detail_label,
+        select_geometry_label: &select_geometry_label,
+        select_hint_label: &select_hint_label,
+        crop_dimensions_group: &crop_dimensions_group,
+        crop_ratio_list: &crop_ratio_list,
+        crop_actions_group: &crop_actions_group,
+        pen_inspector_list: &pen_inspector_list,
+        arrow_style_list: &arrow_style_list,
+        arrow_thickness_list: &arrow_thickness_list,
+        arrow_behavior_group: &arrow_behavior_group,
+        line_inspector_list: &line_inspector_list,
+        text_size_list: &text_size_list,
+        font_family_list: &font_family_list,
+        obfuscate_method_list: &obfuscate_method_list,
+        number_options_list: &number_options_list,
+        number_start_row: &number_start_row,
+        number_size_list: &number_size_list,
+        highlighter_inspector_list: &highlighter_inspector_list,
+        sidebar_utility_controls: &sidebar_utility_controls,
+        background_inspector: &background_inspector,
+        colors_inspector: &colors_inspector,
+        placeholder_inspector: &placeholder_inspector,
+        copy_btn: &copy_btn,
+        upload_btn: &upload_btn,
+        save_btn: &save_btn,
+    });
 
     // Canvas fills the pane (checkerboard). Toolbar + drag strip float on top;
     // image content is inset below the strip so it never covers the tools.
@@ -2433,10 +1897,11 @@ fn setup_editor_window_full(
         obfuscate_method_list.append(&btn);
     }
 
-    let eyedropper_mode = Rc::new(Cell::new(false));
-    let eyedropper_from_sidebar = Rc::new(Cell::new(false));
-    let eyedropper_point = Rc::new(RefCell::new(None::<Point>));
-    let eyedropper_rendered = Rc::new(RefCell::new(None::<RgbaImage>));
+    let eyedropper = events::EyedropperBundle::new(canvas_eyedropper_ring.clone());
+    let eyedropper_mode = eyedropper.mode.clone();
+    let eyedropper_from_sidebar = eyedropper.from_sidebar.clone();
+    let eyedropper_point = eyedropper.point.clone();
+    let eyedropper_rendered = eyedropper.rendered.clone();
 
     *sidebar_eyedropper_activation.borrow_mut() = Some(Rc::new({
         let color_popover = color_popover.clone();
@@ -2515,363 +1980,33 @@ fn setup_editor_window_full(
     let root_overlay = Overlay::new();
     root_overlay.set_child(Some(&root));
 
-    // Transparent full-width strip over the checkerboard: drag the window + host toolbar.
-    let top_chrome = GtkBox::new(Orientation::Horizontal, 0);
-    top_chrome.add_css_class("editor-top-chrome");
-    top_chrome.set_halign(Align::Fill);
-    top_chrome.set_valign(Align::Start);
-    top_chrome.set_hexpand(true);
-    top_chrome.set_vexpand(false);
-    top_chrome.set_size_request(-1, EDITOR_TOP_CHROME_HEIGHT);
-    top_chrome.set_can_target(true);
-
-    let top_chrome_left = GtkBox::new(Orientation::Horizontal, 0);
-    top_chrome_left.set_hexpand(true);
-    let top_chrome_right = GtkBox::new(Orientation::Horizontal, 0);
-    top_chrome_right.set_hexpand(true);
-
-    toolbar.set_halign(Align::Center);
-    toolbar.set_valign(Align::Center);
-    toolbar.set_hexpand(false);
-    top_chrome.append(&top_chrome_left);
-    top_chrome.append(&toolbar);
-    top_chrome.append(&top_chrome_right);
-    canvas_with_toolbar.add_overlay(&top_chrome);
-
-    let zoom_control = GtkBox::new(Orientation::Horizontal, 0);
-    zoom_control.add_css_class("editor-floating-zoom");
-    zoom_control.set_halign(Align::Start);
-    zoom_control.set_valign(Align::End);
-    zoom_control.set_margin_start(16);
-    zoom_control.set_margin_bottom(16);
-    zoom_control.append(&zoom_minus_btn);
-    zoom_control.append(&zoom_button);
-    zoom_control.append(&zoom_plus_btn);
-    canvas_with_toolbar.add_overlay(&zoom_control);
-
-    let history_control = GtkBox::new(Orientation::Horizontal, 0);
-    history_control.add_css_class("editor-floating-history");
-    history_control.set_halign(Align::End);
-    history_control.set_valign(Align::End);
-    history_control.set_margin_end(16);
-    history_control.set_margin_bottom(16);
-    history_control.append(&history_group);
-    canvas_with_toolbar.add_overlay(&history_control);
-    canvas_with_toolbar.add_overlay(&zoom_popup);
+    chrome::install_window_chrome(chrome::WindowChromeInputs {
+        canvas_with_toolbar: &canvas_with_toolbar,
+        root_overlay: &root_overlay,
+        window: &window,
+        toolbar: &toolbar,
+        zoom_minus_btn: &zoom_minus_btn,
+        zoom_button: &zoom_button,
+        zoom_plus_btn: &zoom_plus_btn,
+        history_group: &history_group,
+        zoom_popup: &zoom_popup,
+    });
 
     if empty_drop_zone {
-        // Reuse the video editor's button / banner styles so the empty
-        // states look identical.
-        crate::recording::editor::ui_support::install_recording_editor_css();
-
-        let drop_center = GtkBox::new(Orientation::Vertical, 14);
-        drop_center.set_halign(Align::Center);
-        drop_center.set_valign(Align::Center);
-        drop_center.set_can_target(true);
-
-        let drop_icon = Image::from_icon_name("image-x-generic-symbolic");
-        drop_icon.add_css_class("recording-editor-empty-icon");
-        drop_icon.set_pixel_size(42);
-        drop_icon.set_halign(Align::Center);
-
-        let drop_title = Label::new(Some("Drop an image here"));
-        drop_title.add_css_class("recording-editor-empty-title");
-        drop_title.set_halign(Align::Center);
-
-        let drop_hint = Label::new(Some("PNG, JPEG, or WebP"));
-        drop_hint.add_css_class("recording-editor-empty-hint");
-        drop_hint.set_halign(Align::Center);
-
-        let open_btn = Button::with_label("Open Folder");
-        open_btn.set_has_frame(false);
-        open_btn.add_css_class("recording-editor-primary-button");
-        open_btn.add_css_class("recording-editor-empty-open-button");
-        open_btn.set_halign(Align::Center);
-
-        drop_center.append(&drop_icon);
-        drop_center.append(&drop_title);
-        drop_center.append(&drop_hint);
-        drop_center.append(&open_btn);
-
-        // Keep the empty state centered in the canvas pane, excluding the inspector.
-        canvas_with_toolbar.add_overlay(&drop_center);
-
-        // Loading banner (same as the video editor's "Loading video…").
-        let loading_box = GtkBox::new(Orientation::Horizontal, 8);
-        loading_box.add_css_class("recording-editor-drop-banner");
-        loading_box.set_can_target(false);
-        loading_box.set_halign(Align::Center);
-        let loading_spinner = Spinner::new();
-        loading_spinner.set_size_request(16, 16);
-        loading_spinner.set_can_target(false);
-        let loading_label = Label::new(Some("Loading image…"));
-        loading_label.add_css_class("recording-editor-drop-label");
-        loading_label.set_can_target(false);
-        loading_box.append(&loading_spinner);
-        loading_box.append(&loading_label);
-        let loading_revealer = Revealer::new();
-        loading_revealer.set_can_target(false);
-        loading_revealer.set_halign(Align::Center);
-        loading_revealer.set_valign(Align::Start);
-        loading_revealer.set_child(Some(&loading_box));
-        loading_revealer.set_transition_type(gtk4::RevealerTransitionType::SlideDown);
-        loading_revealer.set_reveal_child(false);
-        root_overlay.add_overlay(&loading_revealer);
-
-        let loading = Rc::new(Cell::new(false));
-
-        let app_open = app.clone();
-        let window_open = window.clone();
-        let revealer_open = loading_revealer.clone();
-        let spinner_open = loading_spinner.clone();
-        let loading_open = loading.clone();
-        let open_btn_ref = open_btn.clone();
-        open_btn.connect_clicked(move |_| {
-            show_open_image_dialog(
-                &app_open,
-                &window_open,
-                &revealer_open,
-                &spinner_open,
-                loading_open.clone(),
-                &open_btn_ref,
-            );
-        });
-
-        let drop_target = DropTarget::new(gio::File::static_type(), gdk::DragAction::COPY);
-        let app_drop = app.clone();
-        let window_drop = window.clone();
-        let revealer_drop = loading_revealer.clone();
-        let spinner_drop = loading_spinner.clone();
-        let loading_drop = loading.clone();
-        let open_btn_drop = open_btn.clone();
-        drop_target.connect_drop(move |_, value, _x, _y| {
-            if loading_drop.get() {
-                return false;
-            }
-            let Ok(file) = value.get::<gio::File>() else {
-                return false;
-            };
-            let Some(path) = file.path() else {
-                return false;
-            };
-            if !is_supported_image_path(&path) {
-                return false;
-            }
-            // Load into the SAME window (no close/reopen), like the video
-            // editor does.
-            load_image_into_editor(
-                &app_drop,
-                &window_drop,
-                path.to_path_buf(),
-                &revealer_drop,
-                &spinner_drop,
-                loading_drop.clone(),
-                &open_btn_drop,
-            );
-            true
-        });
-        root_overlay.add_controller(drop_target);
+        empty_state::install_empty_drop_zone(app, &window, &canvas_with_toolbar, &root_overlay);
     }
 
     window.set_child(Some(&root_overlay));
 
-    // Full-width canvas chrome + top inspector band move the window; tools/canvas stay interactive.
-    install_window_drag(&top_chrome, &window);
-    install_top_bar_window_drag(&root_overlay, &window);
-    install_edge_resize(&root_overlay, &window);
-
-    let update_canvas_content_size: Rc<dyn Fn()> = Rc::new({
-        let state = state.clone();
-        let zoom_level = zoom_level.clone();
-        let zoom_label = zoom_label.clone();
-        let zoom_header_label = zoom_header_label.clone();
-        let drawing_area = drawing_area.clone();
-        let _canvas_overlay = canvas_overlay.clone();
-        let canvas_scroller = canvas_scroller.clone();
-        let _window = window.downgrade();
-        move || {
-            let (
-                image_w,
-                image_h,
-                background_style,
-                background_padding,
-                background_insert,
-                background_aspect_ratio,
-                has_background,
-                crop_rect,
-                crop_mode_active,
-            ) = {
-                let st = state.lock().unwrap();
-                (
-                    st.working_image.width().max(1) as i32,
-                    st.working_image.height().max(1) as i32,
-                    st.background_style.clone(),
-                    st.background_padding,
-                    st.background_insert,
-                    st.background_aspect_ratio,
-                    st.background_style != BackgroundStyle::None,
-                    st.draft_crop_rect().or(st.crop_selection),
-                    st.selected_tool == Tool::Crop,
-                )
-            };
-
-            let mut virtual_w = image_w as f64;
-            let mut virtual_h = image_h as f64;
-
-            if has_background {
-                let layout = BackgroundComposition::new(virtual_w, virtual_h)
-                    .with_style(background_style)
-                    .with_padding(background_padding)
-                    .with_insert(background_insert)
-                    .with_alignment(BackgroundAlignment::Center)
-                    .with_corner_radius(18.0)
-                    .with_aspect_ratio(background_aspect_ratio)
-                    .compute();
-                virtual_w = layout.canvas_width;
-                virtual_h = layout.canvas_height;
-            }
-
-            let scroller_width = canvas_scroller.allocated_width().max(1) as f64;
-            let scroller_height = canvas_scroller.allocated_height().max(1) as f64;
-            // Keep fit-to-view math below the floating toolbar strip.
-            let top_inset = canvas_padding + EDITOR_TOP_CHROME_HEIGHT;
-            let available_width = (scroller_width - (canvas_padding * 2 + 2) as f64).max(1.0);
-            let available_height =
-                (scroller_height - (top_inset + canvas_padding + 2) as f64).max(1.0);
-
-            // Use the minimum of width and height to maintain aspect ratio and prevent asymmetric growth
-            let available_size = available_width.min(available_height);
-
-            // Layout scale without zoom - used for content size (prevents window from growing on zoom)
-            let layout_scale = (available_size / virtual_w.min(virtual_h)).min(1.0_f64);
-            // Rendering scale includes zoom for visual display
-            let scale = layout_scale * zoom_level.get().max(0.1_f64);
-
-            let fitted_w = (virtual_w * scale).round().max(1.0) as i32;
-            let fitted_h = (virtual_h * scale).round().max(1.0) as i32;
-
-            let (overflow_left, overflow_top, overflow_right, overflow_bottom) = if has_background {
-                (0.0, 0.0, 0.0, 0.0)
-            } else {
-                canvas::crop_canvas_overflow(
-                    crop_rect,
-                    image_w as f64,
-                    image_h as f64,
-                    scale,
-                    crop_mode_active,
-                )
-            };
-
-            let canvas_w = fitted_w
-                + canvas_padding * 2
-                + overflow_left.round() as i32
-                + overflow_right.round() as i32;
-            // Extra top inset so zoomed content cannot sit under the toolbar.
-            let canvas_h = fitted_h
-                + top_inset
-                + canvas_padding
-                + overflow_top.round() as i32
-                + overflow_bottom.round() as i32;
-
-            drawing_area.set_content_width(canvas_w);
-            drawing_area.set_content_height(canvas_h);
-            let percent_str = format!("{}%", (scale * 100.0).round().max(1.0) as i32);
-            zoom_label.set_label(&percent_str);
-            zoom_header_label.set_label(&percent_str);
-        }
-    });
-    update_canvas_content_size();
-
-    {
-        let update_canvas_content_size_tick = update_canvas_content_size.clone();
-        let state_canvas_tick = state.clone();
-        let zoom_level_tick = zoom_level.clone();
-        // Signature tracks the quantities that actually change the *visible* canvas size.
-        // Crucially, raw crop-rect coordinates are NOT included here.  Instead we compute
-        // the capped overflow bucket that crop_canvas_overflow() would return and store
-        // only that.  Because the function caps every side to 180 px, the bucket stays
-        // constant throughout an outside-image drag gesture — no relayout churn occurs.
-        let last_canvas_signature = Rc::new(Cell::new([
-            0_i32, // scroller width
-            0_i32, // scroller height
-            0_i32, // image width
-            0_i32, // image height
-            0_i32, // overflow left (px, capped)
-            0_i32, // overflow top  (px, capped)
-            0_i32, // overflow right (px, capped)
-            0_i32, // overflow bottom (px, capped)
-            0_i32, // crop mode active
-            0_i32, // zoom percentage
-            0_i32, // background enabled
-            0_i32, // background padding (tenths)
-            0_i32, // background insert (tenths)
-            0_i32, // background aspect ratio
-        ]));
-        let last_canvas_signature_tick = last_canvas_signature.clone();
-        canvas_scroller.add_tick_callback(move |scroller, _| {
-            let width = scroller.allocated_width();
-            let height = scroller.allocated_height();
-            let signature = {
-                let st = state_canvas_tick.lock().unwrap();
-                let img_w = st.working_image.width().max(1) as i32;
-                let img_h = st.working_image.height().max(1) as i32;
-                let crop_mode_active = st.selected_tool == Tool::Crop;
-                let crop_rect = st.draft_crop_rect().or(st.crop_selection);
-                let has_background = st.background_style != BackgroundStyle::None;
-                let background_padding = (st.background_padding * 10.0).round() as i32;
-                let background_insert = (st.background_insert * 10.0).round() as i32;
-                let background_aspect_ratio = st.background_aspect_ratio as i32;
-                let zoom_percentage = (zoom_level_tick.get() * 100.0_f64).round() as i32;
-
-                // Compute the same scale the layout function uses so we get the
-                // same overflow values without duplicating the full layout calculation.
-                let virtual_w = img_w as f64;
-                let virtual_h = img_h as f64;
-                let top_inset = canvas_padding + EDITOR_TOP_CHROME_HEIGHT;
-                let available_w = (width as f64 - (canvas_padding * 2 + 2) as f64).max(1.0);
-                let available_h =
-                    (height as f64 - (top_inset + canvas_padding + 2) as f64).max(1.0);
-
-                let available_size = available_w.min(available_h);
-                let layout_scale = (available_size / virtual_w.min(virtual_h)).min(1.0_f64);
-                let _scale = layout_scale * zoom_level_tick.get().max(0.1_f64);
-
-                let (ol, ot, or_, ob) = if has_background {
-                    (0.0, 0.0, 0.0, 0.0)
-                } else {
-                    canvas::crop_canvas_overflow(
-                        crop_rect,
-                        img_w as f64,
-                        img_h as f64,
-                        layout_scale,
-                        crop_mode_active,
-                    )
-                };
-
-                [
-                    width,
-                    height,
-                    img_w,
-                    img_h,
-                    ol.round() as i32,
-                    ot.round() as i32,
-                    or_.round() as i32,
-                    ob.round() as i32,
-                    if crop_mode_active { 1 } else { 0 },
-                    zoom_percentage,
-                    if has_background { 1 } else { 0 },
-                    background_padding,
-                    background_insert,
-                    background_aspect_ratio,
-                ]
-            };
-            if width > 0 && signature != last_canvas_signature_tick.get() {
-                last_canvas_signature_tick.set(signature);
-                update_canvas_content_size_tick();
-            }
-            glib::ControlFlow::Continue
-        });
-    }
+    let update_canvas_content_size = canvas_layout::install_canvas_layout(
+        &state,
+        &drawing_area,
+        &canvas_scroller,
+        &zoom_level,
+        &zoom_label,
+        &zoom_header_label,
+        canvas_padding,
+    );
 
     // Eyedropper
     color_picker::connect_eyedropper_activation(
@@ -2892,10 +2027,6 @@ fn setup_editor_window_full(
             }
         }),
     );
-
-    // Drawing area draw function
-    let cached_surface = Rc::new(std::cell::RefCell::new(None::<gtk4::cairo::ImageSurface>));
-    let cached_surface_revision = Rc::new(Cell::new(0_u64));
 
     let sync_size_control: Rc<dyn Fn()> = Rc::new({
         let state = state.clone();
@@ -3014,665 +2145,19 @@ fn setup_editor_window_full(
     sync_select_inspector();
     update_toolbar_for_tool(initial_tool);
 
-    let state_draw = state.clone();
-    let transform_draw = transform.clone();
-    let zoom_level_draw = zoom_level.clone();
-    let undo_btn_draw = undo_btn.clone();
-    let redo_btn_draw = redo_btn.clone();
-    let delete_selected_btn_draw = delete_selected_btn.clone();
-    let cached_surface_draw = cached_surface.clone();
-    let cached_surface_revision_draw = cached_surface_revision.clone();
-    let cached_background_surface_draw = cached_background_surface.clone();
-    let cached_background_signature_draw = cached_background_signature.clone();
-    let cached_shadow_surface_draw = cached_shadow_surface.clone();
-    let cached_shadow_signature_draw = cached_shadow_signature.clone();
-    let canvas_padding_draw = canvas_padding as f64;
-
-    let gradient_surfaces_draw = gradient_surfaces.clone();
-    let wallpaper_cache_draw = wallpaper_cache.clone();
-    drawing_area.set_draw_func(move |_, context, width, height| {
-        // IMPORTANT: do not hold the state mutex while performing cairo drawing.
-        // The async effects pipeline also locks this mutex on the GTK thread to apply results;
-        // holding it here can cause UI stalls/deadlocks.
-        let (
-            can_undo,
-            can_redo,
-            can_delete,
-            working_image,
-            working_image_revision,
-            actions,
-            draft_action,
-            crop_rect,
-            crop_mode_active,
-            crop_background_color_explicit,
-            crop_background_color,
-            background_style,
-            background_padding,
-            background_aspect_ratio,
-            background_insert,
-            background_alignment,
-            background_shadow,
-            background_corner_radius,
-            selected_tool,
-            selected_action,
-            select_drag_anchor,
-            select_resize_handle,
-            active_text_bounds,
-            active_text_input,
-            active_text_drag_handle,
-            text_font_family,
-            text_size,
-            hovered_text_action_index,
-            arrow_editing_controls,
-        ) = {
-            let st = state_draw.lock().unwrap();
-            let (can_undo, can_redo) = st.history_availability();
-            (
-                can_undo,
-                can_redo,
-                st.can_remove_selected_action(),
-                Arc::clone(&st.working_image),
-                st.working_image_revision,
-                st.actions.clone(),
-                st.draft_action(),
-                if st.selected_tool == Tool::Crop {
-                    st.draft_crop_rect().or(st.crop_selection)
-                } else {
-                    None
-                },
-                st.selected_tool == Tool::Crop,
-                st.crop_background_color_explicit,
-                st.crop_background_color,
-                st.background_style.clone(),
-                st.background_padding,
-                st.background_aspect_ratio,
-                st.background_insert,
-                st.background_alignment,
-                st.background_shadow,
-                st.background_corner_radius,
-                st.selected_tool,
-                st.selected_action().cloned(),
-                st.select_drag_anchor,
-                st.select_resize_handle,
-                st.active_text_bounds.clone(),
-                st.active_text_input.clone(),
-                st.active_text_drag_handle.clone(),
-                st.text_font_family.clone(),
-                st.text_size,
-                st.hovered_text_action_index,
-                st.arrow_editing_controls,
-            )
-        };
-
-        undo_btn_draw.set_sensitive(can_undo);
-        redo_btn_draw.set_sensitive(can_redo);
-        delete_selected_btn_draw.set_sensitive(can_delete);
-
-        let image_width = working_image.width() as f64;
-        let image_height = working_image.height() as f64;
-        let mut virtual_w = image_width;
-        let mut virtual_h = image_height;
-        let mut draw_scale_factor = 1.0;
-        let mut background_scale_factor = 1.0;
-        let mut background_layout = None;
-
-        let has_background = background_style != BackgroundStyle::None;
-        if has_background {
-            let layout = BackgroundComposition::new(image_width, image_height)
-                .with_style(background_style.clone())
-                .with_padding(background_padding)
-                .with_shadow(background_shadow)
-                .with_insert(background_insert)
-                .with_alignment(background_alignment)
-                .with_corner_radius(background_corner_radius)
-                .with_aspect_ratio(background_aspect_ratio)
-                .compute();
-            virtual_w = layout.canvas_width;
-            virtual_h = layout.canvas_height;
-            draw_scale_factor = layout.draw_scale;
-            background_scale_factor = layout.scale_factor;
-            background_layout = Some(layout);
-        }
-
-        let toolbar_clearance = f64::from(EDITOR_TOP_CHROME_HEIGHT);
-        let top_pad = canvas_padding_draw + toolbar_clearance;
-        let side_pad = canvas_padding_draw;
-        let base_view_width = (width as f64 - side_pad * 2.0).max(1.0);
-        let base_scale = (base_view_width / virtual_w).min(1.0);
-        let (overflow_left, overflow_top, overflow_right, overflow_bottom) = if has_background {
-            (0.0, 0.0, 0.0, 0.0)
-        } else {
-            canvas::crop_canvas_overflow(
-                crop_rect,
-                image_width,
-                image_height,
-                base_scale,
-                crop_mode_active,
-            )
-        };
-
-        let view_width = (width as f64 - side_pad * 2.0 - overflow_left - overflow_right).max(1.0);
-        let view_height =
-            (height as f64 - top_pad - side_pad - overflow_top - overflow_bottom).max(1.0);
-
-        let scale = (view_width / virtual_w)
-            .min(view_height / virtual_h)
-            .min(1.0_f64)
-            * zoom_level_draw.get().max(0.1_f64);
-        let draw_width = virtual_w * scale;
-        let draw_height = virtual_h * scale;
-        // Center within the area below the toolbar strip; top_pad keeps image clear of tools.
-        let placement =
-            canvas::initial_viewport_offset(draw_width, draw_height, view_width, view_height, 0.0);
-        let mut t = ViewTransform {
-            scale,
-            offset_x: side_pad + placement.offset_x + overflow_left,
-            offset_y: top_pad + placement.offset_y + overflow_top,
-            image_width: virtual_w,
-            image_height: virtual_h,
-        };
-
-        let canvas_t = t;
-
-        context.set_operator(gtk4::cairo::Operator::Source);
-        draw_canvas_checkerboard_background(
-            context,
-            width,
-            height,
-            if crop_mode_active && crop_background_color_explicit {
-                Some(crop_background_color)
-            } else {
-                None
-            },
-            !prefers_dark,
-        );
-
-        if has_background {
-            context.set_operator(gtk4::cairo::Operator::Over);
-            let current_style = background_style.clone();
-            let current_background_signature = (
-                current_style.clone(),
-                if matches!(current_style, BackgroundStyle::Blurred(_)) {
-                    Some(working_image_revision)
-                } else {
-                    None
-                },
-            );
-            let needs_background_surface = !matches!(
-                current_style,
-                BackgroundStyle::None | BackgroundStyle::PlainColor(_)
-            );
-            let mut bg_cache = cached_background_surface_draw.borrow_mut();
-            let mut bg_signature_cache = cached_background_signature_draw.borrow_mut();
-
-            if bg_signature_cache.as_ref() != Some(&current_background_signature)
-                || (needs_background_surface && bg_cache.is_none())
-            {
-                if let BackgroundStyle::Gradient(idx) = &current_style {
-                    let surfaces = gradient_surfaces_draw.borrow();
-                    if let Some(surface) = surfaces.get(*idx).and_then(|s| s.as_ref()) {
-                        *bg_cache = Some(surface.clone());
-                    } else {
-                        let file_name = background_panel::BACKGROUND_GRADIENT_PREVIEW_FILES[*idx];
-                        let path = background_panel::background_gradient_asset_path(file_name);
-                        *bg_cache = rgba_image_to_surface(
-                            &background_panel::load_background_image_optimized(&path)
-                                .unwrap_or_else(|| RgbaImage::new(1, 1)),
-                        );
-                    }
-                } else if let BackgroundStyle::Wallpaper(path) = &current_style {
-                    let cache = wallpaper_cache_draw.borrow();
-                    if let Some(surface) = cache.get(path) {
-                        *bg_cache = Some(surface.clone());
-                    } else {
-                        println!(
-                            "[DEBUG] Cache miss for wallpaper: {:?}, loading synchronously",
-                            path
-                        );
-                        if let Some(rgba) = background_panel::load_background_image_optimized(path)
-                        {
-                            let surface = rgba_image_to_surface(&rgba);
-                            *bg_cache = surface;
-                        } else {
-                            println!("[DEBUG] Failed to load wallpaper synchronously: {:?}", path);
-                            *bg_cache = None;
-                        }
-                    }
-                } else if let BackgroundStyle::PlainColor(_color) = &current_style {
-                    *bg_cache = None;
-                } else if let BackgroundStyle::Blurred(blur_idx) = &current_style {
-                    let (bw, bh) = working_image.dimensions();
-
-                    // Optimization: Downsample for background blur to save CPU.
-                    // For very long webpage screenshots, resize directly from the
-                    // source image to avoid cloning the full-size buffer first.
-                    let max_dim = 800u32;
-                    let mut blurred_bg = if bw > max_dim || bh > max_dim {
-                        let scale = max_dim as f64 / (bw.max(bh) as f64);
-                        image::imageops::resize(
-                            &*working_image,
-                            (bw as f64 * scale) as u32,
-                            (bh as f64 * scale) as u32,
-                            image::imageops::FilterType::Triangle,
-                        )
-                    } else {
-                        (*working_image).clone()
-                    };
-
-                    let blur_radius = match blur_idx {
-                        0 => 10.0,
-                        1 => 35.0,
-                        2 => 80.0,
-                        _ => 20.0,
-                    };
-
-                    let (nbw, nbh) = blurred_bg.dimensions();
-                    super::render::apply_blur_rect(
-                        &mut blurred_bg,
-                        Rect {
-                            x: 0,
-                            y: 0,
-                            width: nbw as i32,
-                            height: nbh as i32,
-                        },
-                        blur_radius,
-                        false,
-                    );
-                    *bg_cache = rgba_image_to_surface(&blurred_bg);
-                }
-                *bg_signature_cache = Some(current_background_signature);
-            }
-
-            if let Some(surface) = bg_cache.as_ref() {
-                let _ = context.save();
-                let sw = surface.width() as f64;
-                let sh = surface.height() as f64;
-                context.translate(canvas_t.offset_x, canvas_t.offset_y);
-                context.scale(
-                    (virtual_w * canvas_t.scale) / sw,
-                    (virtual_h * canvas_t.scale) / sh,
-                );
-                context.set_source_surface(surface, 0.0, 0.0).unwrap();
-                let _ = context.paint();
-                let _ = context.restore();
-            } else if let BackgroundStyle::PlainColor(color) = &current_style {
-                context.set_source_rgba(color.r, color.g, color.b, color.a);
-                context.rectangle(
-                    canvas_t.offset_x,
-                    canvas_t.offset_y,
-                    virtual_w * canvas_t.scale,
-                    virtual_h * canvas_t.scale,
-                );
-                let _ = context.fill();
-            }
-
-            if let Some(layout) = background_layout.as_ref() {
-                t.offset_x = canvas_t.offset_x + layout.image_rect.x * canvas_t.scale;
-                t.offset_y = canvas_t.offset_y + layout.image_rect.y * canvas_t.scale;
-                t.scale = canvas_t.scale * layout.draw_scale;
-
-                if let Some(shadow) = layout.shadow {
-                    let mut shadow_surface_cache = cached_shadow_surface_draw.borrow_mut();
-                    let base_blur = shadow.blur.max(1.0);
-                    let base_corner = background_corner_radius * layout.scale_factor;
-                    let preview_scale = (MAX_PREVIEW_SHADOW_DIM as f64
-                        / image_width.max(image_height).max(1.0))
-                    .min(1.0);
-                    let preview_width = (image_width * preview_scale).round().max(1.0) as u32;
-                    let preview_height = (image_height * preview_scale).round().max(1.0) as u32;
-                    let preview_blur = (base_blur * preview_scale).max(1.0);
-                    let preview_corner = base_corner * preview_scale;
-                    let shadow_signature = (
-                        preview_width,
-                        preview_height,
-                        preview_blur.to_bits(),
-                        shadow.opacity.to_bits(),
-                        preview_corner.to_bits(),
-                    );
-                    let needs_recompute = cached_shadow_signature_draw.get()
-                        != Some(shadow_signature)
-                        || shadow_surface_cache.is_none();
-
-                    if needs_recompute {
-                        if let Ok(mut shadow_image) = render_shadow_layer(
-                            preview_width,
-                            preview_height,
-                            preview_blur,
-                            shadow.opacity,
-                            preview_corner,
-                        ) {
-                            let blur_rect = Rect {
-                                x: 0,
-                                y: 0,
-                                width: shadow_image.width() as i32,
-                                height: shadow_image.height() as i32,
-                            };
-                            let pass_radius = (preview_blur / 2.0).max(1.0);
-                            for _ in 0..PREVIEW_SHADOW_BLUR_PASSES {
-                                super::render::apply_blur_rect(
-                                    &mut shadow_image,
-                                    blur_rect,
-                                    pass_radius,
-                                    true,
-                                );
-                            }
-                            *shadow_surface_cache = rgba_image_to_surface(&shadow_image);
-                            cached_shadow_signature_draw.set(Some(shadow_signature));
-                        }
-                    }
-
-                    if let Some(surface) = shadow_surface_cache.as_ref() {
-                        let sw = surface.width() as f64;
-                        let sh = surface.height() as f64;
-                        let shadow_scale = t.scale;
-                        let target_w = image_width * shadow_scale;
-                        let target_h = image_height * shadow_scale;
-                        let spread_px = (shadow.blur * 1.35).ceil().max(0.0);
-                        let sx = (target_w + spread_px * 2.0) / sw;
-                        let sy = (target_h + spread_px * 2.0) / sh;
-                        let _ = context.save();
-                        context.translate(
-                            canvas_t.offset_x + shadow.rect.x * canvas_t.scale,
-                            canvas_t.offset_y + shadow.rect.y * canvas_t.scale,
-                        );
-                        context.scale(sx, sy);
-                        context.set_source_surface(surface, 0.0, 0.0).unwrap();
-                        let _ = context.paint();
-                        let _ = context.restore();
-                    }
-                }
-            } else {
-                t.scale = canvas_t.scale * draw_scale_factor;
-            }
-
-            let rect_w = image_width * t.scale;
-            let rect_h = image_height * t.scale;
-            let corner_r = background_corner_radius * background_scale_factor * t.scale;
-
-            let _ = context.save();
-            context.translate(t.offset_x, t.offset_y);
-            draw_rounded_rect_path(context, rect_w, rect_h, corner_r, 0.0);
-            context.clip();
-            context.translate(-t.offset_x, -t.offset_y);
-        }
-        context.set_operator(gtk4::cairo::Operator::Over);
-        *transform_draw.lock().unwrap() = t;
-
-        let _ = context.save();
-        context.translate(t.offset_x, t.offset_y);
-        context.scale(t.scale, t.scale);
-
-        if crop_mode_active && crop_background_color_explicit {
-            if let Some(crop_rect) = crop_rect {
-                context.set_source_rgba(
-                    crop_background_color.r,
-                    crop_background_color.g,
-                    crop_background_color.b,
-                    crop_background_color.a,
-                );
-                context.rectangle(
-                    crop_rect.x as f64,
-                    crop_rect.y as f64,
-                    crop_rect.width as f64,
-                    crop_rect.height as f64,
-                );
-                let _ = context.fill();
-            }
-        }
-
-        if cached_surface_revision_draw.get() != working_image_revision
-            || cached_surface_draw.borrow().is_none()
-        {
-            *cached_surface_draw.borrow_mut() = rgba_image_to_surface(&working_image);
-            cached_surface_revision_draw.set(working_image_revision);
-        }
-
-        if let Some(surface) = cached_surface_draw.borrow().as_ref() {
-            super::render::paint_surface_with_filter(
-                context,
-                surface,
-                0.0,
-                0.0,
-                super::render::editor_image_filter_for_scale(t.scale),
-            );
-        } else {
-            draw_rgba_to_context(context, &working_image);
-        }
-
-        let editing_action_index = active_text_input
-            .as_ref()
-            .and_then(|input| input.editing_action_index);
-        for (index, action) in actions.iter().enumerate() {
-            if Some(index) == editing_action_index {
-                continue;
-            }
-            if matches!(
-                action,
-                AnnotationAction::Obfuscate { .. } | AnnotationAction::Focus { .. }
-            ) {
-                continue;
-            }
-            draw_annotation_action(context, action);
-        }
-
-        if let Some(draft) = draft_action {
-            draw_draft_action(context, &draft);
-        }
-
-        if crop_mode_active {
-            if let Some(crop_rect) = crop_rect {
-                let canvas_left = -t.offset_x / t.scale;
-                let canvas_top = -t.offset_y / t.scale;
-                let canvas_width = width as f64 / t.scale;
-                let canvas_height = height as f64 / t.scale;
-                let _ = context.save();
-                context.rectangle(canvas_left, canvas_top, canvas_width, canvas_height);
-                context.rectangle(
-                    crop_rect.x as f64,
-                    crop_rect.y as f64,
-                    crop_rect.width as f64,
-                    crop_rect.height as f64,
-                );
-                context.set_fill_rule(gtk4::cairo::FillRule::EvenOdd);
-                context.set_source_rgba(0.0, 0.0, 0.0, 140.0 / 255.0);
-                let _ = context.fill();
-                let _ = context.restore();
-            }
-        }
-
-        if let Some(crop_rect) = crop_rect {
-            draw_crop_overlay(
-                context,
-                working_image.width() as f64,
-                working_image.height() as f64,
-                crop_rect,
-                selected_tool == Tool::Crop,
-            );
-        }
-
-        // In Text tool mode: draw hover outline for the text action under the cursor.
-        if selected_tool == Tool::Text && active_text_bounds.is_none() {
-            if let Some(hover_idx) = hovered_text_action_index {
-                if let Some(AnnotationAction::Text {
-                    position,
-                    text,
-                    font,
-                    max_width,
-                    ..
-                }) = actions.get(hover_idx)
-                {
-                    let available_width = max_width.unwrap_or_else(|| {
-                        (working_image.width() as f64 - position.x).max(font.size * 1.8)
-                    });
-                    let mut text_bounds =
-                        text_action_bounds(context, *position, text, font, Some(available_width));
-                    text_bounds.rect.x = text_bounds.rect.x.clamp(
-                        0,
-                        (working_image.width() as i32 - text_bounds.rect.width).max(0),
-                    );
-                    text_bounds.rect.y = text_bounds.rect.y.clamp(
-                        0,
-                        (working_image.height() as i32 - text_bounds.rect.height).max(0),
-                    );
-                    text_bounds.sync_handles();
-                    draw_text_edit_border(context, &text_bounds, t.scale);
-                }
-            }
-        }
-
-        if let Some(selected_action) = selected_action.as_ref() {
-            if selected_tool == Tool::Select
-                && select_drag_anchor.is_some()
-                && matches!(
-                    selected_action,
-                    AnnotationAction::Obfuscate { .. } | AnnotationAction::Focus { .. }
-                )
-            {
-                draw_draft_action(context, selected_action);
-            }
-
-            // Draw border + handles for a selected Text action in both
-            // Select tool mode and Text tool mode (e.g. during drag-to-move).
-            let show_text_handles = (selected_tool == Tool::Select || selected_tool == Tool::Text)
-                && active_text_bounds.is_none();
-
-            if show_text_handles {
-                if let AnnotationAction::Text {
-                    position,
-                    text,
-                    font,
-                    max_width,
-                    ..
-                } = selected_action
-                {
-                    let available_width = max_width.unwrap_or_else(|| {
-                        (working_image.width() as f64 - position.x).max(font.size * 1.8)
-                    });
-                    let mut text_bounds =
-                        text_action_bounds(context, *position, text, font, Some(available_width));
-                    text_bounds.rect.x = text_bounds.rect.x.clamp(
-                        0,
-                        (working_image.width() as i32 - text_bounds.rect.width).max(0),
-                    );
-                    text_bounds.rect.y = text_bounds.rect.y.clamp(
-                        0,
-                        (working_image.height() as i32 - text_bounds.rect.height).max(0),
-                    );
-                    text_bounds.sync_handles();
-                    draw_text_edit_border(context, &text_bounds, t.scale);
-                    draw_text_edit_handles(context, &text_bounds, None, t.scale);
-                }
-            }
-
-            if selected_tool == Tool::Select
-                || selected_tool == Tool::Arrow
-                || (matches!(selected_tool, Tool::Box | Tool::Circle)
-                    && matches!(
-                        selected_action,
-                        AnnotationAction::Box { .. } | AnnotationAction::Circle { .. }
-                    ))
-            {
-                if let AnnotationAction::Text { .. } = selected_action {
-                    // Already handled above.
-                } else if let AnnotationAction::Arrow {
-                    start,
-                    end,
-                    stroke_size,
-                    style,
-                    control_points,
-                    ..
-                } = selected_action
-                {
-                    draw_arrow_selection_outline(
-                        context,
-                        *start,
-                        *end,
-                        *stroke_size,
-                        *style,
-                        control_points.clone(),
-                        t.scale,
-                    );
-                } else if matches!(selected_action, AnnotationAction::Line { .. }) {
-                    // Intentionally show no crop-like selection outline or handles for lines.
-                } else {
-                    let selection_padding = selection_hit_padding_for_scale(t.scale);
-                    if let Some(bounds) =
-                        action_bounds_with_padding(selected_action, selection_padding)
-                    {
-                        if !matches!(
-                            selected_action,
-                            AnnotationAction::Box { .. } | AnnotationAction::Circle { .. }
-                        ) {
-                            draw_selection_outline(context, bounds, t.scale);
-                        }
-                    }
-
-                    let handles = action_resize_handles(selected_action);
-                    if !handles.is_empty() {
-                        draw_selection_handles(context, &handles, select_resize_handle, t.scale);
-                    }
-                }
-            }
-
-            // The active text edit overlay (border + handles) is drawn by the
-            // unconditional block below, which also handles clamping and cursor
-            // rendering. Do NOT draw it here a second time.
-        }
-
-        // Draw arrow control handles when: (a) editing controls are active, OR
-        // (b) Arrow or Select tool is selected and an existing arrow is selected.
-        let show_handles = arrow_editing_controls
-            || ((selected_tool == Tool::Arrow || selected_tool == Tool::Select)
-                && selected_action
-                    .as_ref()
-                    .map(|a| matches!(a, AnnotationAction::Arrow { .. }))
-                    .unwrap_or(false));
-
-        if show_handles {
-            if let Some(AnnotationAction::Arrow {
-                control_points: Some(handles),
-                color,
-                ..
-            }) = selected_action.as_ref()
-            {
-                draw_arrow_control_handles(context, handles.clone(), *color, t.scale);
-            }
-        }
-
-        // Draw active text edit overlay (border + handles)
-        if let Some(bounds) = active_text_bounds.as_ref() {
-            let mut bounds = bounds.clone();
-            bounds.rect.x = bounds
-                .rect
-                .x
-                .clamp(0, (working_image.width() as i32 - bounds.rect.width).max(0));
-            bounds.rect.y = bounds.rect.y.clamp(
-                0,
-                (working_image.height() as i32 - bounds.rect.height).max(0),
-            );
-            bounds.sync_handles();
-            if let Some(input) = active_text_input.as_ref() {
-                let font = super::types::FontSettings {
-                    family: text_font_family.clone(),
-                    size: text_size,
-                    style: super::types::FontStyle::Normal,
-                    decoration: super::types::TextDecoration::None,
-                    alignment: super::types::TextAlignment::Left,
-                };
-                draw_active_text_input(
-                    context,
-                    &bounds,
-                    &input.text,
-                    input.cursor_position,
-                    input.cursor_visible,
-                    input.color,
-                    &font,
-                );
-            }
-            draw_text_edit_border(context, &bounds, t.scale);
-            draw_text_edit_handles(context, &bounds, active_text_drag_handle.clone(), t.scale);
-        }
-        let _ = context.restore();
+    canvas_render::install_canvas_draw_func(canvas_render::CanvasDrawInputs {
+        state: &state,
+        transform: &transform,
+        drawing_area: &drawing_area,
+        zoom_level: &zoom_level,
+        undo_btn: &undo_btn,
+        redo_btn: &redo_btn,
+        delete_selected_btn: &delete_selected_btn,
+        canvas_padding,
+        prefers_dark,
+        caches: &render_caches,
+        gradient_surfaces: &gradient_surfaces,
+        wallpaper_cache: &wallpaper_cache,
     });
 
     // Order must match `tool_button_index` in types.rs (used by click handlers + shortcuts).
@@ -3750,11 +2235,7 @@ fn setup_editor_window_full(
         redo_btn: redo_btn.clone(),
         delete_selected_btn: delete_selected_btn.clone(),
         save_btn: save_btn.clone(),
-        eyedropper_mode: eyedropper_mode.clone(),
-        eyedropper_from_sidebar: eyedropper_from_sidebar.clone(),
-        eyedropper_point: eyedropper_point.clone(),
-        eyedropper_rendered: eyedropper_rendered.clone(),
-        canvas_eyedropper_ring: canvas_eyedropper_ring.clone(),
+        eyedropper: eyedropper.clone(),
         update_toolbar_for_tool: update_toolbar_for_tool.clone(),
         update_crop_size_fields: update_crop_size_fields.clone(),
         update_canvas_content_size: update_canvas_content_size.clone(),
@@ -3827,42 +2308,59 @@ fn setup_editor_window_full(
     });
 }
 
-/// Draw a rounded rectangle path with optional expansion for blur effect
-fn draw_rounded_rect_path(
-    context: &gtk4::cairo::Context,
-    width: f64,
-    height: f64,
-    corner_radius: f64,
-    expansion: f64,
-) {
-    let r = corner_radius + expansion;
-    let x = -expansion;
-    let y = -expansion;
-    let w = width + expansion * 2.0;
-    let h = height + expansion * 2.0;
-
-    context.new_sub_path();
-    context.arc(x + w - r, y + r, r, -std::f64::consts::FRAC_PI_2, 0.0);
-    context.arc(x + w - r, y + h - r, r, 0.0, std::f64::consts::FRAC_PI_2);
-    context.arc(
-        x + r,
-        y + h - r,
-        r,
-        std::f64::consts::FRAC_PI_2,
-        std::f64::consts::PI,
-    );
-    context.arc(
-        x + r,
-        y + r,
-        r,
-        std::f64::consts::PI,
-        std::f64::consts::PI * 1.5,
-    );
-    context.close_path();
-}
-
 #[cfg(test)]
 mod tests {
+
+    fn production_editor_window_source() -> String {
+        let mod_src = include_str!("mod.rs");
+        let inspectors_mod = include_str!("inspectors/mod.rs");
+        let inspectors_shell = include_str!("inspectors/shell.rs");
+        let inspectors_select = include_str!("inspectors/select.rs");
+        let inspectors_crop = include_str!("inspectors/crop.rs");
+        let inspectors_stroke = include_str!("inspectors/stroke.rs");
+        let inspectors_text = include_str!("inspectors/text.rs");
+        let inspectors_number = include_str!("inspectors/number.rs");
+        let inspectors_obfuscate = include_str!("inspectors/obfuscate.rs");
+        let background_assets_src = include_str!("background_assets.rs");
+        let canvas_layout_src = include_str!("canvas_layout.rs");
+        let effects_src = include_str!("effects.rs");
+        let chrome_src = include_str!("chrome.rs");
+        let empty_state_src = include_str!("empty_state.rs");
+        let canvas_render_src = include_str!("canvas_render.rs");
+        let mod_prod = mod_src.split("#[cfg(test)]").next().unwrap_or(mod_src);
+        let inspectors_prod = inspectors_mod
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap_or(inspectors_mod);
+        let background_assets_prod = background_assets_src
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap_or(background_assets_src);
+        let canvas_layout_prod = canvas_layout_src
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap_or(canvas_layout_src);
+        let effects_prod = effects_src
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap_or(effects_src);
+        let chrome_prod = chrome_src
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap_or(chrome_src);
+        let empty_state_prod = empty_state_src
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap_or(empty_state_src);
+        let canvas_render_prod = canvas_render_src
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap_or(canvas_render_src);
+        format!(
+            "{mod_prod}\n{inspectors_prod}\n{inspectors_shell}\n{inspectors_select}\n{inspectors_crop}\n{inspectors_stroke}\n{inspectors_text}\n{inspectors_number}\n{inspectors_obfuscate}\n{background_assets_prod}\n{canvas_layout_prod}\n{effects_prod}\n{chrome_prod}\n{empty_state_prod}\n{canvas_render_prod}"
+        )
+    }
+
     #[test]
     fn toolbar_color_status_syncs_from_shared_active_color() {
         let source = include_str!("mod.rs");
@@ -3898,19 +2396,20 @@ mod tests {
 
     #[test]
     fn editor_layout_includes_persistent_right_inspector_shell() {
-        let source = include_str!("mod.rs");
-        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        let production_source = production_editor_window_source();
         assert!(production_source.contains("editor-right-inspector"));
     }
 
     #[test]
     fn editor_uses_full_top_bar_for_window_dragging() {
-        let source = include_str!("mod.rs");
-        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        let production_source = production_editor_window_source();
         assert!(
-            production_source.contains("install_window_drag(&top_chrome, &window);")
-                && production_source
+            (production_source.contains("install_window_drag(&top_chrome, &window);")
+                || production_source.contains("install_window_drag(&top_chrome, window);"))
+                && (production_source
                     .contains("install_top_bar_window_drag(&root_overlay, &window);")
+                    || production_source
+                        .contains("install_top_bar_window_drag(root_overlay, window);"))
                 && production_source.contains("editor-top-chrome")
                 && production_source.contains("canvas_with_toolbar.add_overlay(&top_chrome);")
                 && production_source.contains("EDITOR_TOP_CHROME_HEIGHT")
@@ -3946,12 +2445,11 @@ mod tests {
 
     #[test]
     fn editor_layout_uses_stack_for_inspector_surface_switching() {
-        let source = include_str!("mod.rs");
-        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        let production_source = production_editor_window_source();
         assert!(
             production_source.contains("let inspector_stack = Stack::new();")
                 && production_source.contains("inspector_stack.set_hhomogeneous(true);")
-                && production_source.contains("background_inspector.set_visible(true);")
+                && production_source.contains("input.background_inspector.set_visible(true);")
                 && production_source.contains("select_inspector.set_visible(true);")
                 && production_source.contains("crop_inspector.set_visible(true);")
                 && production_source.contains("pen_inspector.set_visible(true);")
@@ -3960,9 +2458,9 @@ mod tests {
                 && production_source.contains("text_inspector.set_visible(true);")
                 && production_source.contains("highlighter_inspector.set_visible(true);")
                 && production_source.contains("number_inspector.set_visible(true);")
-                && production_source.contains("colors_inspector.set_visible(true);")
-                && production_source.contains("placeholder_inspector.set_visible(true);")
-                && production_source.contains("inspector_stack.add_named(&background_inspector, Some(\"background\"));")
+                && production_source.contains("input.colors_inspector.set_visible(true);")
+                && production_source.contains("input.placeholder_inspector.set_visible(true);")
+                && production_source.contains("inspector_stack.add_named(input.background_inspector, Some(\"background\"));")
                 && production_source.contains("inspector_stack.add_named(&select_inspector, Some(\"select\"));")
                 && production_source.contains("inspector_stack.add_named(&crop_inspector, Some(\"crop\"));")
                 && production_source.contains("inspector_stack.add_named(&pen_inspector, Some(\"pen\"));")
@@ -3971,8 +2469,8 @@ mod tests {
                 && production_source.contains("inspector_stack.add_named(&text_inspector, Some(\"text\"));")
                 && production_source.contains("inspector_stack.add_named(&highlighter_inspector, Some(\"highlighter\"));")
                 && production_source.contains("inspector_stack.add_named(&number_inspector, Some(\"number\"));")
-                && production_source.contains("inspector_stack.add_named(&colors_inspector, Some(\"colors\"));")
-                && production_source.contains("inspector_stack.add_named(&placeholder_inspector, Some(\"placeholder\"));")
+                && production_source.contains("inspector_stack.add_named(input.colors_inspector, Some(\"colors\"));")
+                && production_source.contains("inspector_stack.add_named(input.placeholder_inspector, Some(\"placeholder\"));")
                 && production_source.contains("inspector_stack.set_visible_child_name(surface);"),
             "Inspector surfaces should switch through a dedicated stack so tab changes keep one stable container",
         );
@@ -4022,8 +2520,7 @@ mod tests {
 
     #[test]
     fn select_tool_has_real_inspector_content() {
-        let source = include_str!("mod.rs");
-        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        let production_source = production_editor_window_source();
         assert!(
             production_source.contains("let (select_inspector, select_inspector_content) = build_tool_inspector();")
                 && production_source.contains("sync_select_inspector")
@@ -4036,8 +2533,7 @@ mod tests {
 
     #[test]
     fn crop_inspector_includes_aspect_ratio_dimensions_and_actions_sections() {
-        let source = include_str!("mod.rs");
-        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        let production_source = production_editor_window_source();
         assert!(
             production_source
                 .contains("let (crop_inspector, crop_inspector_content) = build_tool_inspector();")
@@ -4050,8 +2546,7 @@ mod tests {
 
     #[test]
     fn crop_inspector_reuses_existing_fixed_sidebar_width() {
-        let source = include_str!("mod.rs");
-        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        let production_source = production_editor_window_source();
         assert!(
             production_source.contains("root.set_width_request(BACKGROUND_SIDEBAR_WIDTH);")
                 && !production_source.contains("CROP_SIDEBAR_WIDTH"),
@@ -4073,8 +2568,7 @@ mod tests {
 
     #[test]
     fn arrow_inspector_includes_style_thickness_and_behavior_sections() {
-        let source = include_str!("mod.rs");
-        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        let production_source = production_editor_window_source();
         assert!(
             production_source.contains(
                 "let (arrow_inspector, arrow_inspector_content) = build_tool_inspector();"
@@ -4087,8 +2581,7 @@ mod tests {
 
     #[test]
     fn arrow_inspector_reuses_existing_fixed_sidebar_width() {
-        let source = include_str!("mod.rs");
-        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        let production_source = production_editor_window_source();
         assert!(
             production_source.contains("root.set_width_request(BACKGROUND_SIDEBAR_WIDTH);")
                 && !production_source.contains("ARROW_SIDEBAR_WIDTH"),
@@ -4123,8 +2616,7 @@ mod tests {
 
     #[test]
     fn pen_line_and_highlighter_inspectors_use_thickness_sections_with_arrow_row_styles() {
-        let source = include_str!("mod.rs");
-        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        let production_source = production_editor_window_source();
         assert!(
             production_source.contains("let (pen_inspector, pen_inspector_content) = build_tool_inspector();")
                 && production_source.contains("let (line_inspector, line_inspector_content) = build_tool_inspector();")
@@ -4133,9 +2625,9 @@ mod tests {
                 && production_source.contains("&line_inspector_content")
                 && production_source.contains("&highlighter_inspector_content")
                 && production_source.contains("\"Thickness\"")
-                && production_source.contains("pen_inspector_list.upcast_ref()")
-                && production_source.contains("line_inspector_list.upcast_ref()")
-                && production_source.contains("highlighter_inspector_list.upcast_ref()")
+                && production_source.contains("input.pen_inspector_list.upcast_ref()")
+                && production_source.contains("input.line_inspector_list.upcast_ref()")
+                && production_source.contains("input.highlighter_inspector_list.upcast_ref()")
                 && production_source.contains("\"editor-arrow-inspector-option\"")
                 && production_source.contains("sync_arrow_option_selection(&pen_inspector_list, selected_pen_thickness);")
                 && production_source.contains("sync_arrow_option_selection(&line_inspector_list, selected_thickness);")
@@ -4146,8 +2638,7 @@ mod tests {
 
     #[test]
     fn text_inspector_rows_use_label_plus_tick_layout_and_shared_sidebar_width() {
-        let source = include_str!("mod.rs");
-        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        let production_source = production_editor_window_source();
         assert!(
             production_source.contains("check_icon.add_css_class(\"editor-text-inspector-check\");")
                 && production_source.contains("btn.add_css_class(\"editor-text-inspector-option-active\");")
@@ -4161,8 +2652,7 @@ mod tests {
 
     #[test]
     fn obfuscate_inspector_renders_method_section_and_reuses_shared_sidebar_width() {
-        let source = include_str!("mod.rs");
-        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        let production_source = production_editor_window_source();
         assert!(
             production_source.contains(
                 "let (obfuscate_inspector, obfuscate_inspector_content) = build_tool_inspector();"
@@ -4188,8 +2678,7 @@ mod tests {
 
     #[test]
     fn number_inspector_style_and_size_rows_use_matching_row_composition() {
-        let source = include_str!("mod.rs");
-        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        let production_source = production_editor_window_source();
         assert!(
             production_source.contains("editor-number-style-check")
                 && production_source.contains("editor-number-size-check")
@@ -4205,8 +2694,7 @@ mod tests {
 
     #[test]
     fn number_inspector_includes_start_controls_in_the_sidebar() {
-        let source = include_str!("mod.rs");
-        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        let production_source = production_editor_window_source();
         assert!(
             production_source.contains("let number_start_row = GtkBox::new(Orientation::Horizontal, 8);")
                 && production_source.contains("let number_start_label = Label::new(Some(\"Start with:\"));")
@@ -4242,6 +2730,27 @@ mod tests {
                 && production_source
                     .contains("super::types::ObfuscateMethod::Blur => \"Blur intensity\""),
             "Obfuscate inspector and toolbar slider should expose one merged Blur mode",
+        );
+    }
+
+    #[test]
+    fn canvas_render_draw_func_is_installed_from_setup() {
+        let production_source = production_editor_window_source();
+        let mod_prod = include_str!("mod.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap_or("");
+        assert!(
+            mod_prod.contains("canvas_render::install_canvas_draw_func(")
+                && mod_prod.contains("CanvasRenderCaches::new()")
+                && !mod_prod
+                    .contains("drawing_area.set_draw_func(move |_, context, width, height| {")
+                && production_source.contains("pub(super) fn install_canvas_draw_func(")
+                && production_source.contains(
+                    "IMPORTANT: do not hold the state mutex while performing cairo drawing"
+                )
+                && production_source.contains("pub(super) struct CanvasRenderCaches"),
+            "PR 10.19 must install canvas draw via canvas_render; caches and draw body live there"
         );
     }
 }

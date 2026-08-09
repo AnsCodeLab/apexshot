@@ -3,7 +3,7 @@ fn window_tool_removed_from_toolbars() {
     let cpp_drawing = include_str!("../capture-overlay/src/CaptureOverlay_Drawing.cpp");
     let cpp_events = include_str!("../capture-overlay/src/CaptureOverlay_Events.cpp");
     let rust_icons = include_str!("../src/overlay/icons.rs");
-    let rust_window = include_str!("../src/overlay/window.rs");
+    let rust_toolbar = include_str!("../src/overlay/window/input/click/toolbar.rs");
 
     assert!(
         cpp_drawing.contains("\"Area\", \"Fullscreen\", \"Scroll\"")
@@ -24,7 +24,7 @@ fn window_tool_removed_from_toolbars() {
         "Rust TOOLBAR_ICONS must not include Window"
     );
     assert!(
-        !rust_window.contains("ToolbarIcon::Window"),
+        !rust_toolbar.contains("ToolbarIcon::Window"),
         "Rust overlay click handler must not handle a Window toolbar tool"
     );
 }

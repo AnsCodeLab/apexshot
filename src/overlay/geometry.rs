@@ -356,3 +356,171 @@ pub(crate) fn map_selection_to_image(
         height: clamped_y1 - clamped_y0,
     }
 }
+
+/// Aspect ratio values matching `layout::ASPECT_RATIO_OPTIONS` order.
+/// Index 0 is freeform (`0.0`).
+pub(crate) fn aspect_ratio_for_index(index: usize) -> f64 {
+    const RATIOS: &[f64] = &[
+        0.0,
+        1.0,
+        5.0 / 4.0,
+        4.0 / 3.0,
+        7.0 / 5.0,
+        3.0 / 2.0,
+        16.0 / 10.0,
+        16.0 / 9.0,
+        2.35,
+        2.0 / 3.0,
+        9.0 / 16.0,
+    ];
+    RATIOS.get(index).copied().unwrap_or(0.0)
+}
+
+pub(crate) fn active_aspect_ratio(st: &SelectorState) -> f64 {
+    if st.recording.panel_open {
+        aspect_ratio_for_index(st.recording.record_aspect_ratio_index)
+    } else {
+        aspect_ratio_for_index(st.capture_aspect_ratio_index)
+    }
+}
+
+/// Fit the current selection to `ratio` while keeping its centre, clamping to
+/// bounds and enforcing minimum size. Freeform (`ratio <= 0`) is a no-op.
+pub(crate) fn apply_aspect_to_selection(
+    st: &mut SelectorState,
+    ratio: f64,
+    bounds_width: f64,
+    bounds_height: f64,
+) {
+    if ratio <= 0.0 || !st.completed {
+        return;
+    }
+
+    let sel = current_selection_rect(st);
+    let mut new_w = sel.width();
+    let mut new_h = new_w / ratio;
+    if new_h > sel.height() {
+        new_h = sel.height();
+        new_w = new_h * ratio;
+    }
+
+    new_w = new_w.clamp(MIN_SELECTION_WIDTH, bounds_width.max(MIN_SELECTION_WIDTH));
+    new_h = new_h.clamp(
+        MIN_SELECTION_HEIGHT,
+        bounds_height.max(MIN_SELECTION_HEIGHT),
+    );
+    if new_w / ratio > bounds_height {
+        new_h = bounds_height;
+        new_w = new_h * ratio;
+    }
+    if new_h * ratio > bounds_width {
+        new_w = bounds_width;
+        new_h = new_w / ratio;
+    }
+
+    let center_x = (sel.left + sel.right) / 2.0;
+    let center_y = (sel.top + sel.bottom) / 2.0;
+    let width = new_w.max(MIN_SELECTION_WIDTH).round();
+    let height = new_h.max(MIN_SELECTION_HEIGHT).round();
+    let left = (center_x - width / 2.0).clamp(0.0, (bounds_width - width).max(0.0));
+    let top = (center_y - height / 2.0).clamp(0.0, (bounds_height - height).max(0.0));
+
+    set_selection_rect(
+        st,
+        SelectionRectF {
+            left,
+            top,
+            right: left + width,
+            bottom: top + height,
+        },
+    );
+    st.completed = true;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::overlay::layout::ASPECT_RATIO_OPTIONS;
+    use crate::overlay::state::SelectorState;
+
+    fn completed_selection(left: f64, top: f64, right: f64, bottom: f64) -> SelectorState {
+        SelectorState {
+            start_x: left,
+            start_y: top,
+            current_x: right,
+            current_y: bottom,
+            completed: true,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn aspect_ratio_index_zero_is_freeform() {
+        assert_eq!(aspect_ratio_for_index(0), 0.0);
+        assert_eq!(ASPECT_RATIO_OPTIONS[0], "Freeform");
+    }
+
+    #[test]
+    fn freeform_aspect_is_noop() {
+        let mut st = completed_selection(100.0, 100.0, 300.0, 250.0);
+        apply_aspect_to_selection(&mut st, 0.0, 1920.0, 1080.0);
+        let rect = current_selection_rect(&st);
+        assert!((rect.width() - 200.0).abs() < 1e-9);
+        assert!((rect.height() - 150.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn fixed_ratio_square_fits_inside_selection_and_keeps_center() {
+        let mut st = completed_selection(100.0, 100.0, 300.0, 220.0); // 200×120
+        let before = current_selection_rect(&st);
+        let cx = (before.left + before.right) / 2.0;
+        let cy = (before.top + before.bottom) / 2.0;
+        apply_aspect_to_selection(&mut st, 1.0, 1920.0, 1080.0);
+        let rect = current_selection_rect(&st);
+        assert!((rect.width() - rect.height()).abs() < 1.0);
+        // Fits inside original extents.
+        assert!(rect.width() <= 200.0 + 1e-6);
+        assert!(rect.height() <= 120.0 + 1e-6);
+        let ncx = (rect.left + rect.right) / 2.0;
+        let ncy = (rect.top + rect.bottom) / 2.0;
+        assert!((ncx - cx).abs() < 1.0, "center x drifted: {ncx} vs {cx}");
+        assert!((ncy - cy).abs() < 1.0, "center y drifted: {ncy} vs {cy}");
+    }
+
+    #[test]
+    fn fixed_ratio_clamps_to_screen_edges() {
+        // Selection near the right edge; applying a wide ratio must stay on-screen.
+        let mut st = completed_selection(1800.0, 100.0, 1910.0, 400.0);
+        apply_aspect_to_selection(&mut st, 16.0 / 9.0, 1920.0, 1080.0);
+        let rect = current_selection_rect(&st);
+        assert!(rect.left >= 0.0);
+        assert!(rect.top >= 0.0);
+        assert!(rect.right <= 1920.0 + 1e-6);
+        assert!(rect.bottom <= 1080.0 + 1e-6);
+        assert!(rect.width() >= MIN_SELECTION_WIDTH - 1e-6);
+        assert!(rect.height() >= MIN_SELECTION_HEIGHT - 1e-6);
+    }
+
+    #[test]
+    fn fixed_ratio_enforces_minimum_size() {
+        // Smaller than mins; apply still enforces minimum width/height.
+        let mut st = completed_selection(10.0, 10.0, 20.0, 18.0);
+        apply_aspect_to_selection(&mut st, 1.0, 1920.0, 1080.0);
+        let rect = current_selection_rect(&st);
+        assert!(rect.width() + 1e-6 >= MIN_SELECTION_WIDTH);
+        assert!(rect.height() + 1e-6 >= MIN_SELECTION_HEIGHT);
+    }
+
+    #[test]
+    fn active_aspect_ratio_prefers_recording_index_when_panel_open() {
+        let mut st = SelectorState {
+            capture_aspect_ratio_index: 1, // 1:1
+            ..Default::default()
+        };
+        st.recording.record_aspect_ratio_index = 7; // 16:9
+        st.recording.panel_open = false;
+        assert!((active_aspect_ratio(&st) - 1.0).abs() < 1e-9);
+        st.recording.panel_open = true;
+        assert!((active_aspect_ratio(&st) - 16.0 / 9.0).abs() < 1e-9);
+    }
+}
