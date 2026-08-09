@@ -28,7 +28,7 @@ CleanShot X.
 
 ## Support ApexShot
 
-Support ongoing development through [GitHub Sponsors](https://github.com/sponsors/codegoddy)
+Support ongoing development through [Ko-fi](https://ko-fi.com/codegoddy)
 or by choosing a plan on the [ApexShot pricing page](https://apexshot.org/pricing).
 
 ## ApexShot for Linux
