@@ -124,7 +124,7 @@ fn upload_file_with_notifications_replacing(
                 body = format!("Copied to clipboard\n{}", result.share_url);
             }
             // Always include the URL in the body so the toast is useful even if
-            // the user misses the clipboard, and use critical urgency on Ubuntu.
+            // the user misses the clipboard.
             let _ = crate::utils::notify::desktop_notification_replace(
                 replaces_notification_id,
                 "Upload complete",

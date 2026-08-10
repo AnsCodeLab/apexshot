@@ -20,6 +20,11 @@ struct RefreshResponse {
     refresh_token: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct ApiErrorResponse {
+    error: String,
+}
+
 /// Why an access-token refresh failed. Uploads discard this (they retry
 /// regardless), while the read client maps it onto its own error surface.
 #[derive(Debug)]
@@ -147,7 +152,7 @@ fn upload_file_with_token(config: &AppConfig, path: &Path) -> Result<UploadResul
         .set("Authorization", &format!("Bearer {token}"))
         .set("Content-Type", "application/json")
         .send_string(&create_body_str)
-        .map_err(|e| UploadError::HttpRequest(e.to_string()))?;
+        .map_err(map_upload_http_error)?;
 
     let session: CreateUploadResponse = create_resp
         .into_json()
@@ -168,6 +173,25 @@ fn upload_file_with_token(config: &AppConfig, path: &Path) -> Result<UploadResul
     Ok(UploadResult {
         share_url: normalize_share_url(&session.share_url, &backend_url)?,
     })
+}
+
+fn map_upload_http_error(error: ureq::Error) -> UploadError {
+    match error {
+        ureq::Error::Status(code, response) => {
+            let detail = response
+                .into_string()
+                .ok()
+                .and_then(|body| serde_json::from_str::<ApiErrorResponse>(&body).ok())
+                .map(|body| body.error.trim().to_string())
+                .filter(|message| !message.is_empty());
+
+            match detail {
+                Some(message) => UploadError::HttpRequest(format!("HTTP {code}: {message}")),
+                None => UploadError::HttpRequest(format!("HTTP {code}")),
+            }
+        }
+        ureq::Error::Transport(transport) => UploadError::HttpRequest(transport.to_string()),
+    }
 }
 
 fn normalize_share_url(raw_share_url: &str, backend_url: &str) -> Result<String, UploadError> {
@@ -212,6 +236,12 @@ fn validate_web_share_url(url: url::Url) -> Result<String, UploadError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn make_status_error(code: u16, body: &str) -> ureq::Error {
+        ureq::is_test(true);
+        let response = ureq::Response::new(code, "Status", body).expect("test response");
+        ureq::Error::Status(code, response)
+    }
 
     #[test]
     fn keeps_absolute_web_share_url() {
@@ -261,5 +291,35 @@ mod tests {
 
         assert_eq!(response.share_url, "https://apexshot.org/s/7t1NE9mTWw9J");
         assert_eq!(response.upload_url, "https://storage.example/upload");
+    }
+
+    #[test]
+    fn surfaces_cloud_quota_error_message() {
+        let error = map_upload_http_error(make_status_error(
+            400,
+            r#"{"error":"Free plan uploads are limited to 20 files per month. Upgrade to Pro to remove the monthly cap."}"#,
+        ));
+
+        assert_eq!(
+            error.to_string(),
+            "Upload request failed: HTTP 400: Free plan uploads are limited to 20 files per month. Upgrade to Pro to remove the monthly cap."
+        );
+    }
+
+    #[test]
+    fn keeps_auth_status_visible_for_token_refresh() {
+        let result = Err(map_upload_http_error(make_status_error(
+            401,
+            r#"{"error":"Token expired"}"#,
+        )));
+
+        assert!(is_auth_error(&result));
+    }
+
+    #[test]
+    fn falls_back_to_status_for_invalid_error_response() {
+        let error = map_upload_http_error(make_status_error(500, "upstream HTML response"));
+
+        assert_eq!(error.to_string(), "Upload request failed: HTTP 500");
     }
 }

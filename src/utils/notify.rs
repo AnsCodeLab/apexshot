@@ -31,7 +31,9 @@ pub fn desktop_notification_important(summary: &str, body: &str) {
 
 /// Replace a previous notification where the backend supports it.
 pub fn desktop_notification_replace(replaces_id: u32, summary: &str, body: &str) -> u32 {
-    desktop_notification_with_options(summary, body, Urgency::Critical, replaces_id).unwrap_or(0)
+    // Upload results use this path. Critical notifications intentionally stay
+    // open on GNOME, so use normal urgency for transient completion feedback.
+    desktop_notification_with_options(summary, body, Urgency::Normal, replaces_id).unwrap_or(0)
 }
 
 pub fn desktop_notification_with_options(
@@ -171,6 +173,8 @@ fn notify_via_notify_send(summary: &str, body: &str, urgency: Urgency) -> Result
         .arg(app_icon())
         .arg("-u")
         .arg(urgency_flag(urgency))
+        .arg("-t")
+        .arg(DEFAULT_TIMEOUT_MS.to_string())
         .arg(summary);
 
     if !body.is_empty() {
