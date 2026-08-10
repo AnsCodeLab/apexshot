@@ -13,7 +13,7 @@ use x11rb::{connection::Connection, protocol::xproto, protocol::xproto::Connecti
 
 use self::background_panel::BACKGROUND_SIDEBAR_WIDTH;
 use super::color::{draw_color_to_hex, draw_color_to_rgba_u8};
-use super::pen_weight::PenWeight;
+use super::pen_weight::{HighlighterMode, PenWeight};
 use super::selection::action_bounds_with_padding;
 use super::state::EditorState;
 use super::types::{
@@ -1024,6 +1024,31 @@ fn setup_editor_window_full(
     let pen_inspector_list = GtkBox::new(Orientation::Vertical, 0);
     let line_inspector_list = GtkBox::new(Orientation::Vertical, 0);
     let highlighter_inspector_list = GtkBox::new(Orientation::Vertical, 0);
+
+    let detect_text_row = GtkBox::new(Orientation::Horizontal, 8);
+    detect_text_row.set_margin_start(8);
+    detect_text_row.set_margin_end(8);
+    detect_text_row.set_margin_top(4);
+    detect_text_row.set_margin_bottom(4);
+    let detect_text_label = Label::new(Some("Detect text"));
+    detect_text_label.set_hexpand(true);
+    detect_text_label.set_xalign(0.0);
+    let detect_text_check = Label::new(Some("✓"));
+    detect_text_check.add_css_class("editor-arrow-inspector-check");
+    detect_text_row.append(&detect_text_label);
+    detect_text_row.append(&detect_text_check);
+    let detect_text_button = Button::builder()
+        .has_frame(false)
+        .css_classes([
+            "editor-popover-list-item",
+            "flat",
+            "editor-arrow-inspector-option",
+            "editor-arrow-inspector-option-active",
+        ])
+        .child(&detect_text_row)
+        .build();
+    highlighter_inspector_list.append(&detect_text_button);
+
     for weight in PenWeight::ALL {
         let make_button = || {
             let btn_box = GtkBox::new(Orientation::Horizontal, 8);
@@ -1531,10 +1556,6 @@ fn setup_editor_window_full(
             let selected_stroke_size = st.selected_action_stroke_size().unwrap_or(st.stroke_size);
             let selected_thickness = stroke_size_option_index(selected_stroke_size);
             let selected_pen_thickness = match st.selected_tool {
-                Tool::Highlighter => highlighter_weight_option_index(
-                    st.selected_action_stroke_size()
-                        .unwrap_or_else(|| st.pen_weight.highlighter_stroke_width()),
-                ),
                 Tool::Pen => pen_weight_option_index(
                     st.selected_action_stroke_size()
                         .unwrap_or_else(|| st.pen_weight.pen_stroke_width()),
@@ -1545,7 +1566,16 @@ fn setup_editor_window_full(
             sync_arrow_option_selection(&arrow_style_list, selected_style);
             sync_arrow_option_selection(&arrow_thickness_list, selected_thickness);
             sync_arrow_option_selection(&line_inspector_list, selected_thickness);
-            sync_arrow_option_selection(&highlighter_inspector_list, selected_pen_thickness);
+            let selected_highlighter_option = match st.highlighter_mode {
+                HighlighterMode::TextAware => 0,
+                HighlighterMode::Freehand => {
+                    1 + highlighter_weight_option_index(
+                        st.selected_action_stroke_size()
+                            .unwrap_or_else(|| st.pen_weight.highlighter_stroke_width()),
+                    )
+                }
+            };
+            sync_arrow_option_selection(&highlighter_inspector_list, selected_highlighter_option);
             inverse_direction_toggle.set_active(st.inverse_arrow_direction);
         }
     });
@@ -2631,7 +2661,8 @@ mod tests {
                 && production_source.contains("\"editor-arrow-inspector-option\"")
                 && production_source.contains("sync_arrow_option_selection(&pen_inspector_list, selected_pen_thickness);")
                 && production_source.contains("sync_arrow_option_selection(&line_inspector_list, selected_thickness);")
-                && production_source.contains("sync_arrow_option_selection(&highlighter_inspector_list, selected_pen_thickness);"),
+                && production_source.contains("let detect_text_label = Label::new(Some(\"Detect text\"));")
+                && production_source.contains("sync_arrow_option_selection(&highlighter_inspector_list, selected_highlighter_option);"),
             "Pen, Line, and Highlighter inspectors should expose thickness sections using the same active row styling as the Arrow inspector",
         );
     }

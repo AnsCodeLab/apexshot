@@ -23,7 +23,11 @@ use crate::capture::editor::{
     ui_support::{arrow_style_toolbar_icon, set_button_tool_icon, toolbar_icon_size},
 };
 
-use super::super::{color_picker, cursor::update_pen_cursor, icon_names};
+use super::super::{
+    color_picker,
+    cursor::{set_highlighter_cursor, update_pen_cursor, DEFAULT_HIGHLIGHTER_CURSOR_SIZE},
+    icon_names,
+};
 
 fn sync_arrow_option_selection(list: &GtkBox, selected_index: usize) {
     let mut child_opt = list.first_child();
@@ -147,7 +151,35 @@ pub(super) fn wire_tool_options(
         size_slider,
     } = parts;
 
-    // Wire up pen weight list items for highlighter freehand mode
+    // The first Highlighter row restores text-aware sizing. Thickness rows below
+    // it explicitly select Freehand mode.
+    if let Some(child) = highlighter_weight_list.first_child() {
+        if let Ok(button) = child.downcast::<Button>() {
+            let state_detect_text = state.clone();
+            let drawing_area_detect_text = drawing_area.downgrade();
+            let highlighter_list_detect_text = highlighter_weight_list.clone();
+            let window_detect_text = window.clone();
+            button.connect_clicked(move |_| {
+                let color = {
+                    let mut st = state_detect_text.lock().unwrap();
+                    st.set_highlighter_mode(HighlighterMode::TextAware);
+                    (
+                        st.selected_color.r,
+                        st.selected_color.g,
+                        st.selected_color.b,
+                        0.4,
+                    )
+                };
+                sync_arrow_option_selection(&highlighter_list_detect_text, 0);
+                set_highlighter_cursor(&window_detect_text, DEFAULT_HIGHLIGHTER_CURSOR_SIZE, color);
+                if let Some(area) = drawing_area_detect_text.upgrade() {
+                    area.queue_draw();
+                }
+            });
+        }
+    }
+
+    // Wire up pen weight list items for pen and highlighter freehand mode.
     // NOTE: Do not remove children here; that would empty the popover and nothing would display.
     let weights = [
         PenWeight::Small,
@@ -160,9 +192,15 @@ pub(super) fn wire_tool_options(
     let drawing_area_for_weight = drawing_area.downgrade();
     let window_pen_weight = window.clone();
 
-    for weight_list in [pen_weight_list.clone(), highlighter_weight_list.clone()] {
+    for (weight_list, highlighter_offset) in [
+        (pen_weight_list.clone(), 0usize),
+        (highlighter_weight_list.clone(), 1usize),
+    ] {
         let mut weight_idx = 0usize;
         let mut child_opt = weight_list.first_child();
+        if highlighter_offset > 0 {
+            child_opt = child_opt.and_then(|child| child.next_sibling());
+        }
         while let Some(child) = child_opt {
             // Grab next sibling before we do anything else
             child_opt = child.next_sibling();
@@ -176,7 +214,7 @@ pub(super) fn wire_tool_options(
             };
             weight_idx += 1;
 
-            let selected_index = weight_idx - 1;
+            let selected_index = highlighter_offset + weight_idx - 1;
             let state_for_weight = state.clone();
             let drawing_area_weight = drawing_area_for_weight.clone();
             let pen_weight_button_clone = pen_weight_button_for_closure.clone();
@@ -194,9 +232,21 @@ pub(super) fn wire_tool_options(
                     }
                     drop(st);
 
-                    if is_pen || is_highlighter {
+                    if is_pen {
                         let st = state_for_weight.lock().unwrap();
                         update_pen_cursor(&window_for_weight, &st);
+                    } else if is_highlighter {
+                        let st = state_for_weight.lock().unwrap();
+                        set_highlighter_cursor(
+                            &window_for_weight,
+                            weight.highlighter_stroke_width(),
+                            (
+                                st.selected_color.r,
+                                st.selected_color.g,
+                                st.selected_color.b,
+                                0.4,
+                            ),
+                        );
                     }
                 }
 
@@ -664,6 +714,7 @@ mod tests {
         let source = include_str!("options.rs");
         assert!(
             source.contains("st.set_pen_weight(weight)")
+                && source.contains("st.set_highlighter_mode(HighlighterMode::TextAware)")
                 && source.contains("st.set_highlighter_mode(HighlighterMode::Freehand)")
                 && source.contains("st.set_obfuscate_method(method)")
                 && source.contains("rebuild_effects_async_obfuscate_method()")

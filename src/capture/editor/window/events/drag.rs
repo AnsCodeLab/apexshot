@@ -24,6 +24,19 @@ use super::{MOVE_HANDLE_DRAG_RADIUS, RESIZE_HANDLE_DRAG_SIZE};
 
 const ARROW_CLICK_NOOP_DISTANCE: f64 = 3.0;
 
+fn stable_pan_offset(
+    surface_origin: Option<(f64, f64)>,
+    surface_position: Option<(f64, f64)>,
+    gesture_offset: (f64, f64),
+) -> (f64, f64) {
+    match (surface_origin, surface_position) {
+        (Some((start_x, start_y)), Some((current_x, current_y))) => {
+            (current_x - start_x, current_y - start_y)
+        }
+        _ => gesture_offset,
+    }
+}
+
 /// Wire canvas `GestureDrag` begin/update/end and attach the controller.
 pub(super) fn wire_canvas_drag(
     window: &ApplicationWindow,
@@ -44,6 +57,7 @@ pub(super) fn wire_canvas_drag(
     let drag_start_transform = Rc::new(RefCell::new(None::<ViewTransform>));
     let drag = GestureDrag::new();
     let drag_last_redraw = Rc::new(Cell::new(0_i64));
+    let space_pan_surface_origin = Rc::new(Cell::new(None::<(f64, f64)>));
     let eyedropper_mode_drag_begin = eyedropper_mode.clone();
     let state_drag_begin = state.clone();
     let transform_drag_begin = transform.clone();
@@ -52,6 +66,7 @@ pub(super) fn wire_canvas_drag(
     let space_pan_active_drag_begin = space_pan_active.clone();
     let space_pan_dragging_begin = space_pan_dragging.clone();
     let space_pan_origin_begin = space_pan_origin.clone();
+    let space_pan_surface_origin_begin = space_pan_surface_origin.clone();
     let canvas_scroller_space_pan_begin = canvas_scroller.clone();
     let window_space_pan_begin = window.downgrade();
     let apply_crop_btn_drag_begin = apply_crop_btn.clone();
@@ -62,6 +77,8 @@ pub(super) fn wire_canvas_drag(
             let hadj = canvas_scroller_space_pan_begin.hadjustment();
             let vadj = canvas_scroller_space_pan_begin.vadjustment();
             space_pan_origin_begin.set((hadj.value(), vadj.value()));
+            space_pan_surface_origin_begin
+                .set(gesture.current_event().and_then(|event| event.position()));
             space_pan_dragging_begin.set(true);
             gesture.set_state(gtk4::EventSequenceState::Claimed);
             if let Some(window) = window_space_pan_begin.upgrade() {
@@ -556,6 +573,7 @@ pub(super) fn wire_canvas_drag(
     let drag_last_redraw_update = drag_last_redraw.clone();
     let space_pan_dragging_update = space_pan_dragging.clone();
     let space_pan_origin_update = space_pan_origin.clone();
+    let space_pan_surface_origin_update = space_pan_surface_origin.clone();
     let canvas_scroller_space_pan_update = canvas_scroller.clone();
     let update_crop_size_fields_drag_update = update_crop_size_fields.clone();
     let rebuild_effects_async_drag_update = rebuild_effects_async.clone();
@@ -565,12 +583,17 @@ pub(super) fn wire_canvas_drag(
             let hadj = canvas_scroller_space_pan_update.hadjustment();
             let vadj = canvas_scroller_space_pan_update.vadjustment();
             let (start_x, start_y) = space_pan_origin_update.get();
-            hadj.set_value(
-                (start_x - offset_x).clamp(hadj.lower(), hadj.upper() - hadj.page_size()),
+            // GestureDrag offsets use drawing-area coordinates. Scrolling moves
+            // that widget beneath the pointer, feeding the adjustment back into
+            // the next offset and causing visible oscillation. GDK event positions
+            // are surface-relative, so their delta remains stable while panning.
+            let (pan_x, pan_y) = stable_pan_offset(
+                space_pan_surface_origin_update.get(),
+                gesture.current_event().and_then(|event| event.position()),
+                (offset_x, offset_y),
             );
-            vadj.set_value(
-                (start_y - offset_y).clamp(vadj.lower(), vadj.upper() - vadj.page_size()),
-            );
+            hadj.set_value((start_x - pan_x).clamp(hadj.lower(), hadj.upper() - hadj.page_size()));
+            vadj.set_value((start_y - pan_y).clamp(vadj.lower(), vadj.upper() - vadj.page_size()));
             return;
         }
 
@@ -718,6 +741,7 @@ pub(super) fn wire_canvas_drag(
     let drag_last_redraw_end = drag_last_redraw.clone();
     let space_pan_active_end = space_pan_active.clone();
     let space_pan_dragging_end = space_pan_dragging.clone();
+    let space_pan_surface_origin_end = space_pan_surface_origin.clone();
     let window_space_pan_end = window.downgrade();
     let apply_crop_btn_drag_end = apply_crop_btn.clone();
     let update_crop_size_fields_drag_end = update_crop_size_fields.clone();
@@ -726,6 +750,7 @@ pub(super) fn wire_canvas_drag(
     let rebuild_effects_async_drag_end = rebuild_effects_async.clone();
     drag.connect_drag_end(move |gesture, offset_x, offset_y| {
         if space_pan_dragging_end.replace(false) {
+            space_pan_surface_origin_end.set(None);
             if let Some(window) = window_space_pan_end.upgrade() {
                 set_window_cursor_name(
                     &window,
@@ -856,6 +881,24 @@ pub(super) fn wire_canvas_drag(
 
 #[cfg(test)]
 mod tests {
+    use super::stable_pan_offset;
+
+    #[test]
+    fn space_pan_uses_surface_delta_instead_of_moving_widget_offset() {
+        assert_eq!(
+            stable_pan_offset(Some((500.0, 300.0)), Some((536.0, 284.0)), (11.0, 9.0)),
+            (36.0, -16.0)
+        );
+    }
+
+    #[test]
+    fn space_pan_falls_back_to_gesture_offset_without_pointer_position() {
+        assert_eq!(
+            stable_pan_offset(Some((500.0, 300.0)), None, (11.0, 9.0)),
+            (11.0, 9.0)
+        );
+    }
+
     #[test]
     fn canvas_drag_owns_begin_update_end_and_space_pan() {
         let source = include_str!("drag.rs");

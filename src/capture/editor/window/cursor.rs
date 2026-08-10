@@ -23,6 +23,10 @@ const CURSOR_WIDTH_RATIO: f64 = 1.0;
 /// Corner radius for highlighter cursor
 const CURSOR_CORNER_RADIUS: f64 = 4.0;
 
+fn highlighter_cursor_height_for_view(image_height: f64, view_scale: f64) -> f64 {
+    clamp_cursor_size(image_height * view_scale.max(0.0001))
+}
+
 pub(super) fn set_window_cursor_name(window: &ApplicationWindow, cursor_name: Option<&str>) {
     if let Some(surface) = window.surface() {
         let cursor = cursor_name.and_then(|name| gdk::Cursor::from_name(name, None));
@@ -401,7 +405,7 @@ pub fn update_cursor_for_position(
     window: &gtk4::ApplicationWindow,
     state: &EditorState,
     image_point: Point,
-    _view_scale: f64,
+    view_scale: f64,
 ) {
     if state.selected_tool != Tool::Highlighter {
         return;
@@ -415,7 +419,11 @@ pub fn update_cursor_for_position(
     );
 
     if let Some(locked_height) = state.locked_highlighter_stroke_size {
-        set_highlighter_cursor(window, locked_height, color);
+        set_highlighter_cursor(
+            window,
+            highlighter_cursor_height_for_view(locked_height, view_scale),
+            color,
+        );
         return;
     }
 
@@ -443,22 +451,44 @@ pub fn update_cursor_for_position(
                     }
                     DetectionStatus::Failed(_) => {
                         // Detection failed — show default cursor
-                        set_highlighter_cursor(window, DEFAULT_HIGHLIGHTER_CURSOR_SIZE, color);
+                        set_highlighter_cursor(
+                            window,
+                            highlighter_cursor_height_for_view(
+                                DEFAULT_HIGHLIGHTER_CURSOR_SIZE,
+                                view_scale,
+                            ),
+                            color,
+                        );
                         return;
                     }
                     DetectionStatus::Ready => {
                         if let Some(height) = detector.best_text_height_at_point(image_point) {
-                            set_highlighter_cursor(window, height, color);
+                            set_highlighter_cursor(
+                                window,
+                                highlighter_cursor_height_for_view(height, view_scale),
+                                color,
+                            );
                             return;
                         }
                     }
                 }
             }
             // Fallback to default cursor size
-            set_highlighter_cursor(window, DEFAULT_HIGHLIGHTER_CURSOR_SIZE, color);
+            set_highlighter_cursor(
+                window,
+                highlighter_cursor_height_for_view(DEFAULT_HIGHLIGHTER_CURSOR_SIZE, view_scale),
+                color,
+            );
         }
         HighlighterMode::Freehand => {
-            set_highlighter_cursor(window, state.pen_weight.highlighter_stroke_width(), color);
+            set_highlighter_cursor(
+                window,
+                highlighter_cursor_height_for_view(
+                    state.pen_weight.highlighter_stroke_width(),
+                    view_scale,
+                ),
+                color,
+            );
         }
     }
 }
@@ -481,4 +511,28 @@ fn surface_to_texture(mut surface: gtk4::cairo::ImageSurface) -> Option<gdk::Tex
     );
 
     Some(gdk::Texture::for_pixbuf(&pixbuf))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn highlighter_cursor_height_tracks_view_scale() {
+        assert_eq!(highlighter_cursor_height_for_view(32.0, 1.0), 32.0);
+        assert_eq!(highlighter_cursor_height_for_view(32.0, 0.5), 16.0);
+        assert_eq!(highlighter_cursor_height_for_view(32.0, 2.0), 64.0);
+    }
+
+    #[test]
+    fn highlighter_cursor_height_remains_clamped() {
+        assert_eq!(
+            highlighter_cursor_height_for_view(4.0, 0.5),
+            super::super::super::text_detect::MIN_CURSOR_SIZE
+        );
+        assert_eq!(
+            highlighter_cursor_height_for_view(80.0, 2.0),
+            super::super::super::text_detect::MAX_CURSOR_SIZE
+        );
+    }
 }
