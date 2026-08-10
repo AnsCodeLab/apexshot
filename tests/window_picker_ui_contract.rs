@@ -28,3 +28,17 @@ fn window_tool_removed_from_toolbars() {
         "Rust overlay click handler must not handle a Window toolbar tool"
     );
 }
+
+#[test]
+fn capture_timer_badge_uses_timer_tool_tile() {
+    let cpp_drawing = include_str!("../capture-overlay/src/CaptureOverlay_Drawing.cpp");
+
+    assert!(
+        cpp_drawing.contains("if (i == kTimerToolIndex && timerToolActive)"),
+        "C++ timer badge must be drawn on the Timer tile"
+    );
+    assert!(
+        !cpp_drawing.contains("if (i == 4 && timerToolActive)"),
+        "C++ timer badge must not use the OCR tile index"
+    );
+}

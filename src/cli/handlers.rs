@@ -8,7 +8,7 @@ use apexshot::{
         AreaCapturePathResult, AreaCaptureResult,
     },
     hotkeys::ensure_desktop_entry_pub,
-    ocr::{extract_text_from_capture, extract_text_from_path, OcrConfig},
+    ocr::{extract_text_from_capture, extract_text_from_path, ContentSource, OcrConfig, OcrOutput},
     preview_launch::{launch_preview, show_preview_direct},
     recording::{
         run_overlay_recording_request, run_recording_with_controls, start_recording,
@@ -349,9 +349,11 @@ pub(crate) fn run_capture(args: &[String]) {
                 if result.copied_to_clipboard {
                     println!("Copied to clipboard");
                 }
+                notify_ocr_success(&result);
             }
             Err(e) => {
                 eprintln!("OCR failed: {}", e);
+                apexshot::utils::notify::desktop_notification("OCR failed", &e.to_string());
                 std::process::exit(1);
             }
         }
@@ -529,11 +531,27 @@ pub(crate) fn run_ocr(args: &[String]) {
             if result.copied_to_clipboard {
                 println!("Copied to clipboard");
             }
+            notify_ocr_success(&result);
         }
         Err(e) => {
             eprintln!("OCR failed: {}", e);
+            apexshot::utils::notify::desktop_notification("OCR failed", &e.to_string());
             std::process::exit(1);
         }
+    }
+}
+
+fn notify_ocr_success(result: &OcrOutput) {
+    let (title, body) = ocr_success_notification(result);
+    apexshot::utils::notify::desktop_notification(title, body);
+}
+
+fn ocr_success_notification(result: &OcrOutput) -> (&'static str, &'static str) {
+    match (&result.source, result.copied_to_clipboard) {
+        (ContentSource::QrCode, true) => ("QR code decoded", "Content copied to clipboard"),
+        (ContentSource::QrCode, false) => ("QR code decoded", "Content extracted"),
+        (ContentSource::Ocr { .. }, true) => ("OCR complete", "Text copied to clipboard"),
+        (ContentSource::Ocr { .. }, false) => ("OCR complete", "Text extracted"),
     }
 }
 
@@ -686,4 +704,41 @@ pub(crate) async fn run_record(args: &[String]) -> Result<(), Box<dyn std::error
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn output(source: ContentSource, copied_to_clipboard: bool) -> OcrOutput {
+        OcrOutput {
+            text: "example".to_string(),
+            source,
+            copied_to_clipboard,
+        }
+    }
+
+    #[test]
+    fn ocr_notification_reports_clipboard_outcome() {
+        assert_eq!(
+            ocr_success_notification(&output(ContentSource::Ocr { confidence: 90 }, true)),
+            ("OCR complete", "Text copied to clipboard")
+        );
+        assert_eq!(
+            ocr_success_notification(&output(ContentSource::Ocr { confidence: 90 }, false)),
+            ("OCR complete", "Text extracted")
+        );
+    }
+
+    #[test]
+    fn qr_notification_reports_clipboard_outcome() {
+        assert_eq!(
+            ocr_success_notification(&output(ContentSource::QrCode, true)),
+            ("QR code decoded", "Content copied to clipboard")
+        );
+        assert_eq!(
+            ocr_success_notification(&output(ContentSource::QrCode, false)),
+            ("QR code decoded", "Content extracted")
+        );
+    }
 }

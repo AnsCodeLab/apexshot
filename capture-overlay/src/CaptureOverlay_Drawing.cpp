@@ -1730,7 +1730,7 @@ void CaptureOverlay::drawToolbar(QPainter& p,
         p.drawText(QPointF(cx - tw/2.0,
                            cell.y() + 50.0), label);
 
-        if (i == 4 && timerToolActive) {
+        if (i == kTimerToolIndex && timerToolActive) {
             const QString badgeText = QStringLiteral("%1s").arg(m_captureDelaySeconds);
             QFont badgeFont; badgeFont.setFamily("Sans"); badgeFont.setPointSizeF(6.6); badgeFont.setBold(true);
             p.setFont(badgeFont);
