@@ -213,15 +213,8 @@ pub(super) fn spawn_overlay_pw_stream(
                 } else {
                     0.0
                 };
-                let raw_level = (rms * 3.0).clamp(0.0, 1.0);
-
-                let gated = if !capture_sink && raw_level < 0.15 {
-                    0.0
-                } else {
-                    raw_level
-                };
-
-                level.store(gated.to_bits(), Ordering::Relaxed);
+                let meter_level = crate::daemon::audio_meter_level(rms, capture_sink);
+                level.store(meter_level.to_bits(), Ordering::Relaxed);
             })
             .register();
 

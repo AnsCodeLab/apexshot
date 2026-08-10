@@ -42,6 +42,8 @@ fn main() {
         let _ = dotenvy::from_path(&config_dir);
     }
 
+    apexshot::recording::dnd::recover_stale_gnome_dnd();
+
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() < 2 {

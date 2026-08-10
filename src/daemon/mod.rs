@@ -29,7 +29,7 @@ mod hotkey_listener;
 mod recording_handlers;
 mod scroll;
 
-pub(crate) use audio::find_physical_input_device;
+pub(crate) use audio::{audio_meter_level, find_physical_input_device};
 pub use capture_handlers::{copy_screenshot_to_clipboard, open_file};
 pub use recording_handlers::{
     notify_daemon_recording_ended, notify_daemon_recording_paused,
@@ -738,6 +738,15 @@ mod tests {
         assert!(!audio_monitor_is_idle(10_000, 12_999, idle));
         assert!(audio_monitor_is_idle(10_000, 13_000, idle));
         assert!(audio_monitor_is_idle(10_000, 20_000, idle));
+    }
+
+    #[test]
+    fn audio_meter_keeps_normal_microphone_speech_visible() {
+        assert_eq!(audio_meter_level(0.0, false), 0.0);
+        assert_eq!(audio_meter_level(0.001, false), 0.0);
+        assert!((audio_meter_level(0.01, false) - (1.0 / 3.0)).abs() < 0.001);
+        assert!(audio_meter_level(0.05, false) > 0.55);
+        assert_eq!(audio_meter_level(1.0, false), 1.0);
     }
 
     #[test]

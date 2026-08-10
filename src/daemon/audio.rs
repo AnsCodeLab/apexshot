@@ -32,6 +32,17 @@ pub(super) static SPEAKER_MONITOR_STOP: Mutex<
 
 pub(super) static AUDIO_IDLE_REAPER: std::sync::Once = std::sync::Once::new();
 
+/// Convert RMS audio amplitude to a visible meter value using a decibel range.
+/// A linear gate hid normal built-in microphone speech below roughly -26 dBFS.
+pub(crate) fn audio_meter_level(rms: f64, capture_sink: bool) -> f64 {
+    if !rms.is_finite() || rms <= 0.0 {
+        return 0.0;
+    }
+    let floor_db = if capture_sink { -70.0 } else { -60.0 };
+    let db = 20.0 * rms.log10();
+    ((db - floor_db) / -floor_db).clamp(0.0, 1.0)
+}
+
 pub(super) fn monitor_now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -306,17 +317,8 @@ pub(super) fn start_audio_level_stream(
                 } else {
                     0.0
                 };
-                let raw_level = (rms * 3.0).clamp(0.0, 1.0);
-
-                // Noise gate for mic: ignore quiet audio to avoid picking up
-                // ambient noise or speaker bleed
-                let gated = if !capture_sink && raw_level < 0.15 {
-                    0.0
-                } else {
-                    raw_level
-                };
-
-                level.store(gated.to_bits(), std::sync::atomic::Ordering::Relaxed);
+                let meter_level = audio_meter_level(rms, capture_sink);
+                level.store(meter_level.to_bits(), std::sync::atomic::Ordering::Relaxed);
             })
             .register();
 
