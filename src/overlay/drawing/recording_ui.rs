@@ -24,6 +24,7 @@ pub(crate) fn draw_recording_panel(
     settings_menu_open: bool,
     settings_tab: SettingsTab,
     hovered_settings_item: i32,
+    hovered_settings_dropdown_item: i32,
     settings_dropdown_open: Option<usize>,
     video_max_res: usize,
     video_fps: usize,
@@ -397,6 +398,7 @@ pub(crate) fn draw_recording_panel(
             background,
             settings_tab,
             hovered_settings_item,
+            hovered_settings_dropdown_item,
             settings_dropdown_open,
             video_max_res,
             video_fps,
@@ -489,158 +491,43 @@ pub(crate) fn draw_volume_popup(
     panel_y: f64,
     screen_width: f64,
     screen_height: f64,
-    background: Option<&BackgroundFrame>,
     volume: f64,
-    title: &str,
+    icon: ToolbarIcon,
     dragging: bool,
 ) {
     let menu_w = crate::overlay::layout::VOLUME_POPUP_WIDTH;
     let menu_h = crate::overlay::layout::VOLUME_POPUP_HEIGHT;
-    // Callers pass coordinates from `compute_volume_popup_layout`; keep a
-    // defensive clamp so direct callers stay in-bounds.
     let menu_x = panel_x.clamp(10.0, screen_width - menu_w - 10.0);
     let menu_y = panel_y.clamp(10.0, screen_height - menu_h - 10.0);
+    let radius = menu_w / 2.0;
+    let filled_h = volume.clamp(0.0, 1.0) * menu_h;
 
-    let accent_r = 176.0 / 255.0;
-    let accent_g = 92.0 / 255.0;
-    let accent_b = 56.0 / 255.0;
+    super::rounded_rect_path(context, menu_x, menu_y, menu_w, menu_h, radius);
+    context.set_source_rgb(20.0 / 255.0, 20.0 / 255.0, 20.0 / 255.0);
+    context.fill().ok();
 
-    // Warm radial glow — same treatment as settings / click-options menus
-    {
-        let _ = context.save();
-        let glow_cx = menu_x + menu_w / 2.0;
-        let glow_cy = menu_y + menu_h / 2.0;
-        let glow =
-            gtk4::cairo::RadialGradient::new(glow_cx, glow_cy, 0.0, glow_cx, glow_cy, menu_w);
-        glow.add_color_stop_rgba(0.0, accent_r, accent_g, accent_b, 40.0 / 255.0);
-        glow.add_color_stop_rgba(0.6, 0.0, 0.0, 0.0, 0.0);
-        let _ = context.set_source(&glow);
-        context.rectangle(menu_x - 40.0, menu_y - 40.0, menu_w + 80.0, menu_h + 80.0);
-        let _ = context.fill();
-        let _ = context.restore();
-    }
-
-    super::draw_frosted_panel(
-        context,
-        menu_x,
-        menu_y,
-        menu_w,
-        menu_h,
-        12.0,
-        screen_width,
-        screen_height,
-        background,
-    );
-
-    // Two-line header matching settings / click-options menus
-    context.select_font_face(
-        "Sans",
-        gtk4::cairo::FontSlant::Normal,
-        gtk4::cairo::FontWeight::Bold,
-    );
-    context.set_font_size(10.7);
-    context.set_source_rgba(1.0, 224.0 / 255.0, 196.0 / 255.0, 176.0 / 255.0);
-    if let Ok(_ext) = context.text_extents("RECORDING DEVICE") {
-        context.move_to(menu_x + 18.0, menu_y + 28.0);
-        context.show_text("RECORDING DEVICE").ok();
-    }
-    context.set_font_size(18.7);
-    context.set_source_rgba(245.0 / 255.0, 245.0 / 255.0, 246.0 / 255.0, 1.0);
-    if let Ok(_ext) = context.text_extents(title) {
-        context.move_to(menu_x + 18.0, menu_y + 48.0);
-        context.show_text(title).ok();
-    }
-
-    // Slider row — compact single-row layout fitting 280px panel
-    let row_y = menu_y + 78.0;
-    let row_h = 46.0;
-
-    // Label: left-aligned
-    context.select_font_face(
-        "Sans",
-        gtk4::cairo::FontSlant::Normal,
-        gtk4::cairo::FontWeight::Bold,
-    );
-    context.set_font_size(13.3);
-    context.set_source_rgba(1.0, 1.0, 1.0, 210.0 / 255.0);
-    let label_text = "Volume:";
-    let label_x = menu_x + 18.0;
-    if let Ok(extents) = context.text_extents(label_text) {
-        context.move_to(
-            label_x,
-            row_y + row_h / 2.0 - extents.height() / 2.0 - extents.y_bearing(),
-        );
-        context.show_text(label_text).ok();
-    }
-
-    // Percentage badge: right-aligned at the panel edge
-    let pct = (volume * 100.0).round() as i32;
-    let pct_text = format!("{}%", pct);
-    context.select_font_face(
-        "Sans",
-        gtk4::cairo::FontSlant::Normal,
-        gtk4::cairo::FontWeight::Bold,
-    );
-    context.set_font_size(11.0);
-    context.set_source_rgba(1.0, 232.0 / 255.0, 214.0 / 255.0, 220.0 / 255.0);
-    if let Ok(extents) = context.text_extents(&pct_text) {
-        let px = menu_x + menu_w - 12.0 - extents.width() - extents.x_bearing();
-        let py = row_y + row_h / 2.0 - extents.height() / 2.0 - extents.y_bearing();
-        context.move_to(px, py);
-        context.show_text(&pct_text).ok();
-    }
-
-    // Slider between label and percentage badge
-    let slider_x = menu_x + crate::overlay::layout::VOLUME_SLIDER_OFFSET_X;
-    let slider_w = crate::overlay::layout::VOLUME_SLIDER_WIDTH;
-    let slider_track_h = crate::overlay::layout::VOLUME_SLIDER_TRACK_H;
-    let track_y = row_y + (row_h - slider_track_h) / 2.0;
-
-    // Track background
-    context.set_source_rgba(1.0, 1.0, 1.0, if dragging { 36.0 } else { 28.0 } / 255.0);
-    super::rounded_rect_path(context, slider_x, track_y, slider_w, slider_track_h, 3.0);
-    let _ = context.fill();
-
-    // Filled portion
-    let filled_w = volume.clamp(0.0, 1.0) * slider_w;
-    if filled_w > 1.0 {
-        let _ = context.save();
-        let fill_grad = gtk4::cairo::LinearGradient::new(slider_x, 0.0, slider_x + slider_w, 0.0);
-        fill_grad.add_color_stop_rgba(
-            0.0,
-            204.0 / 255.0,
-            122.0 / 255.0,
-            80.0 / 255.0,
-            235.0 / 255.0,
-        );
-        fill_grad.add_color_stop_rgba(1.0, 1.0, 178.0 / 255.0, 122.0 / 255.0, 235.0 / 255.0);
-        let _ = context.set_source(&fill_grad);
-        super::rounded_rect_path(context, slider_x, track_y, filled_w, slider_track_h, 3.0);
-        let _ = context.fill();
-        let _ = context.restore();
-    }
-
-    // Handle
-    let handle_w = if dragging { 18.0 } else { 14.0 };
-    let handle_h = 26.0;
-    let handle_x = slider_x + filled_w - handle_w / 2.0;
-    let handle_y = track_y + slider_track_h / 2.0 - handle_h / 2.0;
-    context.set_source_rgba(0.0, 0.0, 0.0, 90.0 / 255.0);
-    super::rounded_rect_path(
-        context,
-        handle_x + 0.6,
-        handle_y + 1.4,
-        handle_w,
-        handle_h,
-        6.0,
-    );
-    let _ = context.fill();
     let _ = context.save();
-    let handle_grad = gtk4::cairo::LinearGradient::new(0.0, handle_y, 0.0, handle_y + handle_h);
-    handle_grad.add_color_stop_rgba(0.0, 1.0, 1.0, 1.0, 1.0);
-    handle_grad.add_color_stop_rgba(1.0, 225.0 / 255.0, 225.0 / 255.0, 230.0 / 255.0, 1.0);
-    let _ = context.set_source(&handle_grad);
-    super::rounded_rect_path(context, handle_x, handle_y, handle_w, handle_h, 6.0);
-    let _ = context.fill();
+    super::rounded_rect_path(context, menu_x, menu_y, menu_w, menu_h, radius);
+    context.clip();
+    context.rectangle(menu_x, menu_y + menu_h - filled_h, menu_w, filled_h);
+    context.set_source_rgb(176.0 / 255.0, 92.0 / 255.0, 56.0 / 255.0);
+    context.fill().ok();
+    let _ = context.restore();
+
+    super::rounded_rect_path(context, menu_x, menu_y, menu_w, menu_h, radius);
+    context.set_source_rgba(1.0, 1.0, 1.0, if dragging { 0.16 } else { 0.10 });
+    context.set_line_width(1.0);
+    context.stroke().ok();
+
+    let _ = context.save();
+    context.translate(menu_x + menu_w / 2.0, menu_y + menu_h / 2.0);
+    context.scale(1.3, 1.3);
+    draw_toolbar_icon(
+        context,
+        icon,
+        0.0,
+        0.0,
+        (241.0 / 255.0, 241.0 / 255.0, 243.0 / 255.0, 1.0),
+    );
     let _ = context.restore();
 }

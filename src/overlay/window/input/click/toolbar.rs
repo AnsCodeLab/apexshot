@@ -169,6 +169,7 @@ fn handle_panel_or_selection_click(
                 st.recording.hovered_crop_menu_item = -1;
                 st.recording.settings_menu_open = false;
                 st.recording.settings_dropdown_open = None;
+                st.recording.hovered_settings_dropdown_item = -1;
                 st.recording.mic_volume_popup_open = false;
                 st.recording.speaker_volume_popup_open = false;
                 st.hover_tool_index = None;
@@ -177,6 +178,7 @@ fn handle_panel_or_selection_click(
                 st.recording.settings_menu_open = !st.recording.settings_menu_open;
                 st.recording.hovered_settings_item = -1;
                 st.recording.settings_dropdown_open = None;
+                st.recording.hovered_settings_dropdown_item = -1;
                 st.recording.crop_menu_open = false;
                 st.recording.mic_volume_popup_open = false;
                 st.recording.speaker_volume_popup_open = false;
@@ -206,6 +208,7 @@ fn handle_panel_or_selection_click(
                 st.recording.crop_menu_open = false;
                 st.recording.settings_menu_open = false;
                 st.recording.settings_dropdown_open = None;
+                st.recording.hovered_settings_dropdown_item = -1;
                 st.recording.mic_volume_popup_open = false;
                 st.recording.speaker_volume_popup_open = false;
                 st.recording.hover_record_tile = None;

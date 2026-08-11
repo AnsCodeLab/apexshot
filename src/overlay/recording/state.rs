@@ -63,6 +63,7 @@ pub(crate) struct RecordingState {
     pub(crate) settings_menu_open: bool,
     pub(crate) settings_tab: SettingsTab,
     pub(crate) hovered_settings_item: i32,
+    pub(crate) hovered_settings_dropdown_item: i32,
     pub(crate) settings_dropdown_open: Option<usize>,
     pub(crate) gif_slider_dragging: Option<u8>,
 
@@ -104,6 +105,7 @@ impl Default for RecordingState {
             settings_menu_open: false,
             settings_tab: SettingsTab::General,
             hovered_settings_item: -1,
+            hovered_settings_dropdown_item: -1,
             settings_dropdown_open: None,
             gif_slider_dragging: None,
             mic_volume_popup_open: false,
@@ -112,5 +114,15 @@ impl Default for RecordingState {
             speaker_volume: 1.0,
             volume_slider_dragging: false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RecordingState;
+
+    #[test]
+    fn settings_dropdown_hover_starts_clear() {
+        assert_eq!(RecordingState::default().hovered_settings_dropdown_item, -1);
     }
 }

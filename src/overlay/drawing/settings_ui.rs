@@ -27,12 +27,12 @@ pub(crate) fn draw_checkbox(
         context.line_to(x + size - 3.5, y + size * 0.3);
         context.stroke().ok();
     } else {
-        let alpha = if disabled { 35.0 / 255.0 } else { 60.0 / 255.0 };
-        let bg_alpha = if disabled { 25.0 / 255.0 } else { 40.0 / 255.0 };
-        context.set_source_rgba(0.0, 0.0, 0.0, bg_alpha);
+        let alpha = if disabled { 26.0 / 255.0 } else { 41.0 / 255.0 };
+        let bg_alpha = if disabled { 8.0 / 255.0 } else { 15.0 / 255.0 };
+        context.set_source_rgba(1.0, 1.0, 1.0, bg_alpha);
         context.fill_preserve().ok();
         context.set_source_rgba(1.0, 1.0, 1.0, alpha);
-        context.set_line_width(1.5);
+        context.set_line_width(1.0);
         context.stroke().ok();
     }
 }
@@ -46,16 +46,12 @@ pub(crate) fn draw_dropdown_button(
     label: &str,
     hovered: bool,
 ) {
-    context.set_source_rgba(0.0, 0.0, 0.0, 60.0 / 255.0);
+    context.set_source_rgba(1.0, 1.0, 1.0, 15.0 / 255.0);
     super::rounded_rect_path(context, x, y, w, h, 6.0);
     if hovered {
         context.set_source_rgba(1.0, 1.0, 1.0, 20.0 / 255.0);
     }
     context.fill().ok();
-    context.set_source_rgba(1.0, 1.0, 1.0, 40.0 / 255.0);
-    context.set_line_width(1.0);
-    super::rounded_rect_path(context, x, y, w, h, 6.0);
-    context.stroke().ok();
 
     context.select_font_face(
         "Sans",
@@ -86,9 +82,10 @@ pub(crate) fn draw_settings_menu(
     panel_y: f64,
     screen_width: f64,
     screen_height: f64,
-    background: Option<&BackgroundFrame>,
+    _background: Option<&BackgroundFrame>,
     tab: SettingsTab,
     hovered_item: i32,
+    hovered_dropdown_item: i32,
     dropdown_open: Option<usize>,
     video_max_res: usize,
     video_fps: usize,
@@ -117,19 +114,6 @@ pub(crate) fn draw_settings_menu(
     let accent_r = 176.0 / 255.0;
     let accent_g = 92.0 / 255.0;
     let accent_b = 56.0 / 255.0;
-    let accent_rim = (1.0, 214.0 / 255.0, 186.0 / 255.0);
-
-    // Glow
-    let _ = context.save();
-    let glow_cx = menu_x + menu_w / 2.0;
-    let glow_cy = menu_y + menu_h / 2.0;
-    let glow = gtk4::cairo::RadialGradient::new(glow_cx, glow_cy, 0.0, glow_cx, glow_cy, menu_w);
-    glow.add_color_stop_rgba(0.0, accent_r, accent_g, accent_b, 40.0 / 255.0);
-    glow.add_color_stop_rgba(0.6, 0.0, 0.0, 0.0, 0.0);
-    let _ = context.set_source(&glow);
-    context.rectangle(menu_x - 40.0, menu_y - 40.0, menu_w + 80.0, menu_h + 80.0);
-    let _ = context.fill();
-    let _ = context.restore();
 
     super::draw_frosted_panel(
         context,
@@ -137,37 +121,49 @@ pub(crate) fn draw_settings_menu(
         menu_y,
         menu_w,
         menu_h,
-        12.0,
+        10.0,
         screen_width,
         screen_height,
-        background,
+        None,
     );
 
-    // Header
     context.select_font_face(
         "Sans",
         gtk4::cairo::FontSlant::Normal,
         gtk4::cairo::FontWeight::Bold,
     );
-    context.set_font_size(10.7);
-    context.set_source_rgba(1.0, 224.0 / 255.0, 196.0 / 255.0, 176.0 / 255.0);
-    if let Ok(_ext) = context.text_extents("RECORDING CONTROLS") {
-        context.move_to(menu_x + 18.0, menu_y + 28.0);
-        context.show_text("RECORDING CONTROLS").ok();
-    }
-    context.set_font_size(18.7);
-    context.set_source_rgba(245.0 / 255.0, 245.0 / 255.0, 246.0 / 255.0, 1.0);
-    if let Ok(_ext) = context.text_extents("Recording Setup") {
-        context.move_to(menu_x + 18.0, menu_y + 48.0);
-        context.show_text("Recording Setup").ok();
+    context.set_font_size(14.0);
+    context.set_source_rgba(241.0 / 255.0, 241.0 / 255.0, 243.0 / 255.0, 230.0 / 255.0);
+    if let Ok(extents) = context.text_extents("Recording setup") {
+        context.move_to(
+            menu_x + 18.0 - extents.x_bearing(),
+            menu_y + 27.0 - extents.height() / 2.0 - extents.y_bearing(),
+        );
+        context.show_text("Recording setup").ok();
     }
 
     // Tabs
     let tabs = ["General", "Video", "GIF"];
-    let tab_w = 78.0;
-    let tab_h = 32.0;
-    let tab_start_x = menu_x + (menu_w - tabs.len() as f64 * tab_w) / 2.0;
-    let tab_y = menu_y + 64.0;
+    let tab_container_x = menu_x + 18.0;
+    let tab_container_y = menu_y + 50.0;
+    let tab_container_w = menu_w - 36.0;
+    let tab_w = (tab_container_w - 8.0) / tabs.len() as f64;
+    let tab_h = 30.0;
+    let tab_start_x = tab_container_x + 4.0;
+    let tab_y = tab_container_y + 4.0;
+    super::rounded_rect_path(
+        context,
+        tab_container_x,
+        tab_container_y,
+        tab_container_w,
+        38.0,
+        9.0,
+    );
+    context.set_source_rgba(1.0, 1.0, 1.0, 10.0 / 255.0);
+    context.fill_preserve().ok();
+    context.set_source_rgba(1.0, 1.0, 1.0, 20.0 / 255.0);
+    context.set_line_width(1.0);
+    context.stroke().ok();
 
     for (i, tab_label) in tabs.iter().enumerate() {
         let tr = RectF {
@@ -182,32 +178,15 @@ pub(crate) fn draw_settings_menu(
         let tab_hovered = hovered_item == i as i32;
         if is_active_tab || tab_hovered {
             if is_active_tab {
-                context.set_source_rgba(accent_r, accent_g, accent_b, 84.0 / 255.0);
+                context.set_source_rgba(accent_r, accent_g, accent_b, 1.0);
             } else {
-                context.set_source_rgba(1.0, 1.0, 1.0, 14.0 / 255.0);
+                context.set_source_rgba(1.0, 1.0, 1.0, 20.0 / 255.0);
             }
-            super::rounded_rect_path(context, tr.x, tr.y, tr.width, tr.height, 9.0);
+            super::rounded_rect_path(context, tr.x, tr.y, tr.width, tr.height, 6.0);
             context.fill().ok();
-            if is_active_tab {
-                let _ = context.save();
-                super::rounded_rect_path(context, tr.x, tr.y, tr.width, tr.height, 9.0);
-                context.clip();
-                super::rounded_rect_path(
-                    context,
-                    tr.x + 0.5,
-                    tr.y + 0.5,
-                    tr.width - 1.0,
-                    tr.height - 1.0,
-                    8.5,
-                );
-                context.set_source_rgba(accent_rim.0, accent_rim.1, accent_rim.2, 1.0);
-                context.set_line_width(1.0);
-                context.stroke().ok();
-                let _ = context.restore();
-            }
         }
         let tab_text_color = if is_active_tab || tab_hovered {
-            (1.0, 236.0 / 255.0, 220.0 / 255.0, 1.0)
+            (1.0, 1.0, 1.0, 1.0)
         } else {
             (1.0, 1.0, 1.0, 150.0 / 255.0)
         };
@@ -220,7 +199,7 @@ pub(crate) fn draw_settings_menu(
                 gtk4::cairo::FontWeight::Normal
             },
         );
-        context.set_font_size(13.7);
+        context.set_font_size(12.0);
         context.set_source_rgba(
             tab_text_color.0,
             tab_text_color.1,
@@ -291,7 +270,7 @@ pub(crate) fn draw_settings_menu(
             menu_w,
             tab,
             drop_idx,
-            hovered_item,
+            hovered_dropdown_item,
             video_max_res,
             video_fps,
             gif_size_idx,
@@ -318,13 +297,25 @@ pub(crate) fn draw_settings_general_tab(
     _accent_g: f64,
     _accent_b: f64,
 ) {
-    let label_x = menu_x + 25.0;
-    let value_x = menu_x + 140.0;
-    let check_area_w = menu_w - (value_x - menu_x) - 20.0; // 280
-    let desc_x = value_x + 28.0;
-    let row_h = 32.0;
-    let mut y = menu_y + 110.0;
+    let label_x = menu_x + 32.0;
+    let value_x = menu_x + menu_w - 50.0;
+    let check_area_w = menu_w - 36.0;
+    let desc_x = label_x + 110.0;
+    let row_h = 44.0;
+    let mut y = menu_y + 106.0;
     let mut idx = 3;
+
+    super::rounded_rect_path(context, menu_x + 18.0, y, menu_w - 36.0, row_h * 6.0, 10.0);
+    context.set_source_rgba(1.0, 1.0, 1.0, 10.0 / 255.0);
+    context.fill().ok();
+    context.set_source_rgba(1.0, 1.0, 1.0, 13.0 / 255.0);
+    context.set_line_width(1.0);
+    for i in 1..6 {
+        let divider_y = y + row_h * i as f64;
+        context.move_to(menu_x + 32.0, divider_y);
+        context.line_to(menu_x + menu_w - 32.0, divider_y);
+        context.stroke().ok();
+    }
 
     macro_rules! s {
         ($label:expr, $desc:expr, $checked:expr) => {{
@@ -345,38 +336,14 @@ pub(crate) fn draw_settings_general_tab(
             idx += 1;
             y += row_h;
         }};
-        ($label:expr, $desc:expr, $checked:expr, $gap:expr) => {{
-            y += $gap;
-            draw_general_row(
-                context,
-                label_x,
-                value_x,
-                desc_x,
-                check_area_w,
-                y,
-                row_h,
-                $label,
-                $desc,
-                $checked,
-                false,
-                hovered_item == idx,
-            );
-            idx += 1;
-            y += row_h;
-        }};
     }
 
-    s!("Controls", "Use keyboard shortcuts", rec_controls);
-    s!("HiDPI", "Record at display scale res", hidpi);
-    s!("Notifications", "DND while recording", do_not_disturb);
-    s!(
-        "Recording area",
-        "Remember last selection",
-        remember_selection,
-        10.0
-    );
-    s!("", "Dim screen while recording", dim_screen);
-    s!("", "Show countdown", show_countdown);
+    s!("Controls", "Keyboard shortcuts", rec_controls);
+    s!("HiDPI", "Display scale resolution", hidpi);
+    s!("Notifications", "Do Not Disturb", do_not_disturb);
+    s!("Selection", "Remember last area", remember_selection);
+    s!("Dim screen", "While recording", dim_screen);
+    s!("Countdown", "Before recording", show_countdown);
     let _ = y;
     let _ = idx;
 }
@@ -401,7 +368,7 @@ pub(crate) fn draw_general_row(
             gtk4::cairo::FontSlant::Normal,
             gtk4::cairo::FontWeight::Bold,
         );
-        context.set_font_size(13.3);
+        context.set_font_size(12.0);
         context.set_source_rgba(
             1.0,
             1.0,
@@ -413,18 +380,16 @@ pub(crate) fn draw_general_row(
             },
         );
         if let Ok(extents) = context.text_extents(label) {
-            // Right-aligned in 110px area starting at label_x
-            let tx = label_x + 110.0 - extents.width() - extents.x_bearing();
             context.move_to(
-                tx,
+                label_x - extents.x_bearing(),
                 y + row_h / 2.0 - extents.height() / 2.0 - extents.y_bearing(),
             );
             context.show_text(label).ok();
         }
     }
     if hover {
-        super::rounded_rect_path(context, value_x - 5.0, y, 290.0, row_h, 6.0);
-        context.set_source_rgba(1.0, 1.0, 1.0, 12.0 / 255.0);
+        super::rounded_rect_path(context, label_x - 14.0, y, _check_area_w, row_h, 6.0);
+        context.set_source_rgba(1.0, 1.0, 1.0, 16.0 / 255.0);
         context.fill().ok();
     }
     let cb_size = 18.0;
@@ -444,11 +409,20 @@ pub(crate) fn draw_general_row(
         gtk4::cairo::FontSlant::Normal,
         gtk4::cairo::FontWeight::Normal,
     );
-    context.set_font_size(13.3);
-    context.set_source_rgba(1.0, 1.0, 1.0, if disabled { 110.0 / 255.0 } else { 1.0 });
+    context.set_font_size(11.0);
+    context.set_source_rgba(
+        1.0,
+        1.0,
+        1.0,
+        if disabled {
+            100.0 / 255.0
+        } else {
+            155.0 / 255.0
+        },
+    );
     if let Ok(extents) = context.text_extents(desc) {
         // Clip description to available width (252px like C++)
-        let max_desc_w = 252.0;
+        let max_desc_w = value_x - desc_x - 10.0;
         if extents.width() > max_desc_w {
             let _ = context.save();
             context.rectangle(desc_x, y, max_desc_w, row_h);
@@ -479,92 +453,113 @@ pub(crate) fn draw_settings_video_tab(
     _accent_g: f64,
     _accent_b: f64,
 ) {
-    let label_x = menu_x + 20.0;
-    let value_x = menu_x + 130.0;
-    let mut curr_y = menu_y + 110.0;
+    let card_x = menu_x + 18.0;
+    let card_y = menu_y + 106.0;
+    let card_w = menu_w - 36.0;
+    let row_heights = [76.0, 52.0, 52.0, 76.0];
+    let card_h: f64 = row_heights.iter().sum();
+    let label_x = card_x + 14.0;
+    let control_right = card_x + card_w - 14.0;
 
-    let draw_label = |context: &gtk4::cairo::Context, txt: &str, y: f64| {
-        context.select_font_face(
-            "Sans",
-            gtk4::cairo::FontSlant::Normal,
-            gtk4::cairo::FontWeight::Bold,
-        );
-        context.set_font_size(13.3);
-        context.set_source_rgba(1.0, 1.0, 1.0, 200.0 / 255.0);
-        if let Ok(extents) = context.text_extents(txt) {
-            context.move_to(
-                label_x + 100.0 - extents.width() - extents.x_bearing(),
-                y + 20.0 - extents.height() / 2.0 - extents.y_bearing(),
+    super::rounded_rect_path(context, card_x, card_y, card_w, card_h, 10.0);
+    context.set_source_rgba(1.0, 1.0, 1.0, 10.0 / 255.0);
+    context.fill().ok();
+    context.set_source_rgba(1.0, 1.0, 1.0, 13.0 / 255.0);
+    context.set_line_width(1.0);
+    let mut divider_y = card_y;
+    for height in row_heights.iter().take(3) {
+        divider_y += height;
+        context.move_to(card_x + 14.0, divider_y);
+        context.line_to(card_x + card_w - 14.0, divider_y);
+        context.stroke().ok();
+    }
+
+    let draw_text =
+        |context: &gtk4::cairo::Context, text: &str, x: f64, y: f64, bold: bool, alpha: f64| {
+            context.select_font_face(
+                "Sans",
+                gtk4::cairo::FontSlant::Normal,
+                if bold {
+                    gtk4::cairo::FontWeight::Bold
+                } else {
+                    gtk4::cairo::FontWeight::Normal
+                },
             );
-            context.show_text(txt).ok();
-        }
-    };
+            context.set_font_size(if bold { 13.0 } else { 11.5 });
+            context.set_source_rgba(1.0, 1.0, 1.0, alpha);
+            context.move_to(x, y);
+            context.show_text(text).ok();
+        };
 
-    // Max resolution
-    draw_label(context, "Max resolution:", curr_y);
+    let row1 = card_y;
+    if hovered_item == 3 {
+        super::rounded_rect_path(context, card_x, row1, card_w, row_heights[0], 8.0);
+        context.set_source_rgba(1.0, 1.0, 1.0, 16.0 / 255.0);
+        context.fill().ok();
+    }
+    draw_text(
+        context,
+        "Maximum resolution",
+        label_x,
+        row1 + 25.0,
+        true,
+        0.9,
+    );
+    draw_text(
+        context,
+        "Reduce file size and upload time",
+        label_x,
+        row1 + 48.0,
+        false,
+        0.55,
+    );
     let res_options = ["Original", "1080p", "720p"];
     draw_dropdown_button(
         context,
-        value_x,
-        curr_y,
-        140.0,
+        control_right - 136.0,
+        row1 + 22.0,
+        136.0,
         30.0,
         res_options[video_max_res],
         hovered_item == 3,
     );
-    curr_y += 35.0;
-    context.select_font_face(
-        "Sans",
-        gtk4::cairo::FontSlant::Normal,
-        gtk4::cairo::FontWeight::Normal,
-    );
-    context.set_font_size(12.0);
-    context.set_source_rgba(1.0, 1.0, 1.0, 120.0 / 255.0);
-    // Clip subtext to prevent overflow
-    let _ = context.save();
-    context.rectangle(value_x, curr_y, menu_w - (value_x - menu_x) - 25.0, 80.0);
-    context.clip();
-    if let Ok(extents) = context.text_extents("Set max res to reduce file size") {
-        context.move_to(
-            value_x - extents.x_bearing(),
-            curr_y + 16.0 - extents.height() / 2.0 - extents.y_bearing(),
-        );
-        context.show_text("Set max res to reduce file size").ok();
-    }
-    let _ = context.restore();
-    curr_y += 50.0;
 
-    // Video FPS
-    draw_label(context, "Video FPS:", curr_y);
+    let row2 = row1 + row_heights[0];
+    if hovered_item == 4 {
+        super::rounded_rect_path(context, card_x, row2, card_w, row_heights[1], 6.0);
+        context.set_source_rgba(1.0, 1.0, 1.0, 16.0 / 255.0);
+        context.fill().ok();
+    }
+    draw_text(context, "Frame rate", label_x, row2 + 31.0, true, 0.9);
     let fps_options = ["24", "30", "50", "60"];
     draw_dropdown_button(
         context,
-        value_x,
-        curr_y,
-        80.0,
+        control_right - 76.0,
+        row2 + 11.0,
+        76.0,
         30.0,
         fps_options[video_fps],
         hovered_item == 4,
     );
-    curr_y += 45.0;
 
-    // Record mono
-    let mono_hovered = hovered_item == 5;
-    if mono_hovered {
-        let r = RectF {
-            x: value_x,
-            y: curr_y,
-            width: 200.0,
-            height: 30.0,
-        };
-        super::rounded_rect_path(context, r.x - 5.0, r.y, r.width + 10.0, r.height, 6.0);
-        context.set_source_rgba(1.0, 1.0, 1.0, 12.0 / 255.0);
+    let row3 = row2 + row_heights[1];
+    if hovered_item == 5 {
+        super::rounded_rect_path(context, card_x, row3, card_w, row_heights[2], 6.0);
+        context.set_source_rgba(1.0, 1.0, 1.0, 16.0 / 255.0);
         context.fill().ok();
     }
+    draw_text(
+        context,
+        "Record audio in mono",
+        label_x,
+        row3 + 31.0,
+        true,
+        0.9,
+    );
     draw_checkbox(
         context,
-        value_x,
-        curr_y + (30.0 - 18.0) / 2.0,
+        control_right - 18.0,
+        row3 + 17.0,
         18.0,
         record_mono,
         false,
@@ -572,40 +567,33 @@ pub(crate) fn draw_settings_video_tab(
         92.0 / 255.0,
         56.0 / 255.0,
     );
-    context.select_font_face(
-        "Sans",
-        gtk4::cairo::FontSlant::Normal,
-        gtk4::cairo::FontWeight::Normal,
-    );
-    context.set_font_size(13.3);
-    context.set_source_rgba(1.0, 1.0, 1.0, 1.0);
-    if let Ok(extents) = context.text_extents("Record audio in mono") {
-        context.move_to(
-            value_x + 28.0 - extents.x_bearing(),
-            curr_y + 15.0 - extents.height() / 2.0 - extents.y_bearing(),
-        );
-        context.show_text("Record audio in mono").ok();
-    }
-    curr_y += 50.0;
 
-    // Open editor
-    draw_label(context, "Video Encoder:", curr_y);
-    let encoder_hovered = hovered_item == 6;
-    if encoder_hovered {
-        let r = RectF {
-            x: value_x,
-            y: curr_y,
-            width: 250.0,
-            height: 30.0,
-        };
-        super::rounded_rect_path(context, r.x - 5.0, r.y, r.width + 10.0, r.height, 6.0);
-        context.set_source_rgba(1.0, 1.0, 1.0, 12.0 / 255.0);
+    let row4 = row3 + row_heights[2];
+    if hovered_item == 6 {
+        super::rounded_rect_path(context, card_x, row4, card_w, row_heights[3], 8.0);
+        context.set_source_rgba(1.0, 1.0, 1.0, 16.0 / 255.0);
         context.fill().ok();
     }
+    draw_text(
+        context,
+        "Open video editor",
+        label_x,
+        row4 + 27.0,
+        true,
+        0.9,
+    );
+    draw_text(
+        context,
+        "Edit quality, resolution and audio after recording",
+        label_x,
+        row4 + 50.0,
+        false,
+        0.55,
+    );
     draw_checkbox(
         context,
-        value_x,
-        curr_y + (30.0 - 18.0) / 2.0,
+        control_right - 18.0,
+        row4 + 29.0,
         18.0,
         open_editor,
         false,
@@ -613,50 +601,13 @@ pub(crate) fn draw_settings_video_tab(
         92.0 / 255.0,
         56.0 / 255.0,
     );
-    context.select_font_face(
-        "Sans",
-        gtk4::cairo::FontSlant::Normal,
-        gtk4::cairo::FontWeight::Normal,
-    );
-    context.set_font_size(13.3);
-    context.set_source_rgba(1.0, 1.0, 1.0, 1.0);
-    if let Ok(extents) = context.text_extents("Open editor after recording") {
-        context.move_to(
-            value_x + 28.0 - extents.x_bearing(),
-            curr_y + 15.0 - extents.height() / 2.0 - extents.y_bearing(),
-        );
-        context.show_text("Open editor after recording").ok();
-    }
-    // Clip remaining editor subtext
-    curr_y += 35.0;
-    let _ = context.save();
-    context.rectangle(value_x, curr_y, menu_w - (value_x - menu_x) - 25.0, 80.0);
-    context.clip();
-    context.select_font_face(
-        "Sans",
-        gtk4::cairo::FontSlant::Normal,
-        gtk4::cairo::FontWeight::Normal,
-    );
-    context.set_font_size(12.0);
-    context.set_source_rgba(1.0, 1.0, 1.0, 120.0 / 255.0);
-    if let Ok(extents) = context.text_extents("Use editor to change quality and audio") {
-        context.move_to(
-            value_x - extents.x_bearing(),
-            curr_y + 16.0 - extents.height() / 2.0 - extents.y_bearing(),
-        );
-        context
-            .show_text("Use editor to change quality and audio")
-            .ok();
-    }
-    let _ = context.restore();
-    let _ = curr_y;
 }
 
 pub(crate) fn draw_settings_gif_tab(
     context: &gtk4::cairo::Context,
     menu_x: f64,
     menu_y: f64,
-    _menu_w: f64,
+    menu_w: f64,
     hovered_item: i32,
     gif_fps: f64,
     gif_quality: f64,
@@ -666,9 +617,26 @@ pub(crate) fn draw_settings_gif_tab(
     _accent_g: f64,
     _accent_b: f64,
 ) {
-    let label_x = menu_x + 20.0;
-    let value_x = menu_x + 130.0;
-    let mut curr_y = menu_y + 110.0;
+    let card_x = menu_x + 18.0;
+    let card_y = menu_y + 106.0;
+    let card_w = menu_w - 36.0;
+    let row_heights = [64.0, 72.0, 52.0, 64.0];
+    let card_h: f64 = row_heights.iter().sum();
+    let label_x = card_x + 14.0;
+    let control_right = card_x + card_w - 14.0;
+
+    super::rounded_rect_path(context, card_x, card_y, card_w, card_h, 10.0);
+    context.set_source_rgba(1.0, 1.0, 1.0, 10.0 / 255.0);
+    context.fill().ok();
+    context.set_source_rgba(1.0, 1.0, 1.0, 13.0 / 255.0);
+    context.set_line_width(1.0);
+    let mut divider_y = card_y;
+    for height in row_heights.iter().take(3) {
+        divider_y += height;
+        context.move_to(card_x + 14.0, divider_y);
+        context.line_to(card_x + card_w - 14.0, divider_y);
+        context.stroke().ok();
+    }
 
     let draw_label = |context: &gtk4::cairo::Context, txt: &str, y: f64| {
         context.select_font_face(
@@ -679,24 +647,22 @@ pub(crate) fn draw_settings_gif_tab(
         context.set_font_size(13.3);
         context.set_source_rgba(1.0, 1.0, 1.0, 200.0 / 255.0);
         if let Ok(extents) = context.text_extents(txt) {
-            context.move_to(
-                label_x + 100.0 - extents.width() - extents.x_bearing(),
-                y + 20.0 - extents.height() / 2.0 - extents.y_bearing(),
-            );
+            context.move_to(label_x - extents.x_bearing(), y - extents.y_bearing());
             context.show_text(txt).ok();
         }
     };
 
-    // GIF FPS
-    draw_label(context, "GIF FPS:", curr_y);
+    let row1 = card_y;
+    if hovered_item == 3 {
+        super::rounded_rect_path(context, card_x, row1, card_w, row_heights[0], 8.0);
+        context.set_source_rgba(1.0, 1.0, 1.0, 16.0 / 255.0);
+        context.fill().ok();
+    }
+    draw_label(context, "Frame rate", row1 + 37.0);
     let fps_label = format!("{:.0}", gif_fps);
-    context.set_source_rgba(0.0, 0.0, 0.0, 80.0 / 255.0);
-    super::rounded_rect_path(context, value_x, curr_y, 45.0, 30.0, 6.0);
+    context.set_source_rgba(1.0, 1.0, 1.0, 15.0 / 255.0);
+    super::rounded_rect_path(context, menu_x + 140.0, row1 + 17.0, 45.0, 30.0, 6.0);
     context.fill().ok();
-    context.set_source_rgba(1.0, 1.0, 1.0, 28.0 / 255.0);
-    context.set_line_width(1.0);
-    super::rounded_rect_path(context, value_x, curr_y, 45.0, 30.0, 6.0);
-    context.stroke().ok();
     context.set_source_rgba(1.0, 1.0, 1.0, 1.0);
     context.select_font_face(
         "Sans",
@@ -706,15 +672,14 @@ pub(crate) fn draw_settings_gif_tab(
     context.set_font_size(13.3);
     if let Ok(extents) = context.text_extents(&fps_label) {
         context.move_to(
-            value_x + 22.5 - extents.width() / 2.0 - extents.x_bearing(),
-            curr_y + 15.0 - extents.height() / 2.0 - extents.y_bearing(),
+            menu_x + 162.5 - extents.width() / 2.0 - extents.x_bearing(),
+            row1 + 32.0 - extents.height() / 2.0 - extents.y_bearing(),
         );
         context.show_text(&fps_label).ok();
     }
-    // FPS slider
-    let slider_x = value_x + 55.0;
-    let slider_w = 220.0;
-    let track_y = curr_y + (30.0 - 4.0) / 2.0;
+    let slider_x = menu_x + 200.0;
+    let slider_w = control_right - slider_x;
+    let track_y = row1 + 30.0;
     let progress = ((gif_fps - 5.0) / 55.0).clamp(0.0, 1.0);
     context.set_source_rgba(1.0, 1.0, 1.0, 30.0 / 255.0);
     super::rounded_rect_path(context, slider_x, track_y, slider_w, 4.0, 2.0);
@@ -725,55 +690,68 @@ pub(crate) fn draw_settings_gif_tab(
     let handle_x = slider_x + progress * slider_w;
     context.set_source_rgba(1.0, 1.0, 1.0, 1.0);
     context.new_path();
-    context.arc(handle_x, curr_y + 15.0, 10.0, 0.0, PI * 2.0);
+    context.arc(handle_x, track_y + 2.0, 7.0, 0.0, PI * 2.0);
     context.fill().ok();
-    curr_y += 50.0;
 
-    // GIF Quality
-    draw_label(context, "GIF quality:", curr_y);
-    let q_slider_w = 160.0;
-    let q_track_y = curr_y + (30.0 - 4.0) / 2.0;
+    let row2 = row1 + row_heights[0];
+    if hovered_item == 4 {
+        super::rounded_rect_path(context, card_x, row2, card_w, row_heights[1], 6.0);
+        context.set_source_rgba(1.0, 1.0, 1.0, 16.0 / 255.0);
+        context.fill().ok();
+    }
+    draw_label(context, "Quality", row2 + 29.0);
+    let q_slider_x = menu_x + 160.0;
+    let q_slider_w = control_right - q_slider_x;
+    let q_track_y = row2 + 27.0;
     context.set_source_rgba(1.0, 1.0, 1.0, 30.0 / 255.0);
-    super::rounded_rect_path(context, value_x, q_track_y, q_slider_w, 4.0, 2.0);
+    super::rounded_rect_path(context, q_slider_x, q_track_y, q_slider_w, 4.0, 2.0);
+    context.fill().ok();
+    context.set_source_rgba(176.0 / 255.0, 92.0 / 255.0, 56.0 / 255.0, 1.0);
+    super::rounded_rect_path(
+        context,
+        q_slider_x,
+        q_track_y,
+        q_slider_w * gif_quality,
+        4.0,
+        2.0,
+    );
     context.fill().ok();
     // Ticks
     context.set_source_rgba(1.0, 1.0, 1.0, 60.0 / 255.0);
     context.set_line_width(1.0);
     for i in 0..=8 {
-        let tx = value_x + (q_slider_w / 8.0) * i as f64;
-        context.move_to(tx, curr_y + 15.0 - 5.0);
-        context.line_to(tx, curr_y + 15.0 + 5.0);
+        let tx = q_slider_x + (q_slider_w / 8.0) * i as f64;
+        context.move_to(tx, q_track_y - 4.0);
+        context.line_to(tx, q_track_y + 8.0);
         context.stroke().ok();
     }
     // Quality handle
-    let q_handle_x = value_x + gif_quality * q_slider_w;
+    let q_handle_x = q_slider_x + gif_quality * q_slider_w;
     context.set_source_rgba(1.0, 1.0, 1.0, 1.0);
-    super::rounded_rect_path(
-        context,
-        q_handle_x - 5.0,
-        curr_y + (30.0 - 18.0) / 2.0,
-        10.0,
-        18.0,
-        3.0,
-    );
+    context.new_path();
+    context.arc(q_handle_x, q_track_y + 2.0, 7.0, 0.0, PI * 2.0);
     context.fill().ok();
     context.set_font_size(10.7);
     context.set_source_rgba(1.0, 1.0, 1.0, 120.0 / 255.0);
     if let Ok(_ext) = context.text_extents("Low") {
-        context.move_to(value_x, curr_y + 46.0);
+        context.move_to(q_slider_x, row2 + 57.0);
         context.show_text("Low").ok();
     }
     if let Ok(_ext) = context.text_extents("High") {
-        context.move_to(value_x + q_slider_w - 40.0, curr_y + 46.0);
+        context.move_to(q_slider_x + q_slider_w - 22.0, row2 + 57.0);
         context.show_text("High").ok();
     }
-    // Optimize checkbox
-    let optimize_x = value_x + q_slider_w + 10.0;
-    let optimize_y = curr_y;
+    let row3 = row2 + row_heights[1];
+    if hovered_item == 5 {
+        super::rounded_rect_path(context, card_x, row3, card_w, row_heights[2], 6.0);
+        context.set_source_rgba(1.0, 1.0, 1.0, 16.0 / 255.0);
+        context.fill().ok();
+    }
+    draw_label(context, "Optimize GIF", row3 + 32.0);
     draw_checkbox(
         context,
-        optimize_x,
-        optimize_y + (30.0 - 18.0) / 2.0,
+        control_right - 18.0,
+        row3 + 17.0,
         18.0,
         optimize_gif,
         false,
@@ -781,29 +759,18 @@ pub(crate) fn draw_settings_gif_tab(
         92.0 / 255.0,
         56.0 / 255.0,
     );
-    context.select_font_face(
-        "Sans",
-        gtk4::cairo::FontSlant::Normal,
-        gtk4::cairo::FontWeight::Normal,
-    );
-    context.set_font_size(13.3);
-    context.set_source_rgba(1.0, 1.0, 1.0, 1.0);
-    if let Ok(extents) = context.text_extents("Optimize GIFs") {
-        context.move_to(
-            optimize_x + 25.0 - extents.x_bearing(),
-            optimize_y + 15.0 - extents.height() / 2.0 - extents.y_bearing(),
-        );
-        context.show_text("Optimize GIFs").ok();
+    let row4 = row3 + row_heights[2];
+    if hovered_item == 6 {
+        super::rounded_rect_path(context, card_x, row4, card_w, row_heights[3], 8.0);
+        context.set_source_rgba(1.0, 1.0, 1.0, 16.0 / 255.0);
+        context.fill().ok();
     }
-    curr_y += 115.0;
-
-    // GIF size
-    draw_label(context, "GIF size:", curr_y);
+    draw_label(context, "Output size", row4 + 38.0);
     let size_options = ["800 x auto", "640 x auto", "480 x auto", "Original"];
     draw_dropdown_button(
         context,
-        value_x,
-        curr_y,
+        control_right - 180.0,
+        row4 + 17.0,
         180.0,
         30.0,
         size_options[gif_size_idx],
@@ -818,7 +785,7 @@ pub(crate) fn draw_settings_dropdown_popup(
     _menu_w: f64,
     tab: SettingsTab,
     drop_idx: usize,
-    _hovered_item: i32,
+    hovered_item: i32,
     video_max_res: usize,
     video_fps: usize,
     gif_size_idx: usize,
@@ -835,10 +802,14 @@ pub(crate) fn draw_settings_dropdown_popup(
         ),
         _ => return,
     };
-    let value_x = menu_x + 130.0;
+    let popup_w = if matches!((tab, drop_idx), (SettingsTab::Gif, 6)) {
+        180.0
+    } else {
+        160.0
+    };
+    let value_x = menu_x + 408.0 - popup_w;
     let popup_y = compute_dropdown_popup_y(menu_y, drop_idx, tab);
     let item_h = 30.0;
-    let popup_w = 140.0;
     if options.is_empty() {
         return;
     }
@@ -853,6 +824,18 @@ pub(crate) fn draw_settings_dropdown_popup(
             width: popup_w,
             height: item_h,
         };
+        if hovered_item == i as i32 {
+            super::rounded_rect_path(
+                context,
+                r.x + 2.0,
+                r.y + 2.0,
+                r.width - 4.0,
+                r.height - 2.0,
+                5.0,
+            );
+            context.set_source_rgba(1.0, 1.0, 1.0, 20.0 / 255.0);
+            context.fill().ok();
+        }
         if i == current_val {
             let _ = context.save();
             super::rounded_rect_path(
@@ -863,7 +846,7 @@ pub(crate) fn draw_settings_dropdown_popup(
                 r.height - 2.0,
                 5.0,
             );
-            context.set_source_rgba(accent_r, accent_g, accent_b, 84.0 / 255.0);
+            context.set_source_rgba(accent_r, accent_g, accent_b, 28.0 / 255.0);
             context.fill().ok();
             let _ = context.restore();
         }
@@ -880,6 +863,16 @@ pub(crate) fn draw_settings_dropdown_popup(
                 r.y + item_h / 2.0 - extents.height() / 2.0 - extents.y_bearing(),
             );
             context.show_text(opt).ok();
+        }
+        if i == current_val {
+            let cx = r.x + r.width - 16.0;
+            let cy = r.y + item_h / 2.0;
+            context.set_source_rgba(accent_r, accent_g, accent_b, 1.0);
+            context.set_line_width(1.6);
+            context.move_to(cx - 4.0, cy);
+            context.line_to(cx - 1.0, cy + 3.0);
+            context.line_to(cx + 5.0, cy - 4.0);
+            context.stroke().ok();
         }
     }
 }

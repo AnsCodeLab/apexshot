@@ -7,10 +7,11 @@ use super::super::super::geometry::{
 use super::super::super::hit_testing::{capture_crop_menu_hit_item, toolbar_hit_at};
 use super::super::super::layout::{
     compute_scroll_popup_layout, compute_volume_popup_layout, compute_window_picker_layout,
-    ToolbarHit,
+    volume_from_pill_y, ToolbarHit,
 };
 use super::super::super::recording::hit_testing::{
-    recording_crop_menu_hit_item, recording_tile_at, settings_menu_hit_item,
+    recording_crop_menu_hit_item, recording_tile_at, settings_dropdown_hit_item,
+    settings_menu_hit_item,
 };
 use super::super::super::state::{OverlayMode, SelectorState};
 use super::super::audio::{set_mic_volume, set_speaker_volume};
@@ -55,17 +56,17 @@ pub(in crate::overlay::window) fn wire_selection_motion(
                     if st.recording.settings_menu_open {
                         let menu_x = (rect.left + (rect.width() - 440.0) / 2.0)
                             .clamp(10.0, screen_width as f64 - 450.0);
-                        let value_x = menu_x + 130.0;
                         if slider == 0 {
-                            let slider_x = value_x + 55.0;
-                            let slider_w = 220.0;
+                            let slider_x = menu_x + 200.0;
+                            let slider_w = 208.0;
                             let click_x = x.clamp(slider_x, slider_x + slider_w);
                             st.recording.gif_fps = 5.0 + (click_x - slider_x) / slider_w * 55.0;
                         } else {
-                            let q_slider_w = 160.0;
-                            let click_x = x.clamp(value_x, value_x + q_slider_w);
+                            let slider_x = menu_x + 160.0;
+                            let q_slider_w = 248.0;
+                            let click_x = x.clamp(slider_x, slider_x + q_slider_w);
                             st.recording.gif_quality =
-                                ((click_x - value_x) / q_slider_w).clamp(0.0, 1.0);
+                                ((click_x - slider_x) / q_slider_w).clamp(0.0, 1.0);
                         }
                     }
                     st.recording.hovered_settings_item = -1;
@@ -91,19 +92,17 @@ pub(in crate::overlay::window) fn wire_selection_motion(
                         rect.left,
                         rect.top,
                         rect.width(),
+                        rect.height(),
                         screen_width as f64,
                         screen_height as f64,
                     );
-                    let slider_x = vol.slider_x;
-                    let slider_w = vol.slider_w;
-                    let click_x = x.clamp(slider_x, slider_x + slider_w);
-                    let fraction = ((click_x - slider_x) / slider_w).clamp(0.0, 1.0);
+                    let volume = volume_from_pill_y(vol.panel, y);
                     if st.recording.mic_volume_popup_open {
-                        st.recording.mic_volume = fraction;
-                        set_mic_volume(fraction);
+                        st.recording.mic_volume = volume;
+                        set_mic_volume(volume);
                     } else {
-                        st.recording.speaker_volume = fraction;
-                        set_speaker_volume(fraction);
+                        st.recording.speaker_volume = volume;
+                        set_speaker_volume(volume);
                     }
                     drop(st);
                     if let Some(da) = drawing_area_weak_motion.upgrade() {
@@ -161,7 +160,22 @@ pub(in crate::overlay::window) fn wire_selection_motion(
                     st.recording.hover_record_tile = None;
                     ("pointer".to_string(), changed, true)
                 } else if st.recording.settings_menu_open {
-                    if st.recording.settings_dropdown_open.is_some() {
+                    if let Some(drop_idx) = st.recording.settings_dropdown_open {
+                        let next = settings_dropdown_hit_item(
+                            rect.left,
+                            rect.top,
+                            rect.width(),
+                            screen_width as f64,
+                            screen_height as f64,
+                            x,
+                            y,
+                            st.recording.settings_tab,
+                            drop_idx,
+                        )
+                        .map(|index| index as i32)
+                        .unwrap_or(-1);
+                        let changed = next != st.recording.hovered_settings_dropdown_item;
+                        st.recording.hovered_settings_dropdown_item = next;
                         st.recording.hovered_settings_item = -1;
                         st.hovered_capture_crop_menu_item = -1;
                         st.recording.hovered_crop_menu_item = -1;
@@ -169,7 +183,7 @@ pub(in crate::overlay::window) fn wire_selection_motion(
                         st.hover_size_panel = false;
                         st.hover_crop_panel = false;
                         st.recording.hover_record_tile = None;
-                        ("pointer".to_string(), false, true)
+                        ("pointer".to_string(), changed, true)
                     } else {
                         let item = settings_menu_hit_item(
                             rect.left,
@@ -187,6 +201,7 @@ pub(in crate::overlay::window) fn wire_selection_motion(
                         if changed {
                             st.recording.hovered_settings_item = next;
                         }
+                        st.recording.hovered_settings_dropdown_item = -1;
                         st.hovered_capture_crop_menu_item = -1;
                         st.recording.hovered_crop_menu_item = -1;
                         st.hover_tool_index = None;
@@ -359,6 +374,7 @@ pub(in crate::overlay::window) fn wire_selection_motion(
                     st.hovered_capture_crop_menu_item = -1;
                     st.recording.hovered_crop_menu_item = -1;
                     st.recording.hovered_settings_item = -1;
+                    st.recording.hovered_settings_dropdown_item = -1;
 
                     (cursor_name.to_string(), hover_changed, false)
                 }
@@ -389,7 +405,8 @@ pub(in crate::overlay::window) fn wire_selection_motion(
             || st.recording.hover_record_tile.is_some()
             || st.hovered_capture_crop_menu_item != -1
             || st.recording.hovered_crop_menu_item != -1
-            || st.recording.hovered_settings_item != -1;
+            || st.recording.hovered_settings_item != -1
+            || st.recording.hovered_settings_dropdown_item != -1;
         st.hover_tool_index = None;
         st.hover_size_panel = false;
         st.hover_crop_panel = false;
@@ -397,6 +414,7 @@ pub(in crate::overlay::window) fn wire_selection_motion(
         st.hovered_capture_crop_menu_item = -1;
         st.recording.hovered_crop_menu_item = -1;
         st.recording.hovered_settings_item = -1;
+        st.recording.hovered_settings_dropdown_item = -1;
         drop(st);
 
         // Reset cursor

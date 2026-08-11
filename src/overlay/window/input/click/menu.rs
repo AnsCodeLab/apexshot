@@ -6,13 +6,13 @@ use crate::overlay::geometry::{
 };
 use crate::overlay::hit_testing::{capture_crop_menu_contains, capture_crop_menu_hit_item};
 use crate::overlay::layout::{
-    compute_scroll_popup_layout, compute_volume_popup_layout, compute_window_picker_layout, RectF,
+    compute_scroll_popup_layout, compute_volume_popup_layout, compute_window_picker_layout,
+    volume_from_pill_y,
 };
 use crate::overlay::recording::hit_testing::{
-    recording_crop_menu_contains, recording_crop_menu_hit_item, settings_menu_contains,
-    settings_menu_hit_item,
+    recording_crop_menu_contains, recording_crop_menu_hit_item, settings_dropdown_hit_item,
+    settings_menu_contains, settings_menu_hit_item,
 };
-use crate::overlay::recording::layout::compute_dropdown_popup_y;
 use crate::overlay::recording::state::SettingsTab;
 use crate::overlay::state::SelectorState;
 
@@ -176,25 +176,19 @@ pub(super) fn handle_menu_click(
             rect.left,
             rect.top,
             rect.width(),
+            rect.height(),
             screen_width as f64,
             screen_height as f64,
         );
         if vol.panel.contains(x, y) {
-            if y >= vol.track_y - 13.0
-                && y <= vol.track_y + vol.slider_track_h + 13.0
-                && x >= vol.slider_x
-                && x <= vol.slider_x + vol.slider_w
-            {
-                let fraction = ((x - vol.slider_x) / vol.slider_w).clamp(0.0, 1.0);
-                st.recording.volume_slider_dragging = true;
-                if st.recording.mic_volume_popup_open {
-                    st.recording.mic_volume = fraction;
-                    return Some(ClickEffect::SetMicVolume(fraction));
-                }
-                st.recording.speaker_volume = fraction;
-                return Some(ClickEffect::SetSpeakerVolume(fraction));
+            let volume = volume_from_pill_y(vol.panel, y);
+            st.recording.volume_slider_dragging = true;
+            if st.recording.mic_volume_popup_open {
+                st.recording.mic_volume = volume;
+                return Some(ClickEffect::SetMicVolume(volume));
             }
-            return Some(ClickEffect::Redraw);
+            st.recording.speaker_volume = volume;
+            return Some(ClickEffect::SetSpeakerVolume(volume));
         }
         st.recording.mic_volume_popup_open = false;
         st.recording.speaker_volume_popup_open = false;
@@ -214,53 +208,27 @@ fn handle_settings_menu_click(
     screen_height: i32,
 ) -> ClickEffect {
     if let Some(drop_idx) = st.recording.settings_dropdown_open {
-        let tab = match st.recording.settings_tab {
-            SettingsTab::Video => 1,
-            SettingsTab::Gif => 2,
-            _ => 0,
-        };
-        let (option_count, value_ptr): (usize, &mut usize) = if tab == 1 && drop_idx == 3 {
-            (3, &mut st.recording.video_max_res)
-        } else if tab == 1 && drop_idx == 4 {
-            (4, &mut st.recording.video_fps)
-        } else if tab == 2 && drop_idx == 6 {
-            (4, &mut st.recording.gif_size_idx)
-        } else {
-            (0, &mut 0)
-        };
-        let menu_x =
-            (rect.left + (rect.width() - 440.0) / 2.0).clamp(10.0, screen_width as f64 - 450.0);
-        let menu_y = (rect.top + 24.0).clamp(10.0, screen_height as f64 - 570.0);
-        let popup_y = compute_dropdown_popup_y(
-            menu_y,
+        let option_index = settings_dropdown_hit_item(
+            rect.left,
+            rect.top,
+            rect.width(),
+            screen_width as f64,
+            screen_height as f64,
+            x,
+            y,
+            st.recording.settings_tab,
             drop_idx,
-            match tab {
-                1 => SettingsTab::Video,
-                2 => SettingsTab::Gif,
-                _ => SettingsTab::General,
-            },
         );
-        let popup_rect = RectF {
-            x: menu_x + 130.0,
-            y: popup_y,
-            width: 140.0,
-            height: option_count as f64 * 30.0,
-        };
-        if popup_rect.contains(x, y) {
-            for option_index in 0..option_count {
-                let item_rect = RectF {
-                    x: popup_rect.x,
-                    y: popup_rect.y + option_index as f64 * 30.0,
-                    width: popup_rect.width,
-                    height: 30.0,
-                };
-                if item_rect.contains(x, y) {
-                    *value_ptr = option_index;
-                    st.recording.hovered_settings_item = -1;
-                    break;
-                }
+        if let Some(option_index) = option_index {
+            match (st.recording.settings_tab, drop_idx) {
+                (SettingsTab::Video, 3) => st.recording.video_max_res = option_index,
+                (SettingsTab::Video, 4) => st.recording.video_fps = option_index,
+                (SettingsTab::Gif, 6) => st.recording.gif_size_idx = option_index,
+                _ => {}
             }
+            st.recording.hovered_settings_item = -1;
         }
+        st.recording.hovered_settings_dropdown_item = -1;
         st.recording.settings_dropdown_open = None;
         return ClickEffect::Redraw;
     }
@@ -283,6 +251,7 @@ fn handle_settings_menu_click(
                 _ => SettingsTab::Gif,
             };
             st.recording.settings_dropdown_open = None;
+            st.recording.hovered_settings_dropdown_item = -1;
         } else if matches!(st.recording.settings_tab, SettingsTab::General) {
             match item - 3 {
                 0 => st.recording.rec_controls = !st.recording.rec_controls,
@@ -294,6 +263,7 @@ fn handle_settings_menu_click(
                 _ => {}
             }
             st.recording.settings_dropdown_open = None;
+            st.recording.hovered_settings_dropdown_item = -1;
         } else if matches!(st.recording.settings_tab, SettingsTab::Video) {
             match item - 3 {
                 0 => st.recording.settings_dropdown_open = Some(3),
@@ -305,19 +275,19 @@ fn handle_settings_menu_click(
         } else if matches!(st.recording.settings_tab, SettingsTab::Gif) {
             let menu_x =
                 (rect.left + (rect.width() - 440.0) / 2.0).clamp(10.0, screen_width as f64 - 450.0);
-            let value_x = menu_x + 130.0;
             match item - 3 {
                 0 => {
-                    let slider_x = value_x + 55.0;
-                    let slider_w = 220.0;
+                    let slider_x = menu_x + 200.0;
+                    let slider_w = 208.0;
                     let click_x = x.clamp(slider_x, slider_x + slider_w);
                     st.recording.gif_fps = 5.0 + (click_x - slider_x) / slider_w * 55.0;
                     st.recording.gif_slider_dragging = Some(0);
                 }
                 1 => {
-                    let slider_w = 160.0;
-                    let click_x = x.clamp(value_x, value_x + slider_w);
-                    st.recording.gif_quality = ((click_x - value_x) / slider_w).clamp(0.0, 1.0);
+                    let slider_x = menu_x + 160.0;
+                    let slider_w = 248.0;
+                    let click_x = x.clamp(slider_x, slider_x + slider_w);
+                    st.recording.gif_quality = ((click_x - slider_x) / slider_w).clamp(0.0, 1.0);
                     st.recording.gif_slider_dragging = Some(1);
                 }
                 2 => st.recording.optimize_gif = !st.recording.optimize_gif,
@@ -326,6 +296,7 @@ fn handle_settings_menu_click(
             }
         }
         st.recording.hovered_settings_item = -1;
+        st.recording.hovered_settings_dropdown_item = -1;
         return ClickEffect::Redraw;
     }
 
@@ -342,6 +313,7 @@ fn handle_settings_menu_click(
     }
     st.recording.settings_menu_open = false;
     st.recording.hovered_settings_item = -1;
+    st.recording.hovered_settings_dropdown_item = -1;
     st.recording.settings_dropdown_open = None;
     ClickEffect::Redraw
 }

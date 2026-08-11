@@ -759,6 +759,7 @@ pub(crate) fn draw_overlay(
                 st.recording.settings_menu_open,
                 st.recording.settings_tab,
                 st.recording.hovered_settings_item,
+                st.recording.hovered_settings_dropdown_item,
                 st.recording.settings_dropdown_open,
                 st.recording.video_max_res,
                 st.recording.video_fps,
@@ -860,6 +861,7 @@ pub(crate) fn draw_overlay(
                 st.recording.settings_menu_open,
                 st.recording.settings_tab,
                 st.recording.hovered_settings_item,
+                st.recording.hovered_settings_dropdown_item,
                 st.recording.settings_dropdown_open,
                 st.recording.video_max_res,
                 st.recording.video_fps,
@@ -886,6 +888,7 @@ pub(crate) fn draw_overlay(
                     x,
                     y,
                     sel_w,
+                    sel_h,
                     screen_width,
                     screen_height,
                 );
@@ -896,9 +899,8 @@ pub(crate) fn draw_overlay(
                         vol.panel.y,
                         screen_width,
                         screen_height,
-                        background,
                         st.recording.mic_volume,
-                        "Microphone Volume",
+                        ToolbarIcon::Mic,
                         st.recording.volume_slider_dragging,
                     );
                 }
@@ -909,9 +911,8 @@ pub(crate) fn draw_overlay(
                         vol.panel.y,
                         screen_width,
                         screen_height,
-                        background,
                         st.recording.speaker_volume,
-                        "Speaker Volume",
+                        ToolbarIcon::Speaker,
                         st.recording.volume_slider_dragging,
                     );
                 }

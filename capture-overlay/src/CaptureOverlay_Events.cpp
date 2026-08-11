@@ -244,8 +244,8 @@ void CaptureOverlay::mousePressEvent(QMouseEvent* event)
     if ((m_micVolumePopupOpen || m_speakerVolumePopupOpen) && !m_volumeSliderRect.isNull()) {
         if (m_volumeSliderRect.contains(pos)) {
             m_volumeSliderDragging = true;
-            double relX = pos.x() - m_volumeSliderRect.x();
-            double fraction = qBound(0.0, relX / m_volumeSliderRect.width(), 1.0);
+            double relY = pos.y() - m_volumeSliderRect.y();
+            double fraction = qBound(0.0, 1.0 - (relY / m_volumeSliderRect.height()), 1.0);
             if (fraction < 0.02) fraction = 0.0;
             if (fraction > 0.98) fraction = 1.0;
             if (m_micVolumePopupOpen) {
@@ -813,8 +813,8 @@ void CaptureOverlay::mouseMoveEvent(QMouseEvent* event)
 
     // ── Volume Slider Drag ─────────────────────────────────────────────────
     if (m_volumeSliderDragging && !m_volumeSliderRect.isNull()) {
-        double relX = pos.x() - m_volumeSliderRect.x();
-        double fraction = qBound(0.0, relX / m_volumeSliderRect.width(), 1.0);
+        double relY = pos.y() - m_volumeSliderRect.y();
+        double fraction = qBound(0.0, 1.0 - (relY / m_volumeSliderRect.height()), 1.0);
         // Snap to 0 and 1 near edges
         if (fraction < 0.02) fraction = 0.0;
         if (fraction > 0.98) fraction = 1.0;

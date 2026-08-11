@@ -88,17 +88,16 @@ pub(crate) fn compute_recording_deck_layout(
 }
 
 pub(crate) fn compute_dropdown_popup_y(menu_y: f64, item_idx: usize, tab: SettingsTab) -> f64 {
-    let start_y = menu_y + 110.0;
     match tab {
         SettingsTab::Video => match item_idx {
-            3 => start_y,               // res dropdown button at curr_y=110
-            4 => start_y + 35.0 + 50.0, // fps dropdown at curr_y=195
-            _ => start_y,
+            3 => menu_y + 162.0,
+            4 => menu_y + 227.0,
+            _ => menu_y + 106.0,
         },
         SettingsTab::Gif => match item_idx {
-            6 => start_y + 50.0 + 60.0 + 45.0, // size dropdown at curr_y=265
-            _ => start_y,
+            6 => menu_y + 345.0,
+            _ => menu_y + 106.0,
         },
-        _ => start_y,
+        _ => menu_y + 106.0,
     }
 }

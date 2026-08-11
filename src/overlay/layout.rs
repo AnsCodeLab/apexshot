@@ -244,38 +244,38 @@ pub(crate) fn compute_window_picker_layout(
     }
 }
 
-pub(crate) const VOLUME_POPUP_WIDTH: f64 = 280.0;
-pub(crate) const VOLUME_POPUP_HEIGHT: f64 = 130.0;
-pub(crate) const VOLUME_SLIDER_OFFSET_X: f64 = 83.0;
-pub(crate) const VOLUME_SLIDER_WIDTH: f64 = 140.0;
-pub(crate) const VOLUME_SLIDER_TRACK_H: f64 = 6.0;
-pub(crate) const VOLUME_SLIDER_ROW_Y: f64 = 78.0;
-pub(crate) const VOLUME_SLIDER_ROW_H: f64 = 46.0;
+pub(crate) const VOLUME_POPUP_WIDTH: f64 = 64.0;
+pub(crate) const VOLUME_POPUP_HEIGHT: f64 = 184.0;
+pub(crate) const VOLUME_POPUP_GAP: f64 = 12.0;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct VolumePopupLayout {
     pub(crate) panel: RectF,
-    pub(crate) slider_x: f64,
-    pub(crate) slider_w: f64,
-    pub(crate) track_y: f64,
-    pub(crate) slider_track_h: f64,
 }
 
-/// Volume popup anchored like the settings menu (selection top-centre).
+/// Vertical volume pill, preferring the right side of the selection.
 pub(crate) fn compute_volume_popup_layout(
     selection_x: f64,
     selection_y: f64,
     selection_width: f64,
+    selection_height: f64,
     screen_width: f64,
     screen_height: f64,
 ) -> VolumePopupLayout {
     let menu_w = VOLUME_POPUP_WIDTH;
     let menu_h = VOLUME_POPUP_HEIGHT;
-    let menu_x =
-        (selection_x + (selection_width - menu_w) / 2.0).clamp(10.0, screen_width - menu_w - 10.0);
-    let menu_y = (selection_y + 24.0).clamp(10.0, screen_height - menu_h - 10.0);
-    let row_y = menu_y + VOLUME_SLIDER_ROW_Y;
-    let track_y = row_y + (VOLUME_SLIDER_ROW_H - VOLUME_SLIDER_TRACK_H) / 2.0;
+    let max_x = (screen_width - menu_w - 10.0).max(10.0);
+    let max_y = (screen_height - menu_h - 10.0).max(10.0);
+    let right_x = selection_x + selection_width + VOLUME_POPUP_GAP;
+    let left_x = selection_x - VOLUME_POPUP_GAP - menu_w;
+    let menu_x = if right_x <= max_x {
+        right_x
+    } else if left_x >= 10.0 {
+        left_x
+    } else {
+        right_x.clamp(10.0, max_x)
+    };
+    let menu_y = (selection_y + (selection_height - menu_h) / 2.0).clamp(10.0, max_y);
     VolumePopupLayout {
         panel: RectF {
             x: menu_x,
@@ -283,15 +283,23 @@ pub(crate) fn compute_volume_popup_layout(
             width: menu_w,
             height: menu_h,
         },
-        slider_x: menu_x + VOLUME_SLIDER_OFFSET_X,
-        slider_w: VOLUME_SLIDER_WIDTH,
-        track_y,
-        slider_track_h: VOLUME_SLIDER_TRACK_H,
+    }
+}
+
+pub(crate) fn volume_from_pill_y(panel: RectF, pointer_y: f64) -> f64 {
+    let mut volume = 1.0 - ((pointer_y - panel.y) / panel.height);
+    volume = volume.clamp(0.0, 1.0);
+    if volume < 0.02 {
+        0.0
+    } else if volume > 0.98 {
+        1.0
+    } else {
+        volume
     }
 }
 
 pub(crate) const SETTINGS_MENU_WIDTH: f64 = 440.0;
-pub(crate) const SETTINGS_MENU_HEIGHT: f64 = 560.0;
+pub(crate) const SETTINGS_MENU_HEIGHT: f64 = 390.0;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct SettingsMenuLayout {
@@ -308,10 +316,8 @@ pub(crate) fn compute_settings_menu_layout(
 ) -> SettingsMenuLayout {
     let menu_w = SETTINGS_MENU_WIDTH;
     let menu_h = SETTINGS_MENU_HEIGHT;
-    // Keep the historical clamp constants (screen_w - 450 / screen_h - 570)
-    // so drawing and hit-testing stay bit-identical to the prior inline math.
     let menu_x = (selection_x + (selection_width - menu_w) / 2.0).clamp(10.0, screen_width - 450.0);
-    let menu_y = (selection_y + 24.0).clamp(10.0, screen_height - 570.0);
+    let menu_y = (selection_y + 24.0).clamp(10.0, screen_height - menu_h - 10.0);
     SettingsMenuLayout {
         panel: RectF {
             x: menu_x,
@@ -378,14 +384,37 @@ mod tests {
     }
 
     #[test]
-    fn volume_and_settings_layouts_share_selection_anchor_style() {
-        let vol = compute_volume_popup_layout(100.0, 200.0, 600.0, 1920.0, 1080.0);
-        let settings = compute_settings_menu_layout(100.0, 200.0, 600.0, 1920.0, 1080.0);
-        // Both are top-of-selection anchored; Y starts at selection_y + 24 when unclamped.
-        assert!((vol.panel.y - 224.0).abs() < 1e-9);
-        assert!((settings.panel.y - 224.0).abs() < 1e-9);
+    fn volume_pill_prefers_selection_right_and_centers_vertically() {
+        let vol = compute_volume_popup_layout(100.0, 200.0, 600.0, 300.0, 1920.0, 1080.0);
+        assert!((vol.panel.x - 712.0).abs() < 1e-9);
+        assert!((vol.panel.y - 258.0).abs() < 1e-9);
         assert_eq!(vol.panel.width, VOLUME_POPUP_WIDTH);
-        assert_eq!(settings.panel.width, SETTINGS_MENU_WIDTH);
-        assert!(vol.slider_w > 0.0);
+        assert_eq!(vol.panel.height, VOLUME_POPUP_HEIGHT);
+    }
+
+    #[test]
+    fn volume_pill_falls_back_left_then_clamps_to_screen() {
+        let left = compute_volume_popup_layout(1500.0, 200.0, 400.0, 300.0, 1920.0, 1080.0);
+        assert!((left.panel.x - 1424.0).abs() < 1e-9);
+
+        let clamped = compute_volume_popup_layout(0.0, 200.0, 1900.0, 300.0, 1920.0, 1080.0);
+        assert!((clamped.panel.x - 1846.0).abs() < 1e-9);
+        assert!(clamped.panel.x >= 10.0);
+        assert!(clamped.panel.x + clamped.panel.width <= 1910.0);
+    }
+
+    #[test]
+    fn volume_pill_maps_vertical_pointer_and_snaps_edges() {
+        let panel = RectF {
+            x: 100.0,
+            y: 200.0,
+            width: VOLUME_POPUP_WIDTH,
+            height: VOLUME_POPUP_HEIGHT,
+        };
+        assert_eq!(volume_from_pill_y(panel, panel.y), 1.0);
+        assert_eq!(volume_from_pill_y(panel, panel.y + panel.height), 0.0);
+        assert!((volume_from_pill_y(panel, panel.y + panel.height / 2.0) - 0.5).abs() < 1e-9);
+        assert_eq!(volume_from_pill_y(panel, panel.y + 1.0), 1.0);
+        assert_eq!(volume_from_pill_y(panel, panel.y + panel.height - 1.0), 0.0);
     }
 }

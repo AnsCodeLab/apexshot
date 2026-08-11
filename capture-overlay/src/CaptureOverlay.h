@@ -227,8 +227,8 @@ private:
                            const QStringList& options, int selectedIndex);
     void drawVolumePopup(QPainter& p,
                          double panelX, double panelY,
-                         const QString& title,
                          double volume,
+                         bool microphone,
                          bool isOpen);
     void drawScrollPopup(QPainter& p, double centerX, double centerY);
     static void runPactlVolume(const QString& type, int pct);
