@@ -97,12 +97,22 @@ pub(in crate::overlay::window) fn wire_selection_motion(
                         screen_height as f64,
                     );
                     let volume = volume_from_pill_y(vol.panel, y);
+                    let should_write = st.recording.last_volume_system_write.map_or(true, |last| {
+                        last.elapsed() >= std::time::Duration::from_millis(75)
+                    });
+                    if should_write {
+                        st.recording.last_volume_system_write = Some(std::time::Instant::now());
+                    }
                     if st.recording.mic_volume_popup_open {
                         st.recording.mic_volume = volume;
-                        set_mic_volume(volume);
+                        if should_write {
+                            set_mic_volume(volume);
+                        }
                     } else {
                         st.recording.speaker_volume = volume;
-                        set_speaker_volume(volume);
+                        if should_write {
+                            set_speaker_volume(volume);
+                        }
                     }
                     drop(st);
                     if let Some(da) = drawing_area_weak_motion.upgrade() {

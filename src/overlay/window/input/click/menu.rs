@@ -183,6 +183,7 @@ pub(super) fn handle_menu_click(
         if vol.panel.contains(x, y) {
             let volume = volume_from_pill_y(vol.panel, y);
             st.recording.volume_slider_dragging = true;
+            st.recording.last_volume_system_write = Some(std::time::Instant::now());
             if st.recording.mic_volume_popup_open {
                 st.recording.mic_volume = volume;
                 return Some(ClickEffect::SetMicVolume(volume));
@@ -193,6 +194,7 @@ pub(super) fn handle_menu_click(
         st.recording.mic_volume_popup_open = false;
         st.recording.speaker_volume_popup_open = false;
         st.recording.volume_slider_dragging = false;
+        st.recording.last_volume_system_write = None;
         return Some(ClickEffect::Redraw);
     }
 

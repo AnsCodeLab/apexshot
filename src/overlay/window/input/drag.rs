@@ -11,6 +11,7 @@ use super::super::super::icons::TOOLBAR_AREA_INDEX;
 use super::super::super::layout::ToolbarHit;
 use super::super::super::recording::hit_testing::recording_tile_at;
 use super::super::super::state::{DragMode, OverlayMode, SelectorState};
+use super::super::audio::{set_mic_volume, set_speaker_volume};
 use super::super::result::send_selection_result;
 use gtk4::glib::clone;
 use gtk4::prelude::*;
@@ -257,9 +258,28 @@ pub(in crate::overlay::window) fn wire_selection_drag(
         move |_gesture, x, y| {
             let mut st = state_drag.lock().unwrap();
             if st.recording.gif_slider_dragging.is_some() || st.recording.volume_slider_dragging {
+                let final_volume = if st.recording.volume_slider_dragging {
+                    if st.recording.mic_volume_popup_open {
+                        Some((true, st.recording.mic_volume))
+                    } else if st.recording.speaker_volume_popup_open {
+                        Some((false, st.recording.speaker_volume))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
                 st.recording.gif_slider_dragging = None;
                 st.recording.volume_slider_dragging = false;
+                st.recording.last_volume_system_write = None;
                 drop(st);
+                if let Some((microphone, volume)) = final_volume {
+                    if microphone {
+                        set_mic_volume(volume);
+                    } else {
+                        set_speaker_volume(volume);
+                    }
+                }
                 if let Some(drawing_area) = drawing_area_weak.upgrade() {
                     drawing_area.queue_draw();
                 }

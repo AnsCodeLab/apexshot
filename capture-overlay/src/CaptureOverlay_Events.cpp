@@ -220,6 +220,8 @@ void CaptureOverlay::mousePressEvent(QMouseEvent* event)
         RecordPanelTile tile = hitTestRecordingPanel(pos);
         if (tile == RecordPanelTile::Mic) {
             closeRecordingMenus();
+            if (!m_micVolumePopupOpen)
+                m_micVolume = readPactlVolume(QStringLiteral("mic"), m_micVolume);
             m_micVolumePopupOpen = !m_micVolumePopupOpen;
             m_speakerVolumePopupOpen = false;
             m_volumeSliderDragging = false;
@@ -229,6 +231,8 @@ void CaptureOverlay::mousePressEvent(QMouseEvent* event)
         }
         if (tile == RecordPanelTile::Speaker) {
             closeRecordingMenus();
+            if (!m_speakerVolumePopupOpen)
+                m_speakerVolume = readPactlVolume(QStringLiteral("speaker"), m_speakerVolume);
             m_speakerVolumePopupOpen = !m_speakerVolumePopupOpen;
             m_micVolumePopupOpen = false;
             m_volumeSliderDragging = false;
@@ -244,6 +248,7 @@ void CaptureOverlay::mousePressEvent(QMouseEvent* event)
     if ((m_micVolumePopupOpen || m_speakerVolumePopupOpen) && !m_volumeSliderRect.isNull()) {
         if (m_volumeSliderRect.contains(pos)) {
             m_volumeSliderDragging = true;
+            m_lastVolumeSystemWriteMs = QDateTime::currentMSecsSinceEpoch();
             double relY = pos.y() - m_volumeSliderRect.y();
             double fraction = qBound(0.0, 1.0 - (relY / m_volumeSliderRect.height()), 1.0);
             if (fraction < 0.02) fraction = 0.0;
@@ -820,10 +825,18 @@ void CaptureOverlay::mouseMoveEvent(QMouseEvent* event)
         if (fraction > 0.98) fraction = 1.0;
         if (m_micVolumePopupOpen) {
             m_micVolume = fraction;
-            runPactlVolume("mic", qRound(fraction * 100.0));
+            const qint64 now = QDateTime::currentMSecsSinceEpoch();
+            if (now - m_lastVolumeSystemWriteMs >= 75) {
+                m_lastVolumeSystemWriteMs = now;
+                runPactlVolume("mic", qRound(fraction * 100.0));
+            }
         } else if (m_speakerVolumePopupOpen) {
             m_speakerVolume = fraction;
-            runPactlVolume("speaker", qRound(fraction * 100.0));
+            const qint64 now = QDateTime::currentMSecsSinceEpoch();
+            if (now - m_lastVolumeSystemWriteMs >= 75) {
+                m_lastVolumeSystemWriteMs = now;
+                runPactlVolume("speaker", qRound(fraction * 100.0));
+            }
         }
         update();
         return;
@@ -1213,6 +1226,11 @@ void CaptureOverlay::mouseReleaseEvent(QMouseEvent* event)
     }
     if (m_volumeSliderDragging) {
         m_volumeSliderDragging = false;
+        if (m_micVolumePopupOpen)
+            runPactlVolume("mic", qRound(m_micVolume * 100.0));
+        else if (m_speakerVolumePopupOpen)
+            runPactlVolume("speaker", qRound(m_speakerVolume * 100.0));
+        m_lastVolumeSystemWriteMs = 0;
         update();
     }
     // Reset recording panel hover state

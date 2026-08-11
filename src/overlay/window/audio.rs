@@ -284,22 +284,86 @@ pub(super) fn spawn_overlay_pw_stream(
 pub(super) fn set_mic_volume(vol: f64) {
     let pct = (vol.clamp(0.0, 1.0) * 100.0).round() as u32;
     std::thread::spawn(move || {
-        let _ = std::process::Command::new("pactl")
+        let pactl_result = std::process::Command::new("pactl")
             .args([
                 "set-source-volume",
                 "@DEFAULT_SOURCE@",
                 &format!("{}%", pct),
             ])
             .output();
+        if !pactl_result
+            .as_ref()
+            .is_ok_and(|output| output.status.success())
+        {
+            let _ = std::process::Command::new("wpctl")
+                .args(["set-volume", "@DEFAULT_AUDIO_SOURCE@", &format!("{}%", pct)])
+                .output();
+        }
     });
+}
+
+fn parse_pactl_volume(output: &str) -> Option<f64> {
+    output
+        .split_whitespace()
+        .find_map(|token| token.strip_suffix('%')?.parse::<f64>().ok())
+        .map(|percent| (percent / 100.0).clamp(0.0, 1.0))
+}
+
+fn parse_wpctl_volume(output: &str) -> Option<f64> {
+    output
+        .split_whitespace()
+        .nth(1)?
+        .parse::<f64>()
+        .ok()
+        .map(|volume| volume.clamp(0.0, 1.0))
+}
+
+fn get_system_volume(command: &str, device: &str, wpctl_device: &str) -> Option<f64> {
+    if let Ok(output) = std::process::Command::new("pactl")
+        .args([command, device])
+        .output()
+    {
+        if output.status.success() {
+            if let Some(volume) = parse_pactl_volume(std::str::from_utf8(&output.stdout).ok()?) {
+                return Some(volume);
+            }
+        }
+    }
+
+    let output = std::process::Command::new("wpctl")
+        .args(["get-volume", wpctl_device])
+        .output()
+        .ok()?;
+    output.status.success().then_some(())?;
+    parse_wpctl_volume(std::str::from_utf8(&output.stdout).ok()?)
+}
+
+pub(super) fn get_mic_volume() -> Option<f64> {
+    get_system_volume(
+        "get-source-volume",
+        "@DEFAULT_SOURCE@",
+        "@DEFAULT_AUDIO_SOURCE@",
+    )
+}
+
+pub(super) fn get_speaker_volume() -> Option<f64> {
+    get_system_volume("get-sink-volume", "@DEFAULT_SINK@", "@DEFAULT_AUDIO_SINK@")
 }
 
 pub(super) fn set_speaker_volume(vol: f64) {
     let pct = (vol.clamp(0.0, 1.0) * 100.0).round() as u32;
     std::thread::spawn(move || {
-        let _ = std::process::Command::new("pactl")
+        let pactl_result = std::process::Command::new("pactl")
             .args(["set-sink-volume", "@DEFAULT_SINK@", &format!("{}%", pct)])
             .output();
+        if !pactl_result
+            .as_ref()
+            .is_ok_and(|output| output.status.success())
+        {
+            let _ = std::process::Command::new("wpctl")
+                .args(["set-volume", "@DEFAULT_AUDIO_SINK@", &format!("{}%", pct)])
+                .output();
+        }
     });
 }
 
@@ -402,6 +466,31 @@ pub(super) fn install_overlay_audio_meters(
 
 #[cfg(test)]
 mod tests {
+    use super::{parse_pactl_volume, parse_wpctl_volume};
+
+    #[test]
+    fn parses_first_pactl_channel_volume() {
+        let output =
+            "Volume: front-left: 32768 / 50% / -18.06 dB, front-right: 32768 / 50% / -18.06 dB";
+        assert_eq!(parse_pactl_volume(output), Some(0.5));
+    }
+
+    #[test]
+    fn clamps_boosted_pactl_volume_to_ui_range() {
+        assert_eq!(
+            parse_pactl_volume("Volume: 98304 / 150% / 10.57 dB"),
+            Some(1.0)
+        );
+        assert_eq!(parse_pactl_volume("not a volume"), None);
+    }
+
+    #[test]
+    fn parses_wpctl_volume_with_optional_muted_marker() {
+        assert_eq!(parse_wpctl_volume("Volume: 0.36 [MUTED]"), Some(0.36));
+        assert_eq!(parse_wpctl_volume("Volume: 0.81"), Some(0.81));
+        assert_eq!(parse_wpctl_volume("no volume"), None);
+    }
+
     /// Owner contract: meter worker + UI timer live on audio, not setup.
     #[test]
     fn audio_owner_covers_meter_worker_and_ui_timer() {

@@ -73,6 +73,7 @@ pub(crate) struct RecordingState {
     pub(crate) mic_volume: f64,
     pub(crate) speaker_volume: f64,
     pub(crate) volume_slider_dragging: bool,
+    pub(crate) last_volume_system_write: Option<std::time::Instant>,
 }
 
 impl Default for RecordingState {
@@ -113,6 +114,7 @@ impl Default for RecordingState {
             mic_volume: 1.0,
             speaker_volume: 1.0,
             volume_slider_dragging: false,
+            last_volume_system_write: None,
         }
     }
 }

@@ -10,6 +10,7 @@
 #include <QColor>
 #include <QLinearGradient>
 #include <QProcess>
+#include <QRegularExpression>
 #include <QRadialGradient>
 #include <QPen>
 #include <QDateTime>
@@ -1910,7 +1911,61 @@ void CaptureOverlay::runPactlVolume(const QString& type, int pct)
     } else {
         args << "set-sink-volume" << "@DEFAULT_SINK@" << QString("%1%").arg(pct);
     }
-    QProcess::startDetached("pactl", args);
+    if (!QProcess::startDetached(QStringLiteral("pactl"), args)) {
+        const QString device = type == QStringLiteral("mic")
+            ? QStringLiteral("@DEFAULT_AUDIO_SOURCE@")
+            : QStringLiteral("@DEFAULT_AUDIO_SINK@");
+        QProcess::startDetached(
+            QStringLiteral("wpctl"),
+            {QStringLiteral("set-volume"), device, QStringLiteral("%1%").arg(pct)});
+    }
+}
+
+double CaptureOverlay::readPactlVolume(const QString& type, double fallback)
+{
+    const QStringList args = type == QStringLiteral("mic")
+        ? QStringList{QStringLiteral("get-source-volume"), QStringLiteral("@DEFAULT_SOURCE@")}
+        : QStringList{QStringLiteral("get-sink-volume"), QStringLiteral("@DEFAULT_SINK@")};
+
+    QString output;
+    {
+        QProcess process;
+        process.start(QStringLiteral("pactl"), args);
+        if (process.waitForStarted(250) && process.waitForFinished(500)
+            && process.exitStatus() == QProcess::NormalExit && process.exitCode() == 0) {
+            output = QString::fromUtf8(process.readAllStandardOutput());
+        }
+    }
+
+    if (!output.isEmpty()) {
+        const QRegularExpressionMatch match =
+            QRegularExpression(QStringLiteral("(\\d+(?:\\.\\d+)?)%"))
+                .match(output);
+        if (match.hasMatch()) {
+            bool ok = false;
+            const double percent = match.captured(1).toDouble(&ok);
+            if (ok) {
+                return std::clamp(percent / 100.0, 0.0, 1.0);
+            }
+        }
+    }
+
+    const QString device = type == QStringLiteral("mic")
+        ? QStringLiteral("@DEFAULT_AUDIO_SOURCE@")
+        : QStringLiteral("@DEFAULT_AUDIO_SINK@");
+    QProcess process;
+    process.start(QStringLiteral("wpctl"), {QStringLiteral("get-volume"), device});
+    if (!process.waitForStarted(250) || !process.waitForFinished(500)
+        || process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) {
+        return fallback;
+    }
+    output = QString::fromUtf8(process.readAllStandardOutput());
+    const QRegularExpressionMatch match =
+        QRegularExpression(QStringLiteral("Volume:\\s*(\\d+(?:\\.\\d+)?)"))
+            .match(output);
+    bool ok = false;
+    const double volume = match.hasMatch() ? match.captured(1).toDouble(&ok) : fallback;
+    return ok ? std::clamp(volume, 0.0, 1.0) : fallback;
 }
 
 void CaptureOverlay::drawVolumePopup(QPainter& p,

@@ -232,6 +232,7 @@ private:
                          bool isOpen);
     void drawScrollPopup(QPainter& p, double centerX, double centerY);
     static void runPactlVolume(const QString& type, int pct);
+    static double readPactlVolume(const QString& type, double fallback);
     QRectF scrollPrimaryButtonRect() const;
     QRect crosshairBubbleRectForPoint(const QPoint& point) const;
     QRegion crosshairDirtyRegion(const QPoint& oldPoint,
@@ -429,6 +430,7 @@ private:
     bool m_micVolumePopupOpen = false;
     bool m_speakerVolumePopupOpen = false;
     bool m_volumeSliderDragging = false;
+    qint64 m_lastVolumeSystemWriteMs = 0;
 
     // Scroll capture popup
     bool m_scrollPopupOpen = false;

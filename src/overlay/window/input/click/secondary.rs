@@ -4,6 +4,7 @@ use super::super::super::super::geometry::current_selection_rect;
 use super::super::super::super::recording::hit_testing::recording_tile_at;
 use super::super::super::super::recording::layout::RecordPanelTile;
 use super::super::super::super::state::SelectorState;
+use super::super::super::audio::{get_mic_volume, get_speaker_volume};
 use gtk4::prelude::*;
 use gtk4::{DrawingArea, GestureClick};
 use std::sync::{Arc, Mutex};
@@ -38,19 +39,32 @@ pub(super) fn wire_secondary_click(
             ) {
                 match tile {
                     RecordPanelTile::Mic => {
-                        st.recording.mic_volume_popup_open = !st.recording.mic_volume_popup_open;
+                        let opening = !st.recording.mic_volume_popup_open;
+                        if opening {
+                            if let Some(volume) = get_mic_volume() {
+                                st.recording.mic_volume = volume;
+                            }
+                        }
+                        st.recording.mic_volume_popup_open = opening;
                         st.recording.speaker_volume_popup_open = false;
                         st.recording.volume_slider_dragging = false;
+                        st.recording.last_volume_system_write = None;
                         st.recording.settings_menu_open = false;
                         st.recording.crop_menu_open = false;
                         st.recording.hover_record_tile = None;
                         st.hover_tool_index = None;
                     }
                     RecordPanelTile::Speaker => {
-                        st.recording.speaker_volume_popup_open =
-                            !st.recording.speaker_volume_popup_open;
+                        let opening = !st.recording.speaker_volume_popup_open;
+                        if opening {
+                            if let Some(volume) = get_speaker_volume() {
+                                st.recording.speaker_volume = volume;
+                            }
+                        }
+                        st.recording.speaker_volume_popup_open = opening;
                         st.recording.mic_volume_popup_open = false;
                         st.recording.volume_slider_dragging = false;
+                        st.recording.last_volume_system_write = None;
                         st.recording.settings_menu_open = false;
                         st.recording.crop_menu_open = false;
                         st.recording.hover_record_tile = None;
