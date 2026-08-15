@@ -980,10 +980,7 @@ mod tests {
 
         draw_number(
             &context,
-            Point {
-                x: 190.0,
-                y: 190.0,
-            },
+            Point { x: 190.0, y: 190.0 },
             1,
             DrawColor::new(0.95, 0.75, 0.12, 1.0),
             NumberingStyle::Numeric,
@@ -999,14 +996,13 @@ mod tests {
         let box_color = DrawColor::new(0.91, 0.33, 0.13, 1.0);
         draw_box(&context, box_rect, box_color, 3.0);
 
-        let handles = crate::capture::editor::selection::action_resize_handles(
-            &AnnotationAction::Box {
+        let handles =
+            crate::capture::editor::selection::action_resize_handles(&AnnotationAction::Box {
                 rect: box_rect,
                 color: box_color,
                 stroke_size: 3.0,
                 shadow: false,
-            },
-        );
+            });
         draw_selection_handles(&context, &handles, None, 1.0);
         drop(context);
 
