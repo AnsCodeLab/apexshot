@@ -1262,6 +1262,29 @@
                 color: #9a4c2c;
             }
 
+            .about-support-title {
+                font-size: 13px;
+                font-weight: 600;
+                letter-spacing: 0.2px;
+                opacity: 0.72;
+            }
+
+            .about-support-copy {
+                font-size: 12px;
+                line-height: 1.45;
+                opacity: 0.58;
+            }
+
+            .editor-root.editor-theme-light .about-support-title {
+                color: alpha(#1d2129, 0.78);
+                opacity: 1;
+            }
+
+            .editor-root.editor-theme-light .about-support-copy {
+                color: alpha(#1d2129, 0.58);
+                opacity: 1;
+            }
+
             /* Onboarding */
             .onboarding-back-button {
                 padding: 4px 14px;

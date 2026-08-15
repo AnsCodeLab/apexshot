@@ -1,5 +1,14 @@
 use gtk4::{prelude::*, Align, Box as GtkBox, Button, Label, Orientation, Separator};
 
+const KOFI_URL: &str = "https://ko-fi.com/codegoddy";
+const CLOUD_PLANS_URL: &str = "https://apexshot.org/pricing";
+
+fn open_in_browser(url: &'static str) {
+    std::thread::spawn(move || {
+        let _ = crate::utils::open::open_url(url);
+    });
+}
+
 pub struct AboutSettingsWidgets {
     pub section: GtkBox,
 }
@@ -63,9 +72,7 @@ pub fn build_about_section() -> AboutSettingsWidgets {
     check_btn.set_width_request(200);
     check_btn.set_halign(Align::Center);
     check_btn.connect_clicked(|_| {
-        std::thread::spawn(move || {
-            let _ = crate::utils::open::open_url("https://github.com/apex-shot/apexshot/releases");
-        });
+        open_in_browser("https://github.com/apex-shot/apexshot/releases");
     });
 
     let whats_new_btn = Button::with_label("What's New");
@@ -73,11 +80,7 @@ pub fn build_about_section() -> AboutSettingsWidgets {
     whats_new_btn.set_width_request(200);
     whats_new_btn.set_halign(Align::Center);
     whats_new_btn.connect_clicked(|_| {
-        std::thread::spawn(move || {
-            let _ = crate::utils::open::open_url(
-                "https://github.com/apex-shot/apexshot/releases/latest",
-            );
-        });
+        open_in_browser("https://github.com/apex-shot/apexshot/releases/latest");
     });
 
     update_vbox.append(&check_btn);
@@ -107,9 +110,51 @@ pub fn build_about_section() -> AboutSettingsWidgets {
     links_grid.attach(&create_link("Website"), 0, 1, 1, 1);
     section.append(&links_grid);
 
-    // --- 4. FOOTER ---
+    // --- 4. SUPPORT ---
+    let support_vbox = GtkBox::new(Orientation::Vertical, 10);
+    support_vbox.set_margin_top(40);
+    support_vbox.set_halign(Align::Center);
+    support_vbox.set_hexpand(true);
+
+    let support_title = Label::new(Some("Support ApexShot"));
+    support_title.add_css_class("about-support-title");
+    support_title.set_halign(Align::Center);
+
+    let support_copy = Label::new(Some(
+        "ApexShot is free and open source. Donations keep development going.",
+    ));
+    support_copy.add_css_class("about-support-copy");
+    support_copy.set_wrap(true);
+    support_copy.set_justify(gtk4::Justification::Center);
+    support_copy.set_max_width_chars(40);
+    support_copy.set_halign(Align::Center);
+
+    let kofi_btn = Button::with_label("Support on Ko-fi");
+    kofi_btn.add_css_class("secondary-settings-button");
+    kofi_btn.set_width_request(200);
+    kofi_btn.set_halign(Align::Center);
+    kofi_btn.set_margin_top(4);
+    kofi_btn.connect_clicked(|_| {
+        open_in_browser(KOFI_URL);
+    });
+
+    let cloud_note = Button::with_label("Cloud is a separate paid product");
+    cloud_note.add_css_class("about-link-button");
+    cloud_note.set_halign(Align::Center);
+    cloud_note.set_tooltip_text(Some("Opens ApexShot Cloud plans. This is not a donation."));
+    cloud_note.connect_clicked(|_| {
+        open_in_browser(CLOUD_PLANS_URL);
+    });
+
+    support_vbox.append(&support_title);
+    support_vbox.append(&support_copy);
+    support_vbox.append(&kofi_btn);
+    support_vbox.append(&cloud_note);
+    section.append(&support_vbox);
+
+    // --- 5. FOOTER ---
     let footer_vbox = GtkBox::new(Orientation::Vertical, 8);
-    footer_vbox.set_margin_top(60);
+    footer_vbox.set_margin_top(40);
     footer_vbox.set_opacity(0.5);
 
     let copyright = Label::new(Some("Copyright © 2026 ApexShot. All rights reserved."));
