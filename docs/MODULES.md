@@ -101,13 +101,14 @@ This document provides detailed information about every module and submodule in 
 
 **Purpose:** Screen recording with native PipeWire frame capture, ffmpeg
 encoding/muxing, codec auto-detection, audio mixing, and runtime overlays. This
-module is the authoritative recorder on supported distros (Ubuntu, Arch, etc.),
-whether the user interacts through the Qt overlay (GNOME) or the daemon/CLI
-(non-GNOME).
+module is the authoritative recorder on supported distros (Ubuntu, Arch,
+Fedora, etc.), whether the user interacts through the Qt overlay (GNOME) or
+the daemon/CLI (non-GNOME).
 
-> **Fedora:** Video recording is **not supported**. All recording entry points
-> call `refuse_fedora_recording()` and show a desktop notification. Screenshots
-> and the rest of the app remain available. See
+> **Fedora:** Video recording is supported. `ffmpeg-free` (Fedora's default
+> ffmpeg package) ships without `libx264`; encoder selection probes installed
+> ffmpeg encoders and automatically falls back to `libopenh264` or VP9/VP8.
+> See
 > [`progress-fedora-kde-overlay-and-preview.md`](progress-fedora-kde-overlay-and-preview.md).
 
 **Architecture overview for non-GNOME users:**

@@ -11,9 +11,53 @@ Stabilize ApexShot behavior for Fedora KDE Plasma and related Linux desktop path
 
 ---
 
-## Product decision: no video recording on Fedora
+## Update (2026-08-15): Fedora video recording re-enabled
 
-**ApexShot does not support video recording on Fedora.**
+**ApexShot now supports video recording on Fedora.**
+
+The 2026-07-12 entry below disabled recording on Fedora as a blanket
+`refuse_fedora_recording()` guard even though the two concrete blockers that
+motivated it had already been fixed in the same commit (746a922):
+
+- Fedora's default `ffmpeg-free` package lacks `libx264`. `select_encoder()`
+  now probes installed ffmpeg encoders and automatically falls back to
+  `libopenh264`, then VP9/VP8/Theora, instead of hard-failing mid-encode.
+- KDE's ScreenCast portal frequently omits stream position metadata for area
+  recording. `wayland_area_crop_or_full()` infers the monitor origin from
+  GDK monitor geometry or falls back to full-stream capture instead of
+  aborting the session.
+- The experimental KDE-native `zkde_screencast` path (the one that caused
+  compositor-authorization failures and dual-UI crashes) is opt-in only via
+  `APEXSHOT_KDE_NATIVE_SCREENCAST` and was never the default; the default
+  path is the same `xdg-desktop-portal` ScreenCast + PipeWire + ffmpeg flow
+  used on every other Wayland distro.
+
+Verified on this change (Fedora 44 Workstation, GNOME Wayland, RPM Fusion
+`ffmpeg` with `libx264`):
+- `cargo build --release` and `cargo test --release` pass with the Fedora
+  build dependencies from `docs/DEVELOPER_GUIDE.md`.
+- `apexshot record screen` selects `H.264 (x264)` via `select_encoder()` and
+  reaches the ScreenCast portal's "select a screen or window" prompt with no
+  error, i.e. the same flow every other distro goes through.
+- On a Fedora system with only `ffmpeg-free` installed, `select_encoder()`
+  falls back to `libopenh264` per the existing (already-shipped) logic.
+
+Not independently re-verified here: completing the interactive portal share
+dialog end-to-end into a saved, playable file requires a live, unlocked
+desktop session and manual clicks that automated tooling cannot drive
+(GNOME's ScreenCast portal dialog is not scriptable). Recommend one manual
+pass through the Phase 8 test matrix in
+`docs/plan-kde-native-screenshot-backend.md` before the next release.
+
+All `refuse_fedora_recording()` call sites were removed:
+`src/recording/mod.rs`, `src/recording/controls.rs`, `src/cli/handlers.rs`,
+`src/daemon/recording_handlers.rs`.
+
+---
+
+## Original 2026-07-12 entry (superseded above): no video recording on Fedora
+
+**ApexShot did not support video recording on Fedora.**
 
 | Supported on Fedora | Not supported on Fedora |
 |---|---|
@@ -21,17 +65,16 @@ Stabilize ApexShot behavior for Fedora KDE Plasma and related Linux desktop path
 | Preview overlay, tray, settings, hotkeys | Portal / OpenH264 / VP9 encode paths for ApexShot |
 | Cloud upload for images | In-app recording controls / stop indicator for video |
 
-**User-facing behavior:** hotkeys, tray “record”, and `apexshot record …` show a
-desktop notification (“Recording not supported”) and do not start a session.
-Message points users to **Spectacle** or **Kooha** for screen recording.
+**User-facing behavior (removed):** hotkeys, tray “record”, and
+`apexshot record …` used to show a desktop notification (“Recording not
+supported”) and refuse to start a session, pointing users to **Spectacle**
+or **Kooha** instead.
 
-**Code entry points (all refuse on Fedora):**
+**Former refusal entry points (now removed):**
 - `recording::is_fedora_recording_unsupported()` / `refuse_fedora_recording()`
 - Daemon: `handle_record_screen`, `handle_record_area`, `handle_open_recording_ui`
 - CLI: `run_record` in `src/main.rs`
 - Overlay request path: `run_overlay_recording_request_with_gtk`
-
-Other distros keep full recording UX unchanged.
 
 ---
 

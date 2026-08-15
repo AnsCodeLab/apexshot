@@ -199,8 +199,9 @@ Map KDE-native failures into clear fallbacks:
 
 ## Phase 8: Manual validation on Fedora KDE Plasma
 
-> **Out of scope:** ApexShot video recording on Fedora is intentionally
-> unsupported. Validate screenshots only; do not expect `apexshot record` to work.
+> ApexShot video recording on Fedora is now supported via the ScreenCast
+> portal + PipeWire + ffmpeg path (with `libopenh264`/VP9/VP8 fallback when
+> `libx264` is unavailable). Validate both screenshots and recording here.
 
 ### Test matrix
 - Fullscreen capture
@@ -210,13 +211,14 @@ Map KDE-native failures into clear fallbacks:
 - Multi-monitor layouts
 - Fractional scaling (125%, 150%)
 - Daemon-triggered capture
-- Confirm recording hotkey/CLI refuses with “Recording not supported” (expected)
+- Recording hotkey/CLI (`apexshot record screen`/`area`) starts a session and
+  saves a valid MP4
 
 ### Success criteria
 - No ScreenCast portal permission dialog for screenshot flows
 - Fullscreen, area, and window screenshot flows work
 - Existing non-KDE backends still behave as before
-- Recording entry points on Fedora do not start a session
+- Recording entry points on Fedora start a session and produce a playable file
 
 ## Current implementation status
 

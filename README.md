@@ -47,7 +47,7 @@ support.
 |---|---|
 | ShareX-style capture | Full screen, area, window, and crosshair screenshots |
 | Annotation and editing | Arrows, shapes, text, blur, pixelate, crop, highlighter, and color picker |
-| Screen recording | Area or full-screen recording with MP4/GIF output, audio monitoring, countdown, and controls (**not supported on Fedora**) |
+| Screen recording | Area or full-screen recording with MP4/GIF output, audio monitoring, countdown, and controls (ScreenCast portal + PipeWire on Wayland, automatic H.264/VP9/VP8 encoder fallback when `libx264` is unavailable) |
 | Video editing | Trim, convert dimensions, adjust quality, and change audio mode for MP4 recordings |
 | Text and code extraction | OCR plus automatic QR code detection from captured regions |
 | Linux desktop integration | GNOME Wayland support, portal-backed capture paths, tray, daemon mode, and global hotkeys |
@@ -70,12 +70,12 @@ ApexShot does, without turning the README into generic comparison copy.
 
 ## Install
 
-ApexShot is already usable as a daily screenshot tool on the configurations
-that have been personally tested: Ubuntu GNOME Wayland, Arch Linux GNOME
-Wayland, Hyprland Wayland, and Fedora KDE Plasma Wayland (screenshots). The
+ApexShot is already usable as a daily screenshot and recording tool on the
+configurations that have been personally tested: Ubuntu GNOME Wayland, Arch
+Linux GNOME Wayland, Hyprland Wayland, and Fedora KDE Plasma Wayland. The
 recommended installer detects Ubuntu/Debian, Arch Linux, or Fedora and selects
 the matching install path (openSUSE is development-stage and refused until a
-binary ships). **Video recording is not supported on Fedora**:
+binary ships).
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/apex-shot/apexshot/main/scripts/install.sh | bash
@@ -92,7 +92,7 @@ Works best today on:
 | GNOME Shell 45 / 46 (Wayland) | Should work, less exercised |
 | Sway / wlroots-like compositors (Wayland) | Implementation exists through GTK4 layer-shell, `wlr-screencopy`, and `wf-recorder`, but needs more manual validation |
 | KDE Plasma 6 / Niri / other Wayland desktops | ScreenCast portal + PipeWire path implemented, not yet personally tested |
-| Fedora / RHEL (Wayland) | Screenshots supported (Fedora KDE validated). **Video recording is not supported** — use Spectacle or Kooha for screen recording |
+| Fedora / RHEL (Wayland) | Screenshots and video recording supported (Fedora KDE validated). Recording uses the ScreenCast portal + PipeWire and falls back from `libx264` to `libopenh264`/VP9/VP8 automatically when `ffmpeg-free` is installed |
 | openSUSE Tumbleweed / Leap (Wayland) | Development stage: RPM spec + `scripts/build-opensuse-rpm.sh` exist; **no published binary** yet (generic installer will refuse) |
 | NixOS / Alpine / Gentoo / Void (Wayland) | Development stage: distro-family metadata only; packaging/testing pending |
 | X11 on any distro | Experimental |
@@ -159,8 +159,8 @@ support is improving over time.
 ### Quick Install — Recommended
 
 Run the interactive installer. The production-tested paths are Ubuntu/Debian
-and Arch Linux; Fedora is usable for **screenshots** (video recording is not
-supported). openSUSE remains development-stage for full runtime validation:
+and Arch Linux; Fedora is supported for screenshots and video recording.
+openSUSE remains development-stage for full runtime validation:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/apex-shot/apexshot/main/scripts/install.sh | bash
@@ -211,13 +211,13 @@ AUR publishing notes for maintainers live in
 ### Fedora Workstation / KDE Plasma / Spins
 
 Fedora is supported for **screenshots** (area / screen / window), preview,
-settings, tray, and hotkeys. Fedora KDE Plasma Wayland has been runtime-validated
-for the capture path.
+settings, tray, hotkeys, and **video recording**. Fedora KDE Plasma Wayland
+has been runtime-validated for the capture path.
 
-> **Video recording is not supported on Fedora.**  
-> Hotkeys, tray actions, and CLI `apexshot record …` show a desktop notification
-> and exit without starting a session. For screen recording on Fedora, use
-> **Spectacle** or **Kooha**. Screenshots in ApexShot continue to work normally.
+> Recording uses the same ScreenCast portal + PipeWire + ffmpeg path as other
+> distros. Fedora's `ffmpeg-free` package lacks `libx264`; ApexShot detects
+> this and automatically falls back to `libopenh264` (or VP9/VP8) so
+> `apexshot record …`, hotkeys, and tray recording work without extra setup.
 
 The generic installer selects the Fedora path automatically when `dnf` is
 available. Direct command:

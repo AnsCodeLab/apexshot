@@ -115,9 +115,9 @@ Arch package dependencies intentionally include both Wayland and X11 clipboard h
 
 ## Fedora note
 
-**Video recording is not supported on Fedora** (`DistroInfo::is_fedora()`). All
-recording entry points refuse with a desktop notification; screenshots remain
-supported. Details:
+Video recording is supported on Fedora (`DistroInfo::is_fedora()` no longer
+gates recording). Fedora's `ffmpeg-free` package lacks `libx264`; encoder
+selection automatically falls back to `libopenh264` or VP9/VP8. Details:
 [`progress-fedora-kde-overlay-and-preview.md`](progress-fedora-kde-overlay-and-preview.md).
 
 ## Related docs
@@ -125,4 +125,4 @@ supported. Details:
 - [`README.md`](../README.md) — install matrix and user commands
 - [`AUR_PUBLISHING.md`](AUR_PUBLISHING.md) — release → AUR automation
 - [`DEVELOPER_GUIDE.md`](DEVELOPER_GUIDE.md) — build from source
-- [`progress-fedora-kde-overlay-and-preview.md`](progress-fedora-kde-overlay-and-preview.md) — Fedora product limits
+- [`progress-fedora-kde-overlay-and-preview.md`](progress-fedora-kde-overlay-and-preview.md) — Fedora recording fix history

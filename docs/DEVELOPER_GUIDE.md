@@ -459,7 +459,6 @@ path.
 - [ ] `cargo run --release -- capture area` works
 - [ ] `cargo run --release -- capture screen` works
 - [ ] `cargo run --release -- record area` works (start + stop)
-  — **except on Fedora**, where recording must refuse with a notification
 - [ ] Annotation editor opens and all tools render correctly
 - [ ] Settings window opens and saves changes persist after restart
 - [ ] Daemon mode starts and tray icon appears
@@ -468,13 +467,13 @@ path.
 
 For distro/compositor expansion work, also verify the shared capture path on at
 least one non-GNOME portal backend:
-- [ ] Fedora GNOME Wayland — screenshots only (recording unsupported by design)
-- [ ] Fedora or openSUSE KDE Plasma Wayland for `xdg-desktop-portal-kde` screenshots
-- [ ] On Fedora: `apexshot record screen` (or record hotkey) shows “Recording not supported” and does not start a session
+- [ ] Fedora GNOME Wayland — screenshots and recording (`libopenh264` fallback on `ffmpeg-free`)
+- [ ] Fedora or openSUSE KDE Plasma Wayland for `xdg-desktop-portal-kde` screenshots and recording
+- [ ] On Fedora: `apexshot record screen` (or record hotkey) starts a session and saves a valid MP4
 - [ ] Sway Wayland for additional wlroots coverage beyond Hyprland
 - [ ] NixOS GNOME or KDE Wayland for non-FHS/runtime dependency coverage
 
-**Fedora:** screenshots are supported; **video recording is not**. openSUSE and
+**Fedora:** screenshots and video recording are both supported. openSUSE and
 other RPM-family targets remain development-stage for full install/runtime
 coverage.
 
