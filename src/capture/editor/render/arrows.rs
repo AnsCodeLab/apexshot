@@ -813,6 +813,7 @@ pub fn draw_arrow_control_handles(
         let _ = context.save();
         for (i, handle) in display_handles.iter().enumerate() {
             let radius = (MOVE_HANDLE_RADIUS + if i == 1 { 1.0 } else { 0.0 }) / scale;
+            context.new_path();
             context.set_source_rgba(1.0, 1.0, 1.0, 1.0);
             context.set_line_width(MOVE_HANDLE_OUTLINE_WIDTH / scale);
             context.arc(handle.x, handle.y, radius, 0.0, std::f64::consts::TAU);
@@ -852,6 +853,7 @@ pub fn draw_arrow_control_handles(
         let _ = context.save();
         for handle in &display_handles {
             let radius = MOVE_HANDLE_RADIUS / scale;
+            context.new_path();
             context.set_source_rgba(1.0, 1.0, 1.0, 1.0);
             context.set_line_width(MOVE_HANDLE_OUTLINE_WIDTH / scale);
             context.arc(handle.x, handle.y, radius, 0.0, std::f64::consts::TAU);

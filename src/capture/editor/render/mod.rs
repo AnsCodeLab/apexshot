@@ -469,7 +469,9 @@ pub fn draw_selection_handles(
         let is_active = active_handle.is_some_and(|active| active == *handle);
         let radius = (MOVE_HANDLE_RADIUS + if is_active { 1.0 } else { 0.0 }) / scale;
 
-        // White outline ring
+        // White outline ring. `arc()` line-to's the current point, so drop any
+        // leftover path (e.g. a number label's `show_text`) first.
+        context.new_path();
         context.set_source_rgba(1.0, 1.0, 1.0, 1.0);
         context.set_line_width(MOVE_HANDLE_OUTLINE_WIDTH / scale);
         context.arc(center.x, center.y, radius, 0.0, std::f64::consts::TAU);
@@ -797,6 +799,7 @@ pub fn draw_number(
     }
 
     let _ = context.show_text(&label);
+    context.new_path();
 }
 fn draw_number_with_shadow(
     context: &gtk4::cairo::Context,
@@ -966,6 +969,58 @@ mod tests {
         assert_eq!(
             editor_image_filter_for_scale(2.0),
             gtk4::cairo::Filter::Good
+        );
+    }
+
+    #[test]
+    fn selection_handles_do_not_stroke_a_line_to_a_previous_number() {
+        let mut surface = gtk4::cairo::ImageSurface::create(gtk4::cairo::Format::ARgb32, 220, 220)
+            .expect("surface");
+        let context = gtk4::cairo::Context::new(&surface).expect("context");
+
+        draw_number(
+            &context,
+            Point {
+                x: 190.0,
+                y: 190.0,
+            },
+            1,
+            DrawColor::new(0.95, 0.75, 0.12, 1.0),
+            NumberingStyle::Numeric,
+            NumberSize::Medium,
+        );
+
+        let box_rect = Rect {
+            x: 16,
+            y: 16,
+            width: 48,
+            height: 32,
+        };
+        let box_color = DrawColor::new(0.91, 0.33, 0.13, 1.0);
+        draw_box(&context, box_rect, box_color, 3.0);
+
+        let handles = crate::capture::editor::selection::action_resize_handles(
+            &AnnotationAction::Box {
+                rect: box_rect,
+                color: box_color,
+                stroke_size: 3.0,
+                shadow: false,
+            },
+        );
+        draw_selection_handles(&context, &handles, None, 1.0);
+        drop(context);
+
+        surface.flush();
+        let stride = surface.stride() as usize;
+        let data = surface.data().expect("surface data");
+        let image = cairo_argb_to_rgba_image(220, 220, stride, &data);
+
+        // Midpoint between the number badge and the box's top-left handle.
+        // A leftover Cairo current-point would stroke a connector through here.
+        let pixel = image.get_pixel(100, 100);
+        assert_eq!(
+            pixel.0[3], 0,
+            "selecting a box must not draw a connector to a number marker, got {pixel:?}"
         );
     }
 }

@@ -108,7 +108,8 @@ pub fn draw_text_edit_handles(
         let is_active = active_handle.as_ref().is_some_and(|h| *h == *handle);
         let radius = MOVE_HANDLE_RADIUS + if is_active { 1.0 } else { 0.0 };
 
-        // White outline
+        // White outline. `arc()` line-to's the current point if a path is open.
+        context.new_path();
         context.set_source_rgba(1.0, 1.0, 1.0, 1.0);
         context.set_line_width(MOVE_HANDLE_OUTLINE_WIDTH / scale);
         context.arc(
