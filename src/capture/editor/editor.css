@@ -51,20 +51,57 @@
                 -gtk-icon-size: 14px;
             }
 
-            .editor-root button.recording-editor-traffic-btn:hover,
-            .editor-root button.recording-editor-traffic-btn:active,
-            .editor-root button.recording-editor-traffic-btn:focus {
-                background-color: rgba(255, 255, 255, 0.10);
+            .editor-root button.recording-editor-traffic-btn:hover {
+                background-color: rgba(255, 255, 255, 0.08);
                 background-image: none;
-                color: #ffffff;
+                color: rgba(236, 236, 238, 0.95);
                 border-radius: 999px;
                 border: none;
                 box-shadow: none;
             }
 
+            .editor-root button.recording-editor-traffic-btn:active {
+                background-color: rgba(255, 255, 255, 0.08);
+                background-image: none;
+                color: rgba(236, 236, 238, 0.95);
+                border: none;
+                box-shadow: none;
+            }
+
+            .editor-root button.recording-editor-traffic-btn:focus {
+                background-color: transparent;
+                background-image: none;
+                color: rgba(255, 255, 255, 0.65);
+                border: none;
+                box-shadow: none;
+                outline: none;
+            }
+
+            .editor-root button.recording-editor-traffic-btn:hover:focus {
+                background-color: rgba(255, 255, 255, 0.08);
+                color: rgba(236, 236, 238, 0.95);
+            }
+
             .editor-root button.recording-editor-traffic-btn:hover image,
             .editor-root button.recording-editor-traffic-btn:active image,
-            .editor-root button.recording-editor-traffic-btn:focus image {
+            .editor-root button.recording-editor-traffic-btn:hover:focus image {
+                color: rgba(236, 236, 238, 0.95);
+            }
+
+            .editor-root button.recording-editor-traffic-close:hover,
+            .editor-root button.recording-editor-traffic-close:hover:focus {
+                background-color: #e81123;
+                color: #ffffff;
+            }
+
+            .editor-root button.recording-editor-traffic-close:active {
+                background-color: #c50f1f;
+                color: #ffffff;
+            }
+
+            .editor-root button.recording-editor-traffic-close:hover image,
+            .editor-root button.recording-editor-traffic-close:hover:focus image,
+            .editor-root button.recording-editor-traffic-close:active image {
                 color: #ffffff;
             }
 
@@ -115,12 +152,26 @@
                 -gtk-icon-size: 14px;
             }
             .recent-captures-wm-btn:hover {
-                background: alpha(white, 0.1);
-                color: white;
+                background: rgba(255, 255, 255, 0.08);
+                color: rgba(236, 236, 238, 0.95);
             }
-            .recent-captures-wm-close:hover {
-                background: alpha(#e34a4a, 0.75);
-                color: white;
+            .recent-captures-wm-btn:active {
+                background: rgba(255, 255, 255, 0.08);
+                color: rgba(236, 236, 238, 0.95);
+            }
+            .recent-captures-wm-btn:focus {
+                background: transparent;
+                color: alpha(white, 0.65);
+                outline: none;
+            }
+            .recent-captures-wm-close:hover,
+            .recent-captures-wm-close:hover:focus {
+                background: #e81123;
+                color: #ffffff;
+            }
+            .recent-captures-wm-close:active {
+                background: #c50f1f;
+                color: #ffffff;
             }
 
             /* Flat group container used by history group on the right side. */
@@ -1813,17 +1864,43 @@
             .editor-root.editor-theme-light button.recording-editor-traffic-btn {
                 color: alpha(#1d2129, 0.65);
             }
-            .editor-root.editor-theme-light button.recording-editor-traffic-btn:hover,
-            .editor-root.editor-theme-light button.recording-editor-traffic-btn:active,
-            .editor-root.editor-theme-light button.recording-editor-traffic-btn:focus {
+            .editor-root.editor-theme-light button.recording-editor-traffic-btn:hover {
                 background-color: alpha(#111827, 0.10);
+                color: alpha(#111827, 0.85);
+            }
+            .editor-root.editor-theme-light button.recording-editor-traffic-btn:active {
+                background-color: alpha(#111827, 0.14);
+                color: alpha(#111827, 0.85);
+            }
+            .editor-root.editor-theme-light button.recording-editor-traffic-btn:focus {
+                background-color: transparent;
                 color: alpha(#1d2129, 0.65);
+                outline: none;
+            }
+            .editor-root.editor-theme-light button.recording-editor-traffic-btn:hover:focus {
+                background-color: alpha(#111827, 0.10);
+                color: alpha(#111827, 0.85);
             }
 
             .editor-root.editor-theme-light button.recording-editor-traffic-btn:hover image,
             .editor-root.editor-theme-light button.recording-editor-traffic-btn:active image,
-            .editor-root.editor-theme-light button.recording-editor-traffic-btn:focus image {
-                color: alpha(#1d2129, 0.65);
+            .editor-root.editor-theme-light button.recording-editor-traffic-btn:hover:focus image {
+                color: alpha(#111827, 0.85);
+            }
+
+            .editor-root.editor-theme-light button.recording-editor-traffic-close:hover,
+            .editor-root.editor-theme-light button.recording-editor-traffic-close:hover:focus {
+                background-color: #e81123;
+                color: #ffffff;
+            }
+            .editor-root.editor-theme-light button.recording-editor-traffic-close:active {
+                background-color: #c50f1f;
+                color: #ffffff;
+            }
+            .editor-root.editor-theme-light button.recording-editor-traffic-close:hover image,
+            .editor-root.editor-theme-light button.recording-editor-traffic-close:hover:focus image,
+            .editor-root.editor-theme-light button.recording-editor-traffic-close:active image {
+                color: #ffffff;
             }
 
             /* Active tool button uses .active-tool — covered above via

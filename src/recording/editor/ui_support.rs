@@ -198,18 +198,56 @@ pub fn install_recording_editor_css() {
                 -gtk-icon-size: 14px;
             }
 
-            .recording-editor-traffic-btn:hover,
-            .recording-editor-traffic-btn:active {
-                background: alpha(white, 0.10);
+            .recording-editor-traffic-btn:hover {
+                background: rgba(255, 255, 255, 0.08);
                 background-image: none;
-                color: #ffffff;
+                color: rgba(236, 236, 238, 0.95);
                 border-radius: 999px;
                 border: none;
                 box-shadow: none;
             }
 
+            .recording-editor-traffic-btn:active {
+                background: rgba(255, 255, 255, 0.08);
+                background-image: none;
+                color: rgba(236, 236, 238, 0.95);
+                border: none;
+                box-shadow: none;
+            }
+
+            .recording-editor-traffic-btn:focus {
+                background: transparent;
+                color: alpha(white, 0.65);
+                border: none;
+                box-shadow: none;
+                outline: none;
+            }
+
+            .recording-editor-traffic-btn:hover:focus {
+                background: rgba(255, 255, 255, 0.08);
+                color: rgba(236, 236, 238, 0.95);
+            }
+
             .recording-editor-traffic-btn:hover image,
-            .recording-editor-traffic-btn:active image {
+            .recording-editor-traffic-btn:active image,
+            .recording-editor-traffic-btn:hover:focus image {
+                color: rgba(236, 236, 238, 0.95);
+            }
+
+            .recording-editor-traffic-close:hover,
+            .recording-editor-traffic-close:hover:focus {
+                background: #e81123;
+                color: #ffffff;
+            }
+
+            .recording-editor-traffic-close:active {
+                background: #c50f1f;
+                color: #ffffff;
+            }
+
+            .recording-editor-traffic-close:hover image,
+            .recording-editor-traffic-close:hover:focus image,
+            .recording-editor-traffic-close:active image {
                 color: #ffffff;
             }
 
@@ -725,15 +763,48 @@ pub fn install_recording_editor_css() {
                 color: alpha(#111827, 0.65);
             }
 
-            .editor-theme-light .recording-editor-traffic-btn:hover,
-            .editor-theme-light .recording-editor-traffic-btn:active {
+            .editor-theme-light .recording-editor-traffic-btn:hover {
                 background: alpha(#111827, 0.10);
+                color: alpha(#111827, 0.85);
+            }
+
+            .editor-theme-light .recording-editor-traffic-btn:active {
+                background: alpha(#111827, 0.14);
+                color: alpha(#111827, 0.85);
+            }
+
+            .editor-theme-light .recording-editor-traffic-btn:focus {
+                background: transparent;
                 color: alpha(#111827, 0.65);
+                outline: none;
+            }
+
+            .editor-theme-light .recording-editor-traffic-btn:hover:focus {
+                background: alpha(#111827, 0.10);
+                color: alpha(#111827, 0.85);
             }
 
             .editor-theme-light .recording-editor-traffic-btn:hover image,
-            .editor-theme-light .recording-editor-traffic-btn:active image {
-                color: alpha(#111827, 0.65);
+            .editor-theme-light .recording-editor-traffic-btn:active image,
+            .editor-theme-light .recording-editor-traffic-btn:hover:focus image {
+                color: alpha(#111827, 0.85);
+            }
+
+            .editor-theme-light .recording-editor-traffic-close:hover,
+            .editor-theme-light .recording-editor-traffic-close:hover:focus {
+                background: #e81123;
+                color: #ffffff;
+            }
+
+            .editor-theme-light .recording-editor-traffic-close:active {
+                background: #c50f1f;
+                color: #ffffff;
+            }
+
+            .editor-theme-light .recording-editor-traffic-close:hover image,
+            .editor-theme-light .recording-editor-traffic-close:hover:focus image,
+            .editor-theme-light .recording-editor-traffic-close:active image {
+                color: #ffffff;
             }
 
             .editor-theme-light .recording-editor-preview-frame {

@@ -319,6 +319,7 @@ pub fn traffic_light_button(color_class: &str, tooltip: &str) -> Button {
     button.add_css_class("recent-captures-wm-btn");
     if color_class == "traffic-light-red" {
         button.add_css_class("recent-captures-wm-close");
+        button.add_css_class("recording-editor-traffic-close");
     }
     button.set_size_request(24, 24);
 

@@ -78,20 +78,57 @@
                 -gtk-icon-size: 14px;
             }
 
-            .settings-window-controls button.recording-editor-traffic-btn:hover,
-            .settings-window-controls button.recording-editor-traffic-btn:active,
-            .settings-window-controls button.recording-editor-traffic-btn:focus {
-                background-color: rgba(255, 255, 255, 0.10);
+            .settings-window-controls button.recording-editor-traffic-btn:hover {
+                background-color: rgba(255, 255, 255, 0.08);
                 background-image: none;
-                color: #ffffff;
+                color: rgba(236, 236, 238, 0.95);
                 border-radius: 999px;
                 border: none;
                 box-shadow: none;
             }
 
+            .settings-window-controls button.recording-editor-traffic-btn:active {
+                background-color: rgba(255, 255, 255, 0.08);
+                background-image: none;
+                color: rgba(236, 236, 238, 0.95);
+                border: none;
+                box-shadow: none;
+            }
+
+            .settings-window-controls button.recording-editor-traffic-btn:focus {
+                background-color: transparent;
+                background-image: none;
+                color: rgba(255, 255, 255, 0.65);
+                border: none;
+                box-shadow: none;
+                outline: none;
+            }
+
+            .settings-window-controls button.recording-editor-traffic-btn:hover:focus {
+                background-color: rgba(255, 255, 255, 0.08);
+                color: rgba(236, 236, 238, 0.95);
+            }
+
             .settings-window-controls button.recording-editor-traffic-btn:hover image,
             .settings-window-controls button.recording-editor-traffic-btn:active image,
-            .settings-window-controls button.recording-editor-traffic-btn:focus image {
+            .settings-window-controls button.recording-editor-traffic-btn:hover:focus image {
+                color: rgba(236, 236, 238, 0.95);
+            }
+
+            .settings-window-controls button.recording-editor-traffic-close:hover,
+            .settings-window-controls button.recording-editor-traffic-close:hover:focus {
+                background-color: #e81123;
+                color: #ffffff;
+            }
+
+            .settings-window-controls button.recording-editor-traffic-close:active {
+                background-color: #c50f1f;
+                color: #ffffff;
+            }
+
+            .settings-window-controls button.recording-editor-traffic-close:hover image,
+            .settings-window-controls button.recording-editor-traffic-close:hover:focus image,
+            .settings-window-controls button.recording-editor-traffic-close:active image {
                 color: #ffffff;
             }
 
@@ -128,19 +165,52 @@
                 box-shadow: none;
             }
 
-            .editor-root.editor-theme-light .settings-window-controls button.recording-editor-traffic-btn:hover,
-            .editor-root.editor-theme-light .settings-window-controls button.recording-editor-traffic-btn:active,
-            .editor-root.editor-theme-light .settings-window-controls button.recording-editor-traffic-btn:focus {
+            .editor-root.editor-theme-light .settings-window-controls button.recording-editor-traffic-btn:hover {
                 background-color: alpha(#111827, 0.10);
-                color: alpha(#111827, 0.65);
+                color: alpha(#111827, 0.85);
                 border: none;
                 border-radius: 999px;
             }
 
+            .editor-root.editor-theme-light .settings-window-controls button.recording-editor-traffic-btn:active {
+                background-color: alpha(#111827, 0.14);
+                color: alpha(#111827, 0.85);
+                border: none;
+            }
+
+            .editor-root.editor-theme-light .settings-window-controls button.recording-editor-traffic-btn:focus {
+                background-color: transparent;
+                color: alpha(#111827, 0.65);
+                border: none;
+                outline: none;
+            }
+
+            .editor-root.editor-theme-light .settings-window-controls button.recording-editor-traffic-btn:hover:focus {
+                background-color: alpha(#111827, 0.10);
+                color: alpha(#111827, 0.85);
+            }
+
             .editor-root.editor-theme-light .settings-window-controls button.recording-editor-traffic-btn:hover image,
             .editor-root.editor-theme-light .settings-window-controls button.recording-editor-traffic-btn:active image,
-            .editor-root.editor-theme-light .settings-window-controls button.recording-editor-traffic-btn:focus image {
-                color: alpha(#111827, 0.65);
+            .editor-root.editor-theme-light .settings-window-controls button.recording-editor-traffic-btn:hover:focus image {
+                color: alpha(#111827, 0.85);
+            }
+
+            .editor-root.editor-theme-light .settings-window-controls button.recording-editor-traffic-close:hover,
+            .editor-root.editor-theme-light .settings-window-controls button.recording-editor-traffic-close:hover:focus {
+                background-color: #e81123;
+                color: #ffffff;
+            }
+
+            .editor-root.editor-theme-light .settings-window-controls button.recording-editor-traffic-close:active {
+                background-color: #c50f1f;
+                color: #ffffff;
+            }
+
+            .editor-root.editor-theme-light .settings-window-controls button.recording-editor-traffic-close:hover image,
+            .editor-root.editor-theme-light .settings-window-controls button.recording-editor-traffic-close:hover:focus image,
+            .editor-root.editor-theme-light .settings-window-controls button.recording-editor-traffic-close:active image {
+                color: #ffffff;
             }
 
             .editor-root.editor-reduced-transparency {
@@ -1521,19 +1591,45 @@
             button.recent-captures-wm-btn image {
                 -gtk-icon-size: 14px;
             }
-            button.recent-captures-wm-btn:hover,
-            button.recent-captures-wm-btn:active,
-            button.recent-captures-wm-btn:focus {
-                background: alpha(white, 0.1);
+            button.recent-captures-wm-btn:hover {
+                background: rgba(255, 255, 255, 0.08);
                 background-image: none;
                 border: none;
                 box-shadow: none;
                 outline: none;
-                color: white;
+                color: rgba(236, 236, 238, 0.95);
             }
-            button.recent-captures-wm-close:hover {
-                background: alpha(#e34a4a, 0.75);
-                color: white;
+            button.recent-captures-wm-btn:active {
+                background: rgba(255, 255, 255, 0.08);
+                background-image: none;
+                color: rgba(236, 236, 238, 0.95);
+                border: none;
+                box-shadow: none;
+                outline: none;
+            }
+            button.recent-captures-wm-btn:focus {
+                background: transparent;
+                background-image: none;
+                color: alpha(white, 0.65);
+                border: none;
+                box-shadow: none;
+                outline: none;
+            }
+            button.recent-captures-wm-btn:hover:focus {
+                background: rgba(255, 255, 255, 0.08);
+                color: rgba(236, 236, 238, 0.95);
+            }
+            button.recent-captures-wm-close:hover,
+            button.recent-captures-wm-close:hover:focus,
+            button.recording-editor-traffic-close:hover,
+            button.recording-editor-traffic-close:hover:focus {
+                background: #e81123;
+                color: #ffffff;
+            }
+            button.recent-captures-wm-close:active,
+            button.recording-editor-traffic-close:active {
+                background: #c50f1f;
+                color: #ffffff;
             }
 
             .editor-root.editor-theme-light button.recent-captures-wm-btn {
@@ -1545,20 +1641,44 @@
                 outline: none;
             }
 
-            .editor-root.editor-theme-light button.recent-captures-wm-btn:hover,
-            .editor-root.editor-theme-light button.recent-captures-wm-btn:active,
-            .editor-root.editor-theme-light button.recent-captures-wm-btn:focus {
-                background: alpha(#111827, 0.08);
+            .editor-root.editor-theme-light button.recent-captures-wm-btn:hover {
+                background: alpha(#111827, 0.10);
                 background-image: none;
-                color: #17202a;
+                color: alpha(#111827, 0.85);
                 border: none;
                 box-shadow: none;
                 outline: none;
             }
+            .editor-root.editor-theme-light button.recent-captures-wm-btn:active {
+                background: alpha(#111827, 0.14);
+                color: alpha(#111827, 0.85);
+                border: none;
+                box-shadow: none;
+                outline: none;
+            }
+            .editor-root.editor-theme-light button.recent-captures-wm-btn:focus {
+                background: transparent;
+                color: alpha(#111827, 0.58);
+                border: none;
+                box-shadow: none;
+                outline: none;
+            }
+            .editor-root.editor-theme-light button.recent-captures-wm-btn:hover:focus {
+                background: alpha(#111827, 0.10);
+                color: alpha(#111827, 0.85);
+            }
 
-            .editor-root.editor-theme-light button.recent-captures-wm-close:hover {
-                background: alpha(#e34a4a, 0.82);
-                color: white;
+            .editor-root.editor-theme-light button.recent-captures-wm-close:hover,
+            .editor-root.editor-theme-light button.recent-captures-wm-close:hover:focus,
+            .editor-root.editor-theme-light button.recording-editor-traffic-close:hover,
+            .editor-root.editor-theme-light button.recording-editor-traffic-close:hover:focus {
+                background: #e81123;
+                color: #ffffff;
+            }
+            .editor-root.editor-theme-light button.recent-captures-wm-close:active,
+            .editor-root.editor-theme-light button.recording-editor-traffic-close:active {
+                background: #c50f1f;
+                color: #ffffff;
             }
 
             .editor-root .settings-window-controls button.recording-editor-traffic-btn {
@@ -1586,26 +1706,74 @@
                 box-shadow: none;
             }
 
-            .editor-root .settings-window-controls button.recording-editor-traffic-btn:hover,
-            .editor-root .settings-window-controls button.recording-editor-traffic-btn:active,
-            .editor-root .settings-window-controls button.recording-editor-traffic-btn:focus {
-                background: alpha(white, 0.10);
+            .editor-root .settings-window-controls button.recording-editor-traffic-btn:hover {
+                background: rgba(255, 255, 255, 0.08);
                 background-image: none;
-                color: white;
+                color: rgba(236, 236, 238, 0.95);
                 border: none;
                 border-radius: 999px;
                 box-shadow: none;
             }
+            .editor-root .settings-window-controls button.recording-editor-traffic-btn:active {
+                background: rgba(255, 255, 255, 0.08);
+                color: rgba(236, 236, 238, 0.95);
+                border: none;
+                box-shadow: none;
+            }
+            .editor-root .settings-window-controls button.recording-editor-traffic-btn:focus {
+                background: transparent;
+                color: alpha(white, 0.65);
+                border: none;
+                box-shadow: none;
+                outline: none;
+            }
+            .editor-root .settings-window-controls button.recording-editor-traffic-btn:hover:focus {
+                background: rgba(255, 255, 255, 0.08);
+                color: rgba(236, 236, 238, 0.95);
+            }
+            .editor-root .settings-window-controls button.recording-editor-traffic-close:hover,
+            .editor-root .settings-window-controls button.recording-editor-traffic-close:hover:focus {
+                background: #e81123;
+                color: #ffffff;
+            }
+            .editor-root .settings-window-controls button.recording-editor-traffic-close:active {
+                background: #c50f1f;
+                color: #ffffff;
+            }
 
-            .editor-root.editor-theme-light .settings-window-controls button.recording-editor-traffic-btn:hover,
-            .editor-root.editor-theme-light .settings-window-controls button.recording-editor-traffic-btn:active,
-            .editor-root.editor-theme-light .settings-window-controls button.recording-editor-traffic-btn:focus {
+            .editor-root.editor-theme-light .settings-window-controls button.recording-editor-traffic-btn:hover {
                 background: alpha(#111827, 0.10);
                 background-image: none;
-                color: alpha(#111827, 0.65);
+                color: alpha(#111827, 0.85);
                 border: none;
                 border-radius: 999px;
                 box-shadow: none;
+            }
+            .editor-root.editor-theme-light .settings-window-controls button.recording-editor-traffic-btn:active {
+                background: alpha(#111827, 0.14);
+                color: alpha(#111827, 0.85);
+                border: none;
+                box-shadow: none;
+            }
+            .editor-root.editor-theme-light .settings-window-controls button.recording-editor-traffic-btn:focus {
+                background: transparent;
+                color: alpha(#111827, 0.65);
+                border: none;
+                box-shadow: none;
+                outline: none;
+            }
+            .editor-root.editor-theme-light .settings-window-controls button.recording-editor-traffic-btn:hover:focus {
+                background: alpha(#111827, 0.10);
+                color: alpha(#111827, 0.85);
+            }
+            .editor-root.editor-theme-light .settings-window-controls button.recording-editor-traffic-close:hover,
+            .editor-root.editor-theme-light .settings-window-controls button.recording-editor-traffic-close:hover:focus {
+                background: #e81123;
+                color: #ffffff;
+            }
+            .editor-root.editor-theme-light .settings-window-controls button.recording-editor-traffic-close:active {
+                background: #c50f1f;
+                color: #ffffff;
             }
 
             .recent-captures-segmented-control {

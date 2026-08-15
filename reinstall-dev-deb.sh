@@ -1,20 +1,68 @@
-#!/bin/bash
-# Rebuild and reinstall apexshot deb package
-# Usage: bash reinstall-dev-deb.sh
+#!/usr/bin/env bash
+# One command: incremental .deb build, then purge + install for local testing.
+#   ./reinstall-dev-deb.sh
+#
+# Does not cargo clean. Cargo reuses crates. Stages the capture helper from
+# the just-built release binary before cargo-deb packages it.
+set -euo pipefail
 
-set -e
+PACKAGE_NAME="apexshot"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-cd "$(dirname "$0")"
+cd "$ROOT_DIR"
 
-echo "Building release binary..."
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "cargo is not installed or not on PATH" >&2
+  exit 1
+fi
+if ! command -v dpkg >/dev/null 2>&1; then
+  echo "dpkg is not installed or not on PATH" >&2
+  exit 1
+fi
+if ! command -v apt >/dev/null 2>&1; then
+  echo "apt is not installed or not on PATH" >&2
+  exit 1
+fi
+if ! cargo deb --version >/dev/null 2>&1; then
+  echo "cargo-deb is not installed. Install with: cargo install cargo-deb" >&2
+  exit 1
+fi
+
+export CARGO_INCREMENTAL=1
+
+echo "Building ApexShot .deb..."
+echo "→ incremental cargo release"
 cargo build --release
 
-echo "Staging capture helper..."
-cp target/release/apexshot-capture packaging/deb/apexshot-capture
-cmp target/release/apexshot-capture packaging/deb/apexshot-capture
+if [[ ! -x "$ROOT_DIR/target/release/apexshot" ]]; then
+  echo "error: target/release/apexshot is missing after build" >&2
+  exit 1
+fi
+if [[ ! -x "$ROOT_DIR/target/release/apexshot-capture" ]]; then
+  echo "error: target/release/apexshot-capture is missing after build" >&2
+  echo "The C++ capture helper must be produced by build.rs" >&2
+  exit 1
+fi
 
-echo "Building .deb package..."
+echo "Staging capture helper..."
+cp "$ROOT_DIR/target/release/apexshot-capture" "$ROOT_DIR/packaging/deb/apexshot-capture"
+cmp "$ROOT_DIR/target/release/apexshot-capture" "$ROOT_DIR/packaging/deb/apexshot-capture"
+
+echo "→ cargo-deb (reuse existing release binaries)"
 cargo deb --no-build
+
+shopt -s nullglob
+deb_files=("$ROOT_DIR"/target/debian/apexshot_*.deb)
+shopt -u nullglob
+if [ "${#deb_files[@]}" -eq 0 ]; then
+  echo "No .deb file found after build" >&2
+  exit 1
+fi
+newest_deb="${deb_files[0]}"
+for candidate in "${deb_files[@]}"; do
+  [ "$candidate" -nt "$newest_deb" ] && newest_deb="$candidate"
+done
+echo "Built package: $newest_deb"
 
 apexshot_is_running() {
   pgrep -x apexshot >/dev/null 2>&1 \
@@ -51,20 +99,20 @@ if ! wait_for_apexshot_exit 20; then
   fi
 fi
 
-echo "Removing old package..."
-sudo dpkg -r apexshot 2>/dev/null || true
-
-DEB="$(ls -1t target/debian/apexshot_*.deb 2>/dev/null | head -n1 || true)"
-if [[ -z "$DEB" ]]; then
-  echo "Error: no apexshot_*.deb found under target/debian/" >&2
-  exit 1
+echo "Requesting sudo once for uninstall/install..."
+sudo -v
+pkg_status="$(dpkg-query -W -f='${Status}' "$PACKAGE_NAME" 2>/dev/null || true)"
+if [ -n "$pkg_status" ]; then
+  echo "Purging $PACKAGE_NAME (status: $pkg_status)..."
+  sudo dpkg -P "$PACKAGE_NAME" || sudo dpkg -P --force-all "$PACKAGE_NAME"
+else
+  echo "$PACKAGE_NAME is not currently installed; skipping removal."
 fi
-
-echo "Installing new .deb: $DEB"
-sudo dpkg -i "$DEB"
+echo "Installing $newest_deb..."
+sudo apt install -y --reinstall --allow-downgrades "$newest_deb"
 
 echo "Verifying installed binaries..."
-cmp target/release/apexshot /usr/bin/apexshot
-cmp target/release/apexshot-capture /usr/bin/apexshot-capture
+cmp "$ROOT_DIR/target/release/apexshot" /usr/bin/apexshot
+cmp "$ROOT_DIR/target/release/apexshot-capture" /usr/bin/apexshot-capture
 
-echo "Done. Start ApexShot to launch the freshly installed build."
+echo "Installed $PACKAGE_NAME from $newest_deb"
