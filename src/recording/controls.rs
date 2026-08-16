@@ -166,9 +166,6 @@ pub async fn run_recording_with_controls(
     config: super::RecordingConfig,
     params: RecordingControlsParams,
 ) -> anyhow::Result<(PathBuf, StopAction)> {
-    // Fedora: video recording is not supported.
-    super::refuse_fedora_recording()?;
-
     // On GNOME the shell extension dims the area outside the capture rect.
     if crate::gnome_shell::current_session_supports_gnome_shell_overlay() {
         return run_recording_with_shell_mask(config, params).await;
@@ -282,11 +279,6 @@ pub async fn run_recording_with_native_controls(
     config: super::RecordingConfig,
     params: RecordingControlsParams,
 ) -> anyhow::Result<(PathBuf, StopAction)> {
-    // Belt-and-suspenders: Fedora never records (entry points refuse first).
-    if super::is_fedora_recording_unsupported() {
-        super::refuse_fedora_recording()?;
-    }
-
     // Prepare the capture backend *before* countdown so any portal / permission
     // UI appears first. Countdown then leads straight into recording without a
     // second chooser after "3-2-1".
@@ -488,9 +480,6 @@ pub fn run_overlay_recording_request_with_gtk(
     request: RecordingRequest,
     _gtk_tx: Option<std::sync::mpsc::Sender<crate::daemon::GtkWork>>,
 ) -> anyhow::Result<PathBuf> {
-    // Fedora: video recording is not supported.
-    super::refuse_fedora_recording()?;
-
     let prepared = prepare_overlay_recording_request(
         crate::config::load_config(),
         &request,

@@ -133,6 +133,18 @@ fn notify_via_dbus(
     urgency: Urgency,
     replaces_id: u32,
 ) -> Result<u32, String> {
+    // `zbus::blocking` (built with the "tokio" backend via ashpd's "tokio"
+    // feature) blocks on its own internal Tokio runtime. Calling it directly
+    // from a thread that already has an active Tokio runtime context (any
+    // async daemon/recording code path) panics with "Cannot start a runtime
+    // from within a runtime". Escape to a plain OS thread first.
+    if tokio::runtime::Handle::try_current().is_ok() {
+        let summary = summary.to_string();
+        let body = body.to_string();
+        return std::thread::spawn(move || notify_via_dbus(&summary, &body, urgency, replaces_id))
+            .join()
+            .unwrap_or_else(|_| Err("notification thread panicked".into()));
+    }
     let conn = zbus::blocking::Connection::session().map_err(|e| e.to_string())?;
 
     let mut hints: HashMap<&str, Value<'_>> = HashMap::new();

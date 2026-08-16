@@ -322,11 +322,11 @@ flatpak run --command=sh org.apexshot.ApexShot   # poke around the sandbox
 - Announce the Flathub availability on r/linux, r/gnome, r/unixporn, and Hacker News.
   Your `ANNOUNCEMENTS.md` drafts are reusable, but update them: they still advertise
   the removed click-overlay/keystroke-overlay features and webcam PiP.
-- **Fix the Fedora recording gap or stop shipping the Fedora path as primary.**
-  "Video recording is not supported on Fedora" is a large asterisk on one of the
-  biggest desktop distros, and Flatpak is exactly the mechanism that could solve it
-  (bundled ffmpeg + portal ScreenCast, no distro codec politics). This is a strong
-  argument for prioritizing the Flatpak.
+- **Fedora recording gap fixed (2026-08-15).** The blanket
+  `refuse_fedora_recording()` guard is removed; recording now uses the same
+  ScreenCast portal + PipeWire + ffmpeg path as other distros, with automatic
+  `libopenh264`/VP9/VP8 fallback when `ffmpeg-free` (no `libx264`) is
+  installed. See `docs/progress-fedora-kde-overlay-and-preview.md`.
 
 ---
 

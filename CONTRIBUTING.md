@@ -277,16 +277,18 @@ elsewhere when they touch a related code path. As of today:
 |-----------------------------|------------------------------|----------------------------|-----------------------|
 | Display server              | Wayland                      | X11                        | XWayland edge cases   |
 | Compositor                  | GNOME Shell 47–50, Hyprland  | Sway / wlroots-like        | KDE Plasma, Niri, river |
-| Distro                      | Ubuntu 24.04 / 25.10, Arch Linux | Debian / Pop!_OS through Ubuntu-compatible packaging; Fedora screenshots (KDE validated) | openSUSE, NixOS; full Fedora GNOME matrix |
-| Recording codecs            | VP9, H.264, GIF (Ubuntu/Arch and similar) | VP8, H.265, Theora | **Fedora: recording unsupported** |
-| Capture portal flow         | xdg-desktop-portal-gnome, Hyprland/wlroots native capture | xdg-desktop-portal-gtk, xdg-desktop-portal-kde (screenshots) | — |
+| Distro                      | Ubuntu 24.04 / 25.10, Arch Linux, Fedora 44 (GNOME) | Debian / Pop!_OS through Ubuntu-compatible packaging; Fedora KDE | openSUSE, NixOS; full Fedora GNOME matrix |
+| Recording codecs            | VP9, H.264 (libx264/libopenh264), GIF (Ubuntu/Arch/Fedora) | VP8, H.265, Theora | — |
+| Capture portal flow         | xdg-desktop-portal-gnome, Hyprland/wlroots native capture | xdg-desktop-portal-gtk, xdg-desktop-portal-kde (screenshots + recording) | — |
 
-**Fedora product limit:** ApexShot does **not** support video recording on
-Fedora. Recording entry points refuse with a desktop notification; screenshots
-and related tools still work. Prefer Spectacle or Kooha for Fedora screen
-recording. openSUSE and other RPM-family targets remain development-stage for
-full install/runtime coverage. If your PR exercises an *Untested* square,
-mention that in the PR description.
+**Fedora:** screenshots and video recording are both supported. Recording
+goes through the same ScreenCast portal + PipeWire + ffmpeg path used on
+other distros. Fedora's `ffmpeg-free` package ships without `libx264`;
+ApexShot probes installed ffmpeg encoders and automatically falls back to
+`libopenh264` (or VP9/VP8) so recording still produces valid output.
+openSUSE and other RPM-family targets remain development-stage for full
+install/runtime coverage. If your PR exercises an *Untested* square, mention
+that in the PR description.
 
 ## Submitting Changes
 
