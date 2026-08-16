@@ -1,5 +1,5 @@
 Name:           apexshot
-Version:        0.2.34
+Version:        0.2.35
 Release:        1%{?dist}
 Summary:        Linux screenshot, annotation, OCR, and screen recording tool
 License:        GPL-3.0-or-later
@@ -125,6 +125,12 @@ fi
 %{_datadir}/apexshot/
 
 %changelog
+* Sun Aug 16 2026 codegoddy <codegoddy@gmail.com> - 0.2.35-1
+- Fedora video recording re-enabled (ScreenCast portal + PipeWire + ffmpeg,
+  automatic libx264 -> libopenh264/VP9/VP8 fallback on ffmpeg-free)
+- Fix daemon crash on recording stop (nested Tokio runtime panic in the
+  blocking D-Bus notification path, most reachable on KDE/Plasma)
+
 * Mon Aug 03 2026 codegoddy <codegoddy@gmail.com> - 0.2.34-1
 - History window for screenshots, recordings, and cloud uploads
 - Image editor redesign and chrome polish

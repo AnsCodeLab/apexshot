@@ -44,6 +44,9 @@
   <url type="donation">https://apexshot.org/pricing</url>
   <launchable type="desktop-id">io.github.codegoddy.apexshot.desktop</launchable>
   <releases>
+    <release version="0.2.35" date="2026-08-16">
+      <description><p>Re-enabled video recording on Fedora and fixed a daemon crash that could occur when stopping a recording.</p></description>
+    </release>
     <release version="0.2.34" date="2026-08-03">
       <description><p>History window for local and cloud captures, image editor redesign, and double-click to open history items.</p></description>
     </release>
