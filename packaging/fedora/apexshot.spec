@@ -1,3 +1,10 @@
+# Rust crate-level attributes like `#![allow(...)]` start with `#!`, which
+# rpmbuild's brp-mangle-shebangs misreads as a shebang line while scanning
+# debug-source .rs files (this is a hard error, not a warning, on newer
+# rpm-build). None of the packaged files are actually scripts, so disable
+# shebang mangling entirely rather than trying to exclude every source file.
+%undefine __brp_mangle_shebangs
+
 Name:           apexshot
 Version:        0.2.35
 Release:        1%{?dist}
@@ -28,7 +35,12 @@ BuildRequires:  pkgconfig(gstreamer-app-1.0)
 BuildRequires:  pkgconfig(gstreamer-video-1.0)
 
 Requires:       curl
-Requires:       ffmpeg-free
+# Either the stock ffmpeg-free package or full RPMFusion ffmpeg works:
+# encoder selection at runtime probes installed ffmpeg encoders and falls
+# back from libx264 to libopenh264/VP9/VP8 automatically. Hard-requiring
+# ffmpeg-free specifically blocks installation on RPMFusion systems, where
+# ffmpeg and ffmpeg-free are mutually-exclusive providers of the same files.
+Requires:       (ffmpeg-free or ffmpeg)
 Requires:       gstreamer1-plugins-base
 Requires:       gstreamer1-plugins-good
 Requires:       gstreamer1-plugins-bad-free
@@ -130,6 +142,10 @@ fi
   automatic libx264 -> libopenh264/VP9/VP8 fallback on ffmpeg-free)
 - Fix daemon crash on recording stop (nested Tokio runtime panic in the
   blocking D-Bus notification path, most reachable on KDE/Plasma)
+- Requires ffmpeg-free or ffmpeg instead of hard-requiring ffmpeg-free,
+  which blocked installation on systems with RPMFusion's full ffmpeg
+- Disable rpmbuild shebang mangling (false positive on Rust's
+  #![allow(...)] crate-level attributes in debug source)
 
 * Mon Aug 03 2026 codegoddy <codegoddy@gmail.com> - 0.2.34-1
 - History window for screenshots, recordings, and cloud uploads

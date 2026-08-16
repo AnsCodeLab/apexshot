@@ -239,7 +239,6 @@ install_runtime_dependencies() {
 
     local deps=(
         curl
-        ffmpeg-free
         gstreamer1-plugins-base
         gstreamer1-plugins-good
         gstreamer1-plugins-bad-free
@@ -255,6 +254,14 @@ install_runtime_dependencies() {
         desktop-file-utils
         hicolor-icon-theme
     )
+
+    # RPMFusion's full `ffmpeg` and Fedora's default `ffmpeg-free` are
+    # mutually-exclusive providers of the same files; installing
+    # ffmpeg-free on a system that already has ffmpeg fails the whole
+    # dnf transaction. Only pull in ffmpeg-free when neither is present.
+    if ! rpm -q --quiet ffmpeg && ! rpm -q --quiet ffmpeg-free; then
+        deps+=(ffmpeg-free)
+    fi
 
     prime_sudo
     run_spinner "Installing Fedora runtime packages" \
