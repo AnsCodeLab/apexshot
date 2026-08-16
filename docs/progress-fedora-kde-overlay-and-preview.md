@@ -42,12 +42,63 @@ Verified on this change (Fedora 44 Workstation, GNOME Wayland, RPM Fusion
 - On a Fedora system with only `ffmpeg-free` installed, `select_encoder()`
   falls back to `libopenh264` per the existing (already-shipped) logic.
 
-Not independently re-verified here: completing the interactive portal share
-dialog end-to-end into a saved, playable file requires a live, unlocked
-desktop session and manual clicks that automated tooling cannot drive
-(GNOME's ScreenCast portal dialog is not scriptable). Recommend one manual
-pass through the Phase 8 test matrix in
-`docs/plan-kde-native-screenshot-backend.md` before the next release.
+## Update (2026-08-16): live end-to-end verification + stop-crash fix
+
+Ran a full record → stop → inspect cycle on this Fedora 44 Workstation
+GNOME Wayland box, through the real production path (`apexshot daemon` +
+`apexshot record screen` + `apexshot record stop`, i.e. the same D-Bus
+Trigger flow hotkeys/tray use):
+
+- `apexshot record screen` delegated to the running daemon, selected
+  `H.264 (x264)`, opened the ScreenCast portal share prompt, and (once a
+  human accepted the prompt) streamed real PipeWire frames into ffmpeg.
+- `apexshot record stop` sent `recording_stop_save` over D-Bus, ffmpeg
+  finalized cleanly, and the result was a valid, playable MP4 (`ffprobe`
+  confirms H.264/yuv420p, 2560x1600, 30fps, `probe_score=100`).
+
+**Found and fixed a real, distro-agnostic crash on stop.** The first two
+attempts crashed the whole daemon process (`panic = "abort"` in the release
+profile means any panic kills the daemon, hotkeys, and tray) with:
+
+```
+thread 'tokio-rt-worker' panicked: Cannot start a runtime from within a
+runtime. This happens because a function (like `block_on`) attempted to
+block the current thread while the thread is being used to drive
+asynchronous tasks.
+```
+
+Root cause (confirmed via a symbolized backtrace, `Cargo.toml` `strip =
+false` + `debug = 1` temporarily): `ashpd`'s `"tokio"` feature transitively
+enables `zbus`'s `"tokio"` feature, which makes `zbus::blocking::Connection`
+drive its own dedicated Tokio runtime internally. Calling
+`zbus::blocking::Connection::session()` directly from a thread that already
+has an active Tokio runtime context (any async daemon/recording task, or a
+`tokio::task::spawn_blocking` worker) panics instead of just erroring.
+
+`recording::indicator_notify::close_notification_blocking()` (called from
+`hide_recording_indicator()` at the end of every recording session) hit this
+directly. `recording::indicator_notify::post_notification_blocking()` and
+`utils::notify::notify_via_dbus()` have the identical bug and were fixed the
+same way, since `notify_via_dbus` is the primary path on KDE/Plasma
+(`prefer_dbus_primary()`) and Flatpak (`portal_only()`) — i.e. exactly
+Fedora KDE, the documented primary Fedora target. On GNOME this specific
+function was masked because GNOME prefers `notify-send` first, which is why
+it went unnoticed there.
+
+**Fix:** all three functions now check
+`tokio::runtime::Handle::try_current()` and, if `Ok`, escape to a plain
+`std::thread::spawn(...).join()` before touching `zbus::blocking`, matching
+the pre-existing pattern in `daemon::trigger_daemon_action_blocking`.
+
+After the fix: five more record/stop cycles on this machine, zero crashes,
+every output file valid per `ffprobe`. Full `cargo test --release` (656
+tests) still green.
+
+**Still not exercisable by automated tooling:** the ScreenCast portal's
+"Share Screen" dialog itself needs one human click per un-remembered
+session (GNOME remembers the choice after the first grant, so this is a
+one-time cost in practice). That step was completed manually during this
+verification pass; it cannot be scripted.
 
 All `refuse_fedora_recording()` call sites were removed:
 `src/recording/mod.rs`, `src/recording/controls.rs`, `src/cli/handlers.rs`,
@@ -324,6 +375,20 @@ Current debug logs are in:
 
 ---
 
+### 4. Other unguarded `zbus::blocking` call sites (lower risk, not fixed here)
+The same "block a Tokio-runtime thread with `zbus::blocking`" pattern also
+exists in `daemon::set_daemon_hotkey_suppressed`,
+`set_daemon_tray_visibility`, `show_preview_via_daemon`,
+`stop_daemon_via_dbus`, `is_daemon_running`, `hotkeys::kde::*`,
+`overlay/window/audio.rs::poll_daemon_audio_levels`, and
+`backend/kde_screenshot.rs`. These were not touched: every current call
+site runs from a settings/GTK/CLI-entry context believed to be outside an
+active Tokio runtime, so they were lower risk and out of scope for the
+recording fix. Worth auditing/guarding the same way if any of them start
+being called from async daemon code.
+
+---
+
 ## Files touched so far
 
 ### New files
@@ -359,8 +424,11 @@ Use:
 This path is currently working.
 
 ### Fedora video recording
-**Unsupported.** Do not implement or document ApexShot screen recording for
-Fedora users until this product decision is reversed.
+**Supported** (since 2026-08-15/16). ScreenCast portal + PipeWire + ffmpeg,
+same as other distros, with automatic `libx264` → `libopenh264`/VP9/VP8
+encoder fallback. Verified end-to-end (record → stop → valid MP4) on
+Fedora 44 Workstation GNOME Wayland; the stop-time daemon crash found during
+that verification (`zbus::blocking` nested-runtime panic) is fixed.
 
 ### Arch Hyprland/Sway path
 Use:

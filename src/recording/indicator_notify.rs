@@ -370,6 +370,17 @@ fn post_notification_blocking(
     blink_on: bool,
     paused: bool,
 ) -> Result<u32, String> {
+    // `zbus::blocking` (built with the "tokio" backend via ashpd's "tokio"
+    // feature) blocks on its own internal Tokio runtime. Calling it directly
+    // from a thread that is already inside a Tokio runtime (e.g. the daemon's
+    // async recording-control loop) panics with "Cannot start a runtime from
+    // within a runtime". Escape to a plain OS thread first, same pattern as
+    // `daemon::trigger_daemon_action_blocking`.
+    if tokio::runtime::Handle::try_current().is_ok() {
+        return std::thread::spawn(move || post_notification_blocking(replaces_id, blink_on, paused))
+            .join()
+            .unwrap_or_else(|_| Err("notification thread panicked".into()));
+    }
     let conn = zbus::blocking::Connection::session().map_err(|e| e.to_string())?;
     let (summary, body, icon) = notification_content(blink_on, paused);
     let hints = build_hints();
@@ -411,6 +422,13 @@ async fn close_notification_async(conn: &zbus::Connection, id: u32) -> Result<()
 }
 
 fn close_notification_blocking(id: u32) -> Result<(), String> {
+    // See the comment in `post_notification_blocking`: this must not run on
+    // a thread that already has an active Tokio runtime context.
+    if tokio::runtime::Handle::try_current().is_ok() {
+        return std::thread::spawn(move || close_notification_blocking(id))
+            .join()
+            .unwrap_or_else(|_| Err("notification thread panicked".into()));
+    }
     let conn = zbus::blocking::Connection::session().map_err(|e| e.to_string())?;
     conn.call_method(
         Some("org.freedesktop.Notifications"),
